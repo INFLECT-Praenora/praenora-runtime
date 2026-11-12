@@ -1,0 +1,15 @@
+# fx-slow sleeps 400 ms in invoke and ignores cancellation, past the invoke timeout of 100 ms but
+# within the cancellation grace: the run fails with STEP_TIMEOUT (CLI test cli.run.timeout, exit
+# code 5).
+kind: workflow-config
+format_version: "0.1.0"
+workflow: { name: test.single, version: "0.1.0" }
+run:
+  ticks: 1
+  timeouts: { invoke: 100ms, cancel_grace: 5s }
+inputs:
+  source: { source: json-document, path: ../source.json }
+steps:
+  a:
+    module: { name: fx-slow, version: "0.1.0" }
+    parameters: { sleep_ms: 400, cooperative: false }

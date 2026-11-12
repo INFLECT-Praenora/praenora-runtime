@@ -1,0 +1,8 @@
+{
+  "kind": "message-type",
+  "format_version": "0.1.0",
+  "id": "test.blob",
+  "version": "0.1.0",
+  "status": "stable",
+  "summary": "Any JSON object."
+}

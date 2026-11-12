@@ -1,0 +1,320 @@
+{
+  "version": 5,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 24,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "installDir": "${sourceDir}/install/${presetName}",
+      "cacheVariables": {
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    },
+    {
+      "name": "debug",
+      "hidden": true,
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "release",
+      "hidden": true,
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "asan",
+      "hidden": true,
+      "cacheVariables": {
+        "PRAENORA_SANITIZERS": "address;undefined"
+      }
+    },
+    {
+      "name": "tsan",
+      "hidden": true,
+      "cacheVariables": {
+        "PRAENORA_SANITIZERS": "thread"
+      }
+    },
+    {
+      "name": "linux",
+      "hidden": true,
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      }
+    },
+    {
+      "name": "macos",
+      "hidden": true,
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Darwin"
+      }
+    },
+    {
+      "name": "windows",
+      "hidden": true,
+      "generator": "Visual Studio 17 2022",
+      "architecture": {
+        "value": "x64",
+        "strategy": "set"
+      },
+      "cacheVariables": {
+        "CMAKE_EXPORT_COMPILE_COMMANDS": null
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      }
+    },
+    {
+      "name": "linux-x64-debug",
+      "displayName": "Linux x86-64, Debug",
+      "inherits": ["linux", "base", "debug"]
+    },
+    {
+      "name": "linux-x64-release",
+      "displayName": "Linux x86-64, Release",
+      "inherits": ["linux", "base", "release"]
+    },
+    {
+      "name": "linux-x64-asan",
+      "displayName": "Linux x86-64, Debug, AddressSanitizer and UndefinedBehaviorSanitizer",
+      "inherits": ["linux", "base", "debug", "asan"]
+    },
+    {
+      "name": "linux-x64-tsan",
+      "displayName": "Linux x86-64, Debug, ThreadSanitizer",
+      "inherits": ["linux", "base", "debug", "tsan"]
+    },
+    {
+      "name": "macos-arm64-debug",
+      "displayName": "macOS arm64, Debug",
+      "inherits": ["macos", "base", "debug"],
+      "cacheVariables": {
+        "CMAKE_OSX_ARCHITECTURES": "arm64"
+      }
+    },
+    {
+      "name": "macos-arm64-release",
+      "displayName": "macOS arm64, Release",
+      "inherits": ["macos", "base", "release"],
+      "cacheVariables": {
+        "CMAKE_OSX_ARCHITECTURES": "arm64"
+      }
+    },
+    {
+      "name": "macos-arm64-asan",
+      "displayName": "macOS arm64, Debug, AddressSanitizer and UndefinedBehaviorSanitizer",
+      "inherits": ["macos", "base", "debug", "asan"],
+      "cacheVariables": {
+        "CMAKE_OSX_ARCHITECTURES": "arm64"
+      }
+    },
+    {
+      "name": "macos-arm64-tsan",
+      "displayName": "macOS arm64, Debug, ThreadSanitizer",
+      "inherits": ["macos", "base", "debug", "tsan"],
+      "cacheVariables": {
+        "CMAKE_OSX_ARCHITECTURES": "arm64"
+      }
+    },
+    {
+      "name": "windows-x64-debug",
+      "displayName": "Windows x86-64, Visual Studio 2022 (build and test with Debug)",
+      "inherits": ["windows", "base"]
+    },
+    {
+      "name": "windows-x64-release",
+      "displayName": "Windows x86-64, Visual Studio 2022 (build and test with Release)",
+      "inherits": ["windows", "base"]
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "build-linux",
+      "hidden": true,
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      }
+    },
+    {
+      "name": "build-macos",
+      "hidden": true,
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Darwin"
+      }
+    },
+    {
+      "name": "build-windows",
+      "hidden": true,
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      }
+    },
+    {
+      "name": "linux-x64-debug",
+      "inherits": "build-linux",
+      "configurePreset": "linux-x64-debug"
+    },
+    {
+      "name": "linux-x64-release",
+      "inherits": "build-linux",
+      "configurePreset": "linux-x64-release"
+    },
+    {
+      "name": "linux-x64-asan",
+      "inherits": "build-linux",
+      "configurePreset": "linux-x64-asan"
+    },
+    {
+      "name": "linux-x64-tsan",
+      "inherits": "build-linux",
+      "configurePreset": "linux-x64-tsan"
+    },
+    {
+      "name": "macos-arm64-debug",
+      "inherits": "build-macos",
+      "configurePreset": "macos-arm64-debug"
+    },
+    {
+      "name": "macos-arm64-release",
+      "inherits": "build-macos",
+      "configurePreset": "macos-arm64-release"
+    },
+    {
+      "name": "macos-arm64-asan",
+      "inherits": "build-macos",
+      "configurePreset": "macos-arm64-asan"
+    },
+    {
+      "name": "macos-arm64-tsan",
+      "inherits": "build-macos",
+      "configurePreset": "macos-arm64-tsan"
+    },
+    {
+      "name": "windows-x64-debug",
+      "inherits": "build-windows",
+      "configurePreset": "windows-x64-debug",
+      "configuration": "Debug"
+    },
+    {
+      "name": "windows-x64-release",
+      "inherits": "build-windows",
+      "configurePreset": "windows-x64-release",
+      "configuration": "Release"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "test-base",
+      "hidden": true,
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
+    },
+    {
+      "name": "test-linux",
+      "hidden": true,
+      "inherits": "test-base",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      }
+    },
+    {
+      "name": "test-macos",
+      "hidden": true,
+      "inherits": "test-base",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Darwin"
+      }
+    },
+    {
+      "name": "test-windows",
+      "hidden": true,
+      "inherits": "test-base",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      }
+    },
+    {
+      "name": "linux-x64-debug",
+      "inherits": "test-linux",
+      "configurePreset": "linux-x64-debug"
+    },
+    {
+      "name": "linux-x64-release",
+      "inherits": "test-linux",
+      "configurePreset": "linux-x64-release"
+    },
+    {
+      "name": "linux-x64-asan",
+      "inherits": "test-linux",
+      "configurePreset": "linux-x64-asan"
+    },
+    {
+      "name": "linux-x64-tsan",
+      "inherits": "test-linux",
+      "configurePreset": "linux-x64-tsan"
+    },
+    {
+      "name": "macos-arm64-debug",
+      "inherits": "test-macos",
+      "configurePreset": "macos-arm64-debug"
+    },
+    {
+      "name": "macos-arm64-release",
+      "inherits": "test-macos",
+      "configurePreset": "macos-arm64-release"
+    },
+    {
+      "name": "macos-arm64-asan",
+      "inherits": "test-macos",
+      "configurePreset": "macos-arm64-asan"
+    },
+    {
+      "name": "macos-arm64-tsan",
+      "inherits": "test-macos",
+      "configurePreset": "macos-arm64-tsan"
+    },
+    {
+      "name": "windows-x64-debug",
+      "inherits": "test-windows",
+      "configurePreset": "windows-x64-debug",
+      "configuration": "Debug"
+    },
+    {
+      "name": "windows-x64-release",
+      "inherits": "test-windows",
+      "configurePreset": "windows-x64-release",
+      "configuration": "Release"
+    }
+  ]
+}

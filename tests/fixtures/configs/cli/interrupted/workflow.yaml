@@ -1,0 +1,12 @@
+# fx-slow sleeps 200 ms in each of 100 ticks and stops when cancelled: a run that a signal
+# interrupts long before its end (CLI test cli.run.interrupted, exit code 130).
+kind: workflow-config
+format_version: "0.1.0"
+workflow: { name: test.single, version: "0.1.0" }
+run: { ticks: 100 }
+inputs:
+  source: { source: json-document, path: ../source.json }
+steps:
+  a:
+    module: { name: fx-slow, version: "0.1.0" }
+    parameters: { sleep_ms: 200, cooperative: true }

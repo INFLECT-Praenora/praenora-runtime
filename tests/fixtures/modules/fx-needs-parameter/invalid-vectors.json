@@ -1,0 +1,21 @@
+{
+  "kind": "module-test-vectors",
+  "format_version": "0.1.0",
+  "cases": [
+    {
+      "name": "unknown-capability",
+      "capability": {
+        "id": "test.nothing",
+        "version": "0.1.0"
+      },
+      "parameters": {
+        "gain": 1.0
+      },
+      "ticks": [
+        {
+          "inputs": {}
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "kind": "capability-definition",
+  "format_version": "0.1.0",
+  "id": "test.require",
+  "version": "0.1.0",
+  "status": "stable",
+  "summary": "Like test.echo, with a required input (tests).",
+  "inputs": {
+    "in": {
+      "type": "test.blob",
+      "type_version": "0.1.0",
+      "required": true
+    }
+  },
+  "outputs": {
+    "out": {
+      "type": "test.blob",
+      "type_version": "0.1.0",
+      "required": true
+    }
+  }
+}

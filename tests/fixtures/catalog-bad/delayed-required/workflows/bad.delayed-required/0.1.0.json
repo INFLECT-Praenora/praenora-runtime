@@ -1,0 +1,44 @@
+{
+  "kind": "workflow-definition",
+  "format_version": "0.1.0",
+  "name": "bad.delayed-required",
+  "version": "0.1.0",
+  "status": "stable",
+  "inputs": {
+    "source": {
+      "type": "test.blob",
+      "type_version": "0.1.0"
+    }
+  },
+  "steps": {
+    "a": {
+      "capability": "test.echo",
+      "capability_version": "0.1.0"
+    },
+    "b": {
+      "capability": "test.require",
+      "capability_version": "0.1.0"
+    }
+  },
+  "connections": [
+    {
+      "from": "inputs.source",
+      "to": "a.in"
+    },
+    {
+      "from": "a.out",
+      "to": "outputs.result"
+    },
+    {
+      "from": "a.out",
+      "to": "b.in",
+      "delay": 1
+    }
+  ],
+  "outputs": {
+    "result": {
+      "type": "test.blob",
+      "type_version": "0.1.0"
+    }
+  }
+}

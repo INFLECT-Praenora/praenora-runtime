@@ -1,0 +1,20 @@
+{
+  "kind": "module-manifest",
+  "format_version": "0.1.0",
+  "module": {
+    "name": "fx-echo",
+    "version": "0.1.0",
+    "summary": "Search-path layout: fx-echo two levels below a search path, where discovery does not look."
+  },
+  "abi": { "major": @PRAENORA_ABI_MAJOR@, "minor": @PRAENORA_ABI_MINOR@ },
+  "pmp_version": "@PRAENORA_PMP_VERSION@",
+  "sdk_version": "@PRAENORA_SDK_VERSION@",
+  "library": { "path": "@PRAENORA_LAYOUT_LIBRARY@" },
+  "platform": { "os": "@PRAENORA_LAYOUT_OS@", "arch": "@PRAENORA_LAYOUT_ARCH@" },
+  "capabilities": [{ "id": "test.echo", "version": "0.1.0" }],
+  "parameters_schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object"
+  },
+  "features": { "diagnostics": true }
+}

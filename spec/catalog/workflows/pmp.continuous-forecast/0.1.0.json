@@ -1,0 +1,81 @@
+{
+  "kind": "workflow-definition",
+  "format_version": "0.1.0",
+  "name": "pmp.continuous-forecast",
+  "version": "0.1.0",
+  "status": "draft",
+  "summary": "Continuous forecasting with a curated population of candidate models (draft).",
+  "inputs": {
+    "observations": {
+      "type": "pmp.observation-batch",
+      "type_version": "0.1.0"
+    },
+    "model_set": {
+      "type": "pmp.model-set",
+      "type_version": "0.1.0"
+    }
+  },
+  "steps": {
+    "propose": {
+      "capability": "pmp.propose",
+      "capability_version": "0.1.0"
+    },
+    "curate": {
+      "capability": "pmp.curate",
+      "capability_version": "0.1.0"
+    },
+    "predict": {
+      "capability": "pmp.predict",
+      "capability_version": "0.1.0"
+    }
+  },
+  "connections": [
+    {
+      "from": "inputs.observations",
+      "to": "propose.observations"
+    },
+    {
+      "from": "inputs.model_set",
+      "to": "propose.model_set"
+    },
+    {
+      "from": "propose.candidates",
+      "to": "curate.candidates"
+    },
+    {
+      "from": "inputs.observations",
+      "to": "curate.observations"
+    },
+    {
+      "from": "curate.survivors",
+      "to": "predict.candidates"
+    },
+    {
+      "from": "inputs.observations",
+      "to": "predict.observations"
+    },
+    {
+      "from": "curate.replenish",
+      "to": "propose.replenish",
+      "delay": 1
+    },
+    {
+      "from": "predict.predictions",
+      "to": "outputs.predictions"
+    },
+    {
+      "from": "curate.survivors",
+      "to": "outputs.candidates"
+    }
+  ],
+  "outputs": {
+    "predictions": {
+      "type": "pmp.prediction-set",
+      "type_version": "0.1.0"
+    },
+    "candidates": {
+      "type": "pmp.candidate-set",
+      "type_version": "0.1.0"
+    }
+  }
+}

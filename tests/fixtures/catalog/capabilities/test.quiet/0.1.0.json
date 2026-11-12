@@ -1,0 +1,22 @@
+{
+  "kind": "capability-definition",
+  "format_version": "0.1.0",
+  "id": "test.quiet",
+  "version": "0.1.0",
+  "status": "stable",
+  "summary": "Like test.echo, but its output is optional (tests).",
+  "inputs": {
+    "in": {
+      "type": "test.blob",
+      "type_version": "0.1.0",
+      "required": false
+    }
+  },
+  "outputs": {
+    "out": {
+      "type": "test.blob",
+      "type_version": "0.1.0",
+      "required": false
+    }
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "kind": "capability-definition",
+  "format_version": "0.1.0",
+  "id": "test.orphan",
+  "version": "0.1.0",
+  "status": "stable",
+  "inputs": { "in": { "type": "test.missing", "type_version": "0.1.0", "required": true } },
+  "outputs": { "out": { "type": "pmp.observation-batch", "type_version": "0.1.0", "required": true } }
+}

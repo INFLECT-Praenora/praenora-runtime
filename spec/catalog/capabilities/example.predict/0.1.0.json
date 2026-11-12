@@ -1,0 +1,22 @@
+{
+  "kind": "capability-definition",
+  "format_version": "0.1.0",
+  "id": "example.predict",
+  "version": "0.1.0",
+  "status": "stable",
+  "summary": "Predicts forward from a state estimate.",
+  "inputs": {
+    "state": {
+      "type": "example.state-estimate",
+      "type_version": "0.1.0",
+      "required": true
+    }
+  },
+  "outputs": {
+    "predictions": {
+      "type": "pmp.prediction-set",
+      "type_version": "0.1.0",
+      "required": true
+    }
+  }
+}

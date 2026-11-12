@@ -1,0 +1,15 @@
+# fx-slow sleeps ten minutes in its first invocation and ignores cancellation, with no invoke
+# deadline: a first SIGINT asks the run to stop but the call goes on; a second one ends the process
+# at once (CLI test cli.run.second_signal_exits_at_once, exit code 130).
+kind: workflow-config
+format_version: "0.1.0"
+workflow: { name: test.single, version: "0.1.0" }
+run:
+  ticks: 1
+  timeouts: { invoke: none }
+inputs:
+  source: { source: json-document, path: ../source.json }
+steps:
+  a:
+    module: { name: fx-slow, version: "0.1.0" }
+    parameters: { sleep_ms: 600000, cooperative: false }

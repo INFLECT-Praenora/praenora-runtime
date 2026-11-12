@@ -1,0 +1,57 @@
+{
+  "kind": "workflow-definition",
+  "format_version": "0.1.0",
+  "name": "example.estimate-predict",
+  "version": "0.1.0",
+  "status": "stable",
+  "summary": "Estimate from observations, then predict; predictions feed the next estimate.",
+  "inputs": {
+    "observations": {
+      "type": "pmp.observation-batch",
+      "type_version": "0.1.0"
+    }
+  },
+  "steps": {
+    "estimate": {
+      "capability": "example.estimate",
+      "capability_version": "0.1.0"
+    },
+    "predict": {
+      "capability": "example.predict",
+      "capability_version": "0.1.0"
+    }
+  },
+  "connections": [
+    {
+      "from": "observations",
+      "to": "estimate.observations"
+    },
+    {
+      "from": "estimate.state",
+      "to": "predict.state"
+    },
+    {
+      "from": "predict.predictions",
+      "to": "estimate.prior",
+      "delay": 1
+    },
+    {
+      "from": "predict.predictions",
+      "to": "outputs.predictions"
+    },
+    {
+      "from": "estimate.state",
+      "to": "outputs.state"
+    }
+  ],
+  "outputs": {
+    "predictions": {
+      "type": "pmp.prediction-set",
+      "type_version": "0.1.0"
+    },
+    "state": {
+      "type": "example.state-estimate",
+      "type_version": "0.1.0"
+    }
+  }
+}

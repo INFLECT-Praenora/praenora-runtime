@@ -1,0 +1,245 @@
+include(GoogleTest)
+
+add_subdirectory(support)
+# Fixture modules, built into ${PRAENORA_TEST_MODULES_DIR}/<name>/ for the tests to load.
+add_subdirectory(fixtures/modules)
+
+# praenora_add_module() records where it generates each manifest, and where it copies a module's
+# test vectors; stop early if it did not.
+foreach(_praenora_property IN ITEMS PRAENORA_MODULE_MANIFEST PRAENORA_MODULE_DIR)
+    get_target_property(_praenora_value fx_echo ${_praenora_property})
+    if(NOT _praenora_value)
+        message(FATAL_ERROR "praenora_add_module() did not set ${_praenora_property} on fx_echo")
+    endif()
+endforeach()
+get_target_property(_praenora_value fx_nondeterministic PRAENORA_MODULE_TEST_VECTORS_PATH)
+if(NOT _praenora_value MATCHES "/fx-nondeterministic/vectors\\.json$")
+    message(FATAL_ERROR "praenora_add_module() set PRAENORA_MODULE_TEST_VECTORS_PATH of "
+        "fx_nondeterministic to '${_praenora_value}', not the path of its copied vectors.json")
+endif()
+
+# Search-path layouts for the discovery tests: the manifest templates below
+# tests/fixtures/manifests/layouts/ are generated into PRAENORA_TEST_LAYOUTS_DIR, keeping their
+# directory structure. Each describes fx-echo; library.path is the relative path from the generated
+# manifest to fx-echo's library. The variables of a template are the versions of the build
+# (@PRAENORA_ABI_MAJOR@, ...), @PRAENORA_LAYOUT_LIBRARY@, the platform being built for
+# (@PRAENORA_LAYOUT_OS@, @PRAENORA_LAYOUT_ARCH@) and another platform (@PRAENORA_LAYOUT_OTHER_OS@,
+# @PRAENORA_LAYOUT_OTHER_ARCH@).
+set(PRAENORA_TEST_LAYOUTS_DIR "${PROJECT_BINARY_DIR}/test-layouts")
+get_property(_praenora_multi_config GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
+if(_praenora_multi_config)
+    string(APPEND PRAENORA_TEST_LAYOUTS_DIR "/$<CONFIG>")
+endif()
+set(PRAENORA_LAYOUT_OS "${PRAENORA_PLATFORM_OS}")
+set(PRAENORA_LAYOUT_ARCH "${PRAENORA_PLATFORM_ARCH}")
+if(PRAENORA_PLATFORM_OS STREQUAL "windows")
+    set(PRAENORA_LAYOUT_OTHER_OS "linux")
+else()
+    set(PRAENORA_LAYOUT_OTHER_OS "windows")
+endif()
+set(PRAENORA_LAYOUT_OTHER_ARCH "x86_64")
+set(_praenora_layouts_source "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/manifests/layouts")
+file(GLOB_RECURSE _praenora_layout_templates CONFIGURE_DEPENDS
+    RELATIVE "${_praenora_layouts_source}"
+    "${_praenora_layouts_source}/*.pmm.json.in")
+foreach(_praenora_template IN LISTS _praenora_layout_templates)
+    string(REGEX REPLACE "\\.in$" "" _praenora_relative "${_praenora_template}")
+    set(_praenora_output "${PRAENORA_TEST_LAYOUTS_DIR}/${_praenora_relative}")
+    get_filename_component(_praenora_output_dir "${_praenora_output}" DIRECTORY)
+    set(PRAENORA_LAYOUT_LIBRARY
+        "$<PATH:RELATIVE_PATH,$<TARGET_FILE:fx_echo>,${_praenora_output_dir}>")
+    set(_praenora_configured "${CMAKE_CURRENT_BINARY_DIR}/praenora-layouts/${_praenora_template}")
+    configure_file("${_praenora_layouts_source}/${_praenora_template}" "${_praenora_configured}"
+        @ONLY NEWLINE_STYLE UNIX)
+    file(GENERATE OUTPUT "${_praenora_output}" INPUT "${_praenora_configured}"
+        NEWLINE_STYLE UNIX)
+endforeach()
+
+# praenora_add_gtest(<name> LABEL <label> [WHITEBOX] SOURCES <source>... [LINK <library>...])
+#
+# Adds a GoogleTest executable whose tests are discovered when CTest runs (CTest names
+# Suite.Case) and carry the CTest label <label>.
+# - WHITEBOX: links the runtime's object library and dependencies directly, so tests can use
+#   internal headers (praenora::detail). PRAENORA_RUNTIME_STATIC_DEFINE is defined because the
+#   objects are linked into the executable rather than imported from the shared library.
+# - Otherwise the executable links only the shared library Praenora::Runtime.
+# Either way it links praenora_test_support, GTest::gtest_main and the LINK libraries. An
+# executable never links both the object library and the shared library, so LINK cannot add the
+# other one. On Windows the DLLs the executable needs are copied next to it.
+# AddressSanitizer on macOS keeps the globals of an unloaded (dlclose'd) instrumented library
+# registered, and their redzones poisoned in its shadow memory. A library loaded later at an
+# overlapping address then trips false reports, and describing them reads the unloaded library's
+# metadata, which crashes the sanitizer. Tests of such builds therefore keep module libraries
+# loaded (PRAENORA_DEBUG_KEEP_LIBRARIES=1); every other build still unloads them.
+set(_praenora_test_environment "")
+if(APPLE AND "address" IN_LIST PRAENORA_SANITIZERS)
+    set(_praenora_test_environment ENVIRONMENT "PRAENORA_DEBUG_KEEP_LIBRARIES=1")
+endif()
+
+function(praenora_add_gtest name)
+    cmake_parse_arguments(PARSE_ARGV 1 arg "WHITEBOX" "LABEL" "SOURCES;LINK")
+    if(arg_UNPARSED_ARGUMENTS)
+        message(FATAL_ERROR
+            "praenora_add_gtest(${name}): unexpected arguments: ${arg_UNPARSED_ARGUMENTS}")
+    endif()
+    if(NOT arg_LABEL)
+        message(FATAL_ERROR "praenora_add_gtest(${name}): LABEL is required")
+    endif()
+    if(NOT arg_SOURCES)
+        message(FATAL_ERROR "praenora_add_gtest(${name}): SOURCES is required")
+    endif()
+    if(arg_WHITEBOX)
+        set(forbidden Praenora::Runtime praenora_runtime)
+    else()
+        set(forbidden praenora_runtime_objects)
+    endif()
+    foreach(library IN LISTS arg_LINK)
+        if(library IN_LIST forbidden)
+            message(FATAL_ERROR "praenora_add_gtest(${name}): LINK must not contain ${library}; "
+                "a test executable links either the runtime's object library (WHITEBOX) or the "
+                "shared library Praenora::Runtime, never both.")
+        endif()
+    endforeach()
+
+    add_executable(${name} ${arg_SOURCES})
+    if(arg_WHITEBOX)
+        target_link_libraries(${name} PRIVATE
+            praenora_runtime_objects
+            praenora_runtime_deps
+            praenora_whitebox_support
+            praenora_test_support)
+        target_compile_definitions(${name} PRIVATE PRAENORA_RUNTIME_STATIC_DEFINE)
+    else()
+        target_link_libraries(${name} PRIVATE Praenora::Runtime praenora_test_support)
+    endif()
+    target_link_libraries(${name} PRIVATE ${arg_LINK} GTest::gtest_main)
+    praenora_target_warnings(${name})
+    praenora_copy_runtime_dlls(${name})
+
+    gtest_discover_tests(${name}
+        DISCOVERY_MODE PRE_TEST
+        PROPERTIES LABELS ${arg_LABEL} ${_praenora_test_environment})
+endfunction()
+
+praenora_add_gtest(praenora_unit_tests LABEL unit WHITEBOX
+    SOURCES
+        unit/version_test.cpp
+        unit/sdk_abi_test.cpp
+        unit/sdk_abi_c99_check.c
+        unit/sdk_adapter_test.cpp
+        unit/sdk_testkit_test.cpp
+        unit/sdk_windows_macros_test.cpp
+        unit/error_test.cpp
+        unit/core_test.cpp
+        unit/document_test.cpp
+        unit/schema_test.cpp
+        unit/logging_test.cpp
+        unit/config_test.cpp
+        unit/csv_test.cpp
+        unit/input_source_test.cpp
+        unit/fingerprint_test.cpp
+        unit/metrics_test.cpp
+        unit/status_file_test.cpp
+        unit/locale_test.cpp
+        unit/runtime_context_test.cpp
+        unit/run_record_test.cpp
+    LINK Praenora::ModuleSDK)
+# sdk_abi_c99_check.c proves that the SDK's C headers are valid C99.
+set_target_properties(praenora_unit_tests PROPERTIES
+    C_STANDARD 99
+    C_STANDARD_REQUIRED ON
+    C_EXTENSIONS OFF)
+# The unit tests embed two fixture schemas of their own (praenora_test_find_resource()), beside the
+# runtime's embedded resources.
+# The fingerprint tests resolve and hash the fixture modules (without loading them).
+add_dependencies(praenora_unit_tests praenora_test_modules)
+praenora_embed_resources(TARGET praenora_unit_tests NAME praenora_test
+    BASE_DIR "${PROJECT_SOURCE_DIR}/tests/fixtures/documents"
+    FILES
+        schema-registry/sample.0.1.schema.json
+        schema-registry/sample.0.2.schema.json)
+
+praenora_add_gtest(praenora_protocol_tests LABEL protocol WHITEBOX
+    SOURCES
+        protocol/schemas_test.cpp
+        protocol/catalog_test.cpp
+        protocol/graph_test.cpp
+        protocol/graph_export_test.cpp)
+
+praenora_add_gtest(praenora_negative_tests LABEL negative WHITEBOX
+    SOURCES
+        negative/graph_negative_test.cpp
+        negative/manifest_negative_test.cpp
+        negative/compat_test.cpp
+        negative/config_negative_test.cpp
+        negative/validation_test.cpp)
+# The validation tests resolve and check the fixture modules (without loading them).
+add_dependencies(praenora_negative_tests praenora_test_modules)
+
+# Contract tests: manifests and discovery, the loader, module instances, the engine and the
+# contract checks, through the real loader and the fixture modules.
+praenora_add_gtest(praenora_contract_tests LABEL contract WHITEBOX
+    SOURCES
+        contract/discovery_test.cpp
+        contract/loader_test.cpp
+        contract/instance_contract_test.cpp
+        contract/engine_test.cpp
+        contract/module_check_test.cpp)
+target_compile_definitions(praenora_contract_tests PRIVATE
+    "PRAENORA_TEST_LAYOUTS_DIR=\"${PRAENORA_TEST_LAYOUTS_DIR}\"")
+add_dependencies(praenora_contract_tests praenora_test_modules)
+# The contract checks are also run against the example modules, when they are built.
+if(PRAENORA_BUILD_EXAMPLES)
+    target_compile_definitions(praenora_contract_tests PRIVATE PRAENORA_TEST_WITH_EXAMPLES)
+    add_dependencies(praenora_contract_tests praenora_example_modules)
+endif()
+
+# Lifecycle tests: call order, cleanup, timeouts and cancellation of module instances.
+praenora_add_gtest(praenora_lifecycle_tests LABEL lifecycle WHITEBOX
+    SOURCES
+        lifecycle/instance_test.cpp)
+add_dependencies(praenora_lifecycle_tests praenora_test_modules)
+
+# Integration tests: the public API through the shared library only, with the fixture modules and
+# the test catalog (integration/api_test.cpp) and, when the examples are built, the example
+# workflow end to end (integration/example_test.cpp).
+set(_praenora_integration_sources integration/api_test.cpp)
+if(PRAENORA_BUILD_EXAMPLES)
+    list(APPEND _praenora_integration_sources integration/example_test.cpp)
+endif()
+praenora_add_gtest(praenora_integration_tests LABEL integration
+    SOURCES ${_praenora_integration_sources})
+target_compile_definitions(praenora_integration_tests PRIVATE
+    "PRAENORA_TEST_RUNTIME_VERSION=\"${PRAENORA_RUNTIME_VERSION}\""
+    "PRAENORA_TEST_FORMAT_VERSION=\"${PRAENORA_FORMAT_VERSION}\""
+    "PRAENORA_TEST_PLATFORM=\"${PRAENORA_PLATFORM}\""
+    "PRAENORA_TEST_BUILD_TYPE=\"$<CONFIG>\""
+    "PRAENORA_EXAMPLE_WORKFLOW_DIR=\"${PROJECT_SOURCE_DIR}/examples/workflows/estimate-predict\""
+    "PRAENORA_TEST_GOLDEN_DIR=\"${PROJECT_SOURCE_DIR}/tests/fixtures/golden\"")
+add_dependencies(praenora_integration_tests praenora_test_modules)
+if(PRAENORA_BUILD_EXAMPLES)
+    add_dependencies(praenora_integration_tests praenora_example_modules)
+endif()
+
+# CLI tests (label cli): the praenora tool, run through tests/cli/run_cli.cmake.
+if(TARGET praenora_cli)
+    add_subdirectory(cli)
+endif()
+
+# Python tests (label python): the praenora.runtime package and its extension, run by the
+# interpreter (tests/python).
+if(TARGET praenora_python_bindings)
+    add_subdirectory(python)
+endif()
+
+# Install test (label install): the installation, used from outside the build (tests/install).
+# Only a build with install rules has it.
+if(PRAENORA_INSTALL_RULES)
+    add_subdirectory(install)
+endif()
+
+# Performance probe (label perf): praenora_perf and its two report-only runs (tests/perf).
+add_subdirectory(perf)
+
+# Documentation test (label docs): the documentation checked against the source tree (tests/docs).
+add_subdirectory(docs)

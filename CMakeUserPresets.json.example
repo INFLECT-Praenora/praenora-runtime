@@ -1,0 +1,79 @@
+{
+  "version": 5,
+  "configurePresets": [
+    {
+      "name": "dev-local",
+      "hidden": true,
+      "cacheVariables": {
+        "CMAKE_PREFIX_PATH": "/path/to/dependency/prefix;/path/to/another/prefix",
+        "Python3_EXECUTABLE": "/path/to/python3",
+        "PRAENORA_BUILD_PYTHON": "ON",
+        "PRAENORA_FETCH_DEPENDENCIES": "OFF"
+      }
+    },
+    {
+      "name": "dev",
+      "displayName": "Local development, Debug",
+      "inherits": ["macos-arm64-debug", "dev-local"]
+    },
+    {
+      "name": "dev-release",
+      "displayName": "Local development, Release",
+      "inherits": ["macos-arm64-release", "dev-local"]
+    },
+    {
+      "name": "dev-asan",
+      "displayName": "Local development, AddressSanitizer and UndefinedBehaviorSanitizer",
+      "inherits": ["macos-arm64-asan", "dev-local"]
+    },
+    {
+      "name": "dev-tsan",
+      "displayName": "Local development, ThreadSanitizer",
+      "inherits": ["macos-arm64-tsan", "dev-local"]
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "dev",
+      "inherits": "macos-arm64-debug",
+      "configurePreset": "dev"
+    },
+    {
+      "name": "dev-release",
+      "inherits": "macos-arm64-release",
+      "configurePreset": "dev-release"
+    },
+    {
+      "name": "dev-asan",
+      "inherits": "macos-arm64-asan",
+      "configurePreset": "dev-asan"
+    },
+    {
+      "name": "dev-tsan",
+      "inherits": "macos-arm64-tsan",
+      "configurePreset": "dev-tsan"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "dev",
+      "inherits": "macos-arm64-debug",
+      "configurePreset": "dev"
+    },
+    {
+      "name": "dev-release",
+      "inherits": "macos-arm64-release",
+      "configurePreset": "dev-release"
+    },
+    {
+      "name": "dev-asan",
+      "inherits": "macos-arm64-asan",
+      "configurePreset": "dev-asan"
+    },
+    {
+      "name": "dev-tsan",
+      "inherits": "macos-arm64-tsan",
+      "configurePreset": "dev-tsan"
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "kind": "module-manifest",
+  "format_version": "0.1.0",
+  "module": { "name": "fx-bad", "version": "0.1.0" }
+  "abi": { "major": 0, "minor": 0 }
+}

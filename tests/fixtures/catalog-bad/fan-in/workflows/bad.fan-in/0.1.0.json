@@ -1,0 +1,43 @@
+{
+  "kind": "workflow-definition",
+  "format_version": "0.1.0",
+  "name": "bad.fan-in",
+  "version": "0.1.0",
+  "status": "stable",
+  "inputs": {
+    "source": {
+      "type": "test.blob",
+      "type_version": "0.1.0"
+    },
+    "other": {
+      "type": "test.blob",
+      "type_version": "0.1.0"
+    }
+  },
+  "steps": {
+    "a": {
+      "capability": "test.echo",
+      "capability_version": "0.1.0"
+    }
+  },
+  "connections": [
+    {
+      "from": "inputs.source",
+      "to": "a.in"
+    },
+    {
+      "from": "inputs.other",
+      "to": "a.in"
+    },
+    {
+      "from": "a.out",
+      "to": "outputs.result"
+    }
+  ],
+  "outputs": {
+    "result": {
+      "type": "test.blob",
+      "type_version": "0.1.0"
+    }
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "pmp_version": "0.1.0",
+  "id": "9f2c4e1a7b3d5e60:3:estimate.state",
+  "type": "example.state-estimate",
+  "type_version": "0.1.0",
+  "source": "estimate.state",
+  "tick": 3,
+  "logical_time": 4.0
+}

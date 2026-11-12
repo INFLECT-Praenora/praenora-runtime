@@ -1,0 +1,28 @@
+# The Python distribution praenora-runtime: the package praenora.runtime (praenora is a namespace
+# package), its SWIG extension and the runtime library, built with scikit-build-core from the
+# CMake project (src/python/CMakeLists.txt holds the wheel's install rules).
+
+[build-system]
+requires = ["scikit-build-core>=0.10", "swig>=4.2"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "praenora-runtime"
+dynamic = ["version"]
+description = "Python bindings of the Praenora runtime: validate, inspect and run workflows"
+requires-python = ">=3.10"
+
+[tool.scikit-build]
+cmake.version = ">=3.24"
+wheel.packages = ["python/praenora"]
+
+[tool.scikit-build.metadata.version]
+provider = "scikit_build_core.metadata.regex"
+input = "CMakeLists.txt"
+regex = 'project\(praenora_runtime\s+VERSION\s+(?P<value>[0-9.]+)'
+
+[tool.scikit-build.cmake.define]
+PRAENORA_BUILD_PYTHON = "ON"
+PRAENORA_BUILD_TESTS = "OFF"
+PRAENORA_BUILD_EXAMPLES = "OFF"
+PRAENORA_BUILD_CLI = "OFF"

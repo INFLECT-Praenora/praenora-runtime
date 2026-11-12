@@ -1,0 +1,286 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:praenora:schema:workflow-config:0.1",
+  "title": "Praenora workflow configuration",
+  "description": "Pins a workflow definition and binds its inputs and steps to data and modules.",
+  "type": "object",
+  "required": [
+    "kind",
+    "format_version",
+    "workflow",
+    "steps"
+  ],
+  "properties": {
+    "kind": {
+      "const": "workflow-config"
+    },
+    "format_version": {
+      "$ref": "#/definitions/semver"
+    },
+    "workflow": {
+      "type": "object",
+      "required": [
+        "name",
+        "version"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "$ref": "#/definitions/catalog_id"
+        },
+        "version": {
+          "$ref": "#/definitions/semver"
+        }
+      }
+    },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "seed": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991,
+          "default": 0
+        },
+        "ticks": {
+          "$ref": "#/definitions/count"
+        },
+        "time": {
+          "$ref": "#/definitions/time_base"
+        },
+        "timeouts": {
+          "$ref": "#/definitions/timeouts"
+        }
+      }
+    },
+    "modules": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "search_paths": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "inputs": {
+      "type": "object",
+      "patternProperties": {
+        "^(?!(inputs|outputs)$)[a-z][a-z0-9_]*$": {
+          "type": "object",
+          "required": [
+            "source",
+            "path"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "source": {
+              "enum": [
+                "observation-csv",
+                "json-document"
+              ]
+            },
+            "path": {
+              "type": "string",
+              "minLength": 1
+            },
+            "columns": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "steps": {
+      "type": "object",
+      "patternProperties": {
+        "^(?!(inputs|outputs)$)[a-z][a-z0-9_]*$": {
+          "type": "object",
+          "required": [
+            "module"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "module": {
+              "$ref": "#/definitions/module_ref"
+            },
+            "parameters": {
+              "type": "object"
+            },
+            "timeouts": {
+              "$ref": "#/definitions/timeouts"
+            },
+            "log_level": {
+              "enum": [
+                "trace",
+                "debug",
+                "info",
+                "warn",
+                "error",
+                "critical",
+                "off"
+              ]
+            }
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "outputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "directory": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "record": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^(?!(inputs|outputs)$)[a-z][a-z0-9_]*$"
+          }
+        },
+        "trace_messages": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "observability": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "log_level": {
+          "enum": [
+            "trace",
+            "debug",
+            "info",
+            "warn",
+            "error",
+            "critical",
+            "off"
+          ]
+        },
+        "log_format": {
+          "enum": [
+            "text",
+            "json"
+          ]
+        },
+        "log_file": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status_file": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "status_interval": {
+          "$ref": "#/definitions/duration"
+        }
+      }
+    }
+  },
+  "patternProperties": {
+    "^x-": {}
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "catalog_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)*$"
+    },
+    "count": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "duration": {
+      "$comment": "A duration is either a string <number><unit> with unit ns, us, ms, s, m or h (\"30s\", \"1.5m\"; \"0\" or \"none\" disables the timeout), or the integer 0, which also disables it. The pattern applies only to strings and minimum/maximum only to numbers, so every other number is rejected.",
+      "type": [
+        "string",
+        "integer"
+      ],
+      "pattern": "^(none|0|[0-9]+(\\.[0-9]+)?(ns|us|ms|s|m|h))$",
+      "minimum": 0,
+      "maximum": 0,
+      "description": "<number><unit> with unit ns|us|ms|s|m|h; 0 or none disables."
+    },
+    "module_name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)*$"
+    },
+    "module_ref": {
+      "type": "object",
+      "required": [
+        "name",
+        "version"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "$ref": "#/definitions/module_name"
+        },
+        "version": {
+          "$ref": "#/definitions/semver"
+        }
+      }
+    },
+    "semver": {
+      "type": "string",
+      "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$"
+    },
+    "time_base": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "unit": {
+          "type": "string",
+          "minLength": 1,
+          "default": "1"
+        },
+        "start": {
+          "type": "number",
+          "default": 0.0
+        },
+        "period": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "default": 1.0
+        }
+      }
+    },
+    "timeouts": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "invoke": {
+          "$ref": "#/definitions/duration"
+        },
+        "lifecycle": {
+          "$ref": "#/definitions/duration"
+        },
+        "cancel_grace": {
+          "$ref": "#/definitions/duration"
+        }
+      }
+    }
+  }
+}

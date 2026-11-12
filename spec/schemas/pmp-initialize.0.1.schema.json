@@ -1,0 +1,74 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:praenora:schema:pmp-initialize:0.1",
+  "title": "PMP initialize document",
+  "description": "What initialize() receives: the run's fingerprint and the step seed, and the time base.",
+  "type": "object",
+  "required": [
+    "pmp_version",
+    "run",
+    "time"
+  ],
+  "properties": {
+    "pmp_version": {
+      "$ref": "#/definitions/semver"
+    },
+    "run": {
+      "type": "object",
+      "required": [
+        "fingerprint",
+        "seed"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "fingerprint": {
+          "$ref": "#/definitions/fingerprint"
+        },
+        "seed": {
+          "$ref": "#/definitions/seed"
+        }
+      }
+    },
+    "time": {
+      "type": "object",
+      "required": [
+        "unit",
+        "start",
+        "period"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "unit": {
+          "type": "string",
+          "minLength": 1
+        },
+        "start": {
+          "type": "number"
+        },
+        "period": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      }
+    }
+  },
+  "patternProperties": {
+    "^x-": {}
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "fingerprint": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "seed": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "semver": {
+      "type": "string",
+      "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$"
+    }
+  }
+}

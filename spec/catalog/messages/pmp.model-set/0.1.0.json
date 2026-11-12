@@ -1,0 +1,50 @@
+{
+  "kind": "message-type",
+  "format_version": "0.1.0",
+  "id": "pmp.model-set",
+  "version": "0.1.0",
+  "status": "draft",
+  "summary": "Model artifacts available to a workflow, by reference (draft).",
+  "schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "required": [
+      "models"
+    ],
+    "properties": {
+      "models": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": [
+            "id",
+            "href",
+            "sha256"
+          ],
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "href": {
+              "type": "string",
+              "minLength": 1
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          },
+          "patternProperties": {
+            "^x-": {}
+          },
+          "additionalProperties": false
+        }
+      }
+    },
+    "patternProperties": {
+      "^x-": {}
+    },
+    "additionalProperties": false
+  }
+}

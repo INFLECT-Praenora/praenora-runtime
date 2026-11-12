@@ -1,0 +1,159 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:praenora:schema:module-test-vectors:0.1",
+  "title": "Praenora module test vectors",
+  "description": "Invocation cases with expected outputs, run by the contract checks.",
+  "type": "object",
+  "required": [
+    "kind",
+    "format_version",
+    "cases"
+  ],
+  "properties": {
+    "kind": {
+      "const": "module-test-vectors"
+    },
+    "format_version": {
+      "$ref": "#/definitions/semver"
+    },
+    "cases": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "capability",
+          "ticks"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "capability": {
+            "$ref": "#/definitions/capability_ref"
+          },
+          "parameters": {
+            "type": "object",
+            "default": {}
+          },
+          "seed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991,
+            "default": 0
+          },
+          "time": {
+            "$ref": "#/definitions/time_base"
+          },
+          "ticks": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": [
+                "inputs"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "inputs": {
+                  "type": "object",
+                  "patternProperties": {
+                    "^(?!(inputs|outputs)$)[a-z][a-z0-9_]*$": {
+                      "description": "The data of the input port."
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                "expect": {
+                  "type": "object",
+                  "required": [
+                    "outputs"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "outputs": {
+                      "type": "object",
+                      "patternProperties": {
+                        "^(?!(inputs|outputs)$)[a-z][a-z0-9_]*$": {
+                          "description": "The expected data of the port."
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "tolerance": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "relative": {
+                          "type": "number",
+                          "minimum": 0,
+                          "default": 0
+                        },
+                        "absolute": {
+                          "type": "number",
+                          "minimum": 0,
+                          "default": 0
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "patternProperties": {
+    "^x-": {}
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "capability_ref": {
+      "type": "object",
+      "required": [
+        "id",
+        "version"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/catalog_id"
+        },
+        "version": {
+          "$ref": "#/definitions/semver"
+        }
+      }
+    },
+    "catalog_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)*$"
+    },
+    "semver": {
+      "type": "string",
+      "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$"
+    },
+    "time_base": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "unit": {
+          "type": "string",
+          "minLength": 1,
+          "default": "1"
+        },
+        "start": {
+          "type": "number",
+          "default": 0.0
+        },
+        "period": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "default": 1.0
+        }
+      }
+    }
+  }
+}

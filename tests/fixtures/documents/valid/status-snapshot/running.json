@@ -1,0 +1,53 @@
+{
+  "kind": "status-snapshot",
+  "format_version": "0.1.0",
+  "generated_at": "2026-11-10T16:04:05.123456789Z",
+  "runtime_version": "0.1.0",
+  "pid": 4242,
+  "workflow": {
+    "name": "example.estimate-predict",
+    "version": "0.1.0",
+    "fingerprint": "9f2c4e1a7b3d5e60000000000000000000000000000000000000000000000000",
+    "state": "running",
+    "health": "healthy",
+    "started_at": "2026-11-10T16:04:05.123456789Z",
+    "uptime_ns": 1500000000,
+    "ticks_completed": 3,
+    "current_tick": 3,
+    "logical_time": 3.0,
+    "last_tick_duration_ns": 1200000,
+    "last_error": null
+  },
+  "steps": [
+    {
+      "step": "estimate",
+      "module_name": "example-estimator",
+      "module_version": "0.1.0",
+      "state": "ready",
+      "invocations": 3,
+      "succeeded": 2,
+      "failed": 1,
+      "timed_out": 0,
+      "cancelled": 0,
+      "last_duration_ns": 1000,
+      "total_duration_ns": 3000,
+      "min_duration_ns": 900,
+      "max_duration_ns": 1100,
+      "mean_duration_ns": 1000.0,
+      "last_invocation_at": "2026-11-10T16:04:05.123456789Z",
+      "last_success_at": null,
+      "last_error": {
+        "code": 501,
+        "name": "STEP_FAILED",
+        "message": "estimate failed",
+        "tick": 2,
+        "at": "2026-11-10T16:04:05.123456789Z",
+        "cause": {
+          "code": 10001,
+          "message": "bad row",
+          "details": {}
+        }
+      }
+    }
+  ]
+}

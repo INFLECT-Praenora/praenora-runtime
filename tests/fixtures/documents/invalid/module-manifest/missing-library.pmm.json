@@ -1,0 +1,51 @@
+{
+  "kind": "module-manifest",
+  "format_version": "0.1.0",
+  "module": {
+    "name": "example-estimator",
+    "version": "0.1.0",
+    "summary": "Blends new observations with the previous tick's predictions (example).",
+    "authors": [
+      "Praenora maintainers"
+    ],
+    "repository": "https://github.com/INFLECT-Praenora/praenora-runtime"
+  },
+  "abi": {
+    "major": 0,
+    "minor": 0
+  },
+  "pmp_version": "0.1.0",
+  "sdk_version": "0.1.0",
+  "platform": {
+    "os": "macos",
+    "arch": "arm64"
+  },
+  "capabilities": [
+    {
+      "id": "example.estimate",
+      "version": "0.1.0"
+    }
+  ],
+  "parameters_schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "properties": {
+      "gain": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1,
+        "default": 0.5
+      }
+    },
+    "additionalProperties": false
+  },
+  "features": {
+    "concurrency": "module",
+    "cancellation": false,
+    "diagnostics": true,
+    "self_test": false
+  },
+  "tests": {
+    "vectors": "example-estimator.vectors.json"
+  }
+}

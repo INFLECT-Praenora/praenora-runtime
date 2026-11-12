@@ -1,0 +1,9 @@
+﻿{
+  "kind": "module-manifest",
+  "format_version": "0.1.0",
+  "module": { "name": "example-estimator", "version": "0.1.0" },
+  "capabilities": [
+    { "id": "example.estimate", "version": "0.1.0" }
+  ],
+  "x-note": "two\nlines and caf\u00e9"
+}

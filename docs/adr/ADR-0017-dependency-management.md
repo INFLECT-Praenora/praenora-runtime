@@ -1,0 +1,61 @@
+# ADR-0017: Dependency management: find_package first, opt-in pinned FetchContent
+
+- Status: Accepted
+- Date: 2026-11-10
+- Supersedes: none
+- Superseded by: none
+
+## Context
+
+The default build must work offline and must work with system package managers. Developers without the dependencies installed still need a way to build, but never silently.
+
+## Decision
+
+- Dependencies come from `find_package` (CONFIG mode). Floors: `nlohmann_json` 3.11, `nlohmann_json_schema_validator` 2.3, `yaml-cpp` 0.8 (0.7 through a target shim), `spdlog` 1.10, `GTest` 1.11, `SWIG` 4.0, `Python3` 3.10. The floors are provisional (OQ-12).
+- All third-party dependencies link PRIVATE to the runtime; public headers expose none of their types.
+- `PRAENORA_FETCH_DEPENDENCIES` is OFF by default. When ON, `FetchContent_Declare(... GIT_REPOSITORY ... GIT_TAG <commit> FIND_PACKAGE_ARGS <floor> CONFIG)` is used, so installed packages are used first and only missing ones are downloaded. `GIT_TAG` is the commit, with the tag in a comment. Fetched sub-projects build with `CMAKE_POSITION_INDEPENDENT_CODE ON`.
+- Pinned versions:
+
+| Package | Repository | Tag | Commit |
+|---|---|---|---|
+| nlohmann/json | https://github.com/nlohmann/json.git | v3.12.0 | `55f93686c01528224f448c19128836e7df245f72` |
+| json-schema-validator | https://github.com/pboettch/json-schema-validator.git | 2.4.1 | `9abddfa905bb4889cc4ae55f87adcaa71dd3bc23` |
+| yaml-cpp | https://github.com/jbeder/yaml-cpp.git | yaml-cpp-0.9.0 | `56e3bb550c91fd7005566f19c079cb7a503223cf` |
+| spdlog | https://github.com/gabime/spdlog.git | v1.17.0 | `79524ddd08a4ec981b7fea76afd08ee05f83755d` |
+| GoogleTest | https://github.com/google/googletest.git | v1.18.0 | `063de7e9578f82b369302001269680b4b1553359` |
+
+- Package managers (Homebrew, apt/dnf, conda-forge, vcpkg) all feed `find_package`; the developer guide gives commands per platform.
+- `BUILD_SHARED_LIBS` is never read: the runtime is always `SHARED` and modules are always `MODULE`.
+
+### Builder notes (Proposed)
+
+- `find_package` and `FIND_PACKAGE_ARGS` request the minimum versions listed, except that yaml-cpp is requested at 0.7. Version 0.7 exports only the unnamespaced `yaml-cpp` target, and the shim makes it usable; 0.8 and newer export `yaml-cpp::yaml-cpp`. A yaml-cpp older than 0.8 produces a status note during configuration. The target shims alias `yaml-cpp::yaml-cpp` to `yaml-cpp` and `nlohmann_json_schema_validator::validator` to `nlohmann_json_schema_validator` for packages that export only the older names. spdlog is used through `spdlog::spdlog` when present, otherwise `spdlog::spdlog_header_only`.
+- The GoogleTest fetch content is named `googletest` and found with `FIND_PACKAGE_ARGS 1.11 CONFIG NAMES GTest`. The name `GTest` would collide with the `gtest_SOURCE_DIR` variable of GoogleTest's own `gtest` project. GoogleTest is made available only when tests are built.
+- Fetched sub-projects get `INSTALL_GTEST=OFF`, `gtest_force_shared_crt=ON` (the MSVC runtime of the rest of the build) and `YAML_CPP_BUILD_TOOLS=OFF`; `CMAKE_POLICY_DEFAULT_CMP0077=NEW` makes their `option()` calls honor these values. With CMake 3.25 or newer the fetched content is declared `SYSTEM`. Position-independent code is switched on only while the dependencies are made available.
+- Configuration prints one line per dependency: `Praenora: dependency <name> <version> (found at <config directory>)`, or `(fetched into <source directory>)`. The spdlog line also names the chosen target.
+- Binaries from package managers carry their own minimum macOS version (Homebrew builds for the running macOS release). Linking them below that version makes the linker warn. When the dependency binaries target a newer macOS, a local `CMakeUserPresets.json` sets `CMAKE_OSX_DEPLOYMENT_TARGET` to that version. The project default stays 11.0.
+- Both the C and the C++ compiler are checked against the compiler floors (GCC 9, Clang 10, AppleClang 13, MSVC 19.29); a compiler below its floor stops the configuration. A compiler other than GCC, Clang, AppleClang or MSVC produces a warning, not an error, and its version is not checked.
+- The installed CMake package `Praenora` (`cmake/PraenoraConfig.cmake.in`) has the components `ModuleSDK` (the export set `PraenoraModuleSDKTargets` and `PraenoraModule.cmake`) and `Runtime` (the export set `PraenoraRuntimeTargets`); `find_package(Praenora)` without components loads both. An unknown component is not found; when it is required, `Praenora_NOT_FOUND_MESSAGE` names it and the two components, so the reason appears in the error. The `ModuleSDK` component looks for no other package and does not define `Praenora::Runtime`, and `Runtime` does not define `Praenora::ModuleSDK`. The install test checks each: consumer-module requires `PACKAGES_FOUND` to be just `Praenora` and `PACKAGES_NOT_FOUND` to be empty after its `find_package(Praenora COMPONENTS ModuleSDK)`, both consumers check the targets they got, and a project that requires an unknown component must fail with that reason.
+- No `find_dependency()`: neither component needs a third-party package. The install test settled it: the exported `Praenora::Runtime` carries only its include directory and `cxx_std_17`, with no `INTERFACE_LINK_LIBRARIES` and no `IMPORTED_LINK_DEPENDENT_LIBRARIES`. The runtime links its third-party libraries privately through the INTERFACE target `praenora_runtime_deps`, and CMake records a shared library's private dependencies for its importers only when they are shared-library targets it links directly. An application built against the installation with only Praenora found configures, links and runs (macOS, where the runtime finds yaml-cpp, spdlog and fmt by their absolute install names). Not yet verified: on Linux, CMake therefore adds no `-rpath-link` for those libraries when a consumer links the installed runtime, so libraries from the distribution's packages (default directories) are found, while libraries in other directories need the consumer's `-rpath-link` or `LD_LIBRARY_PATH`. On Windows they are installed beside the runtime's DLL (ADR-0019).
+- The install test (`tests/install`, CTest `install.consumer`) configures its two consumer projects with the build's generator, compilers, build type, macOS architecture and deployment target, and `CMAKE_PREFIX_PATH` = the installation followed by the build's own dependency prefixes, through an initial-cache file, and checks that each found Praenora in the installation (`Praenora_DIR`). The consumers also get the build's `CMAKE_<LANG>_FLAGS` (C, C++) and `CMAKE_<EXE|SHARED|MODULE>_LINKER_FLAGS`, empty ones included, plus its sanitizer options, which `cmake/PraenoraSanitizers.cmake` publishes as `PRAENORA_SANITIZER_COMPILE_OPTIONS` and `PRAENORA_SANITIZER_LINK_OPTIONS`; a consumer of the C++ API must be compiled like the runtime, and the consumers link the instrumented runtime in sanitizer builds, where the test passes too (AddressSanitizer, ThreadSanitizer). The consumers are configured with uninitialized variables reported (`-Wuninitialized`, `--warn-uninitialized` before CMake 4.4) and `--check-system-vars`, without which files outside the consumer's own trees, such as the installed ones, are not checked. Only `PraenoraConfig.cmake` and `PraenoraModule.cmake`, which this project writes, must be clean; a warning that names either file fails, in both forms CMake writes, `at <file>:<line>` and `in <file>:` (a read in an `elseif()` condition). The target files CMake generates read an unset variable themselves (`_cmake_import_check_xcframework_for_<target>`, CMake 4.4), as do CMake's own modules. The drivers of the CLI, install and perf tests run commands through one script, `tests/support/run_command.cmake`, which also decides what counts as a sanitizer report.
+- With `PRAENORA_FETCH_DEPENDENCIES=ON`, the fetched projects' own install rules are switched off before `FetchContent_MakeAvailable` (`JSON_Install`, `JSON_VALIDATOR_INSTALL`, `YAML_CPP_INSTALL`, `SPDLOG_INSTALL` set OFF; `INSTALL_GTEST` already was): they are header-only or static libraries used privately by the shared runtime, so neither `cmake --install` nor a wheel may carry their headers, libraries or CMake files. Not yet verified: the option names are taken from the upstream projects and could not be checked offline, and no download has been made to check them. A fetch-mode configuration with every package installed finds them all with `find_package` and fetches nothing.
+- Fetch mode also makes the fetched libraries static, whatever a super-build's `BUILD_SHARED_LIBS` says: a fetched shared library would be neither installed (their install rules are off) nor found by an installed runtime. Before `FetchContent_MakeAvailable`, each project's own shared-library option is set OFF (`YAML_BUILD_SHARED_LIBS`, `SPDLOG_BUILD_SHARED`, `JSON_VALIDATOR_SHARED_LIBS`), and so is `BUILD_SHARED_LIBS`, because the per-project options alone cannot guarantee static libraries: some projects build a shared library when either their own option or `BUILD_SHARED_LIBS` is on, and others call `add_library()` without a type. `BUILD_SHARED_LIBS` is set as a normal variable for that call only and unset right after it, never read, so this project's own targets keep their explicit types (the runtime `SHARED`, modules `MODULE`). The unset also removes, for the rest of the Praenora directory scope, a normal `BUILD_SHARED_LIBS` variable that a parent project set; nothing in that scope reads it. Not yet verified: the option names are taken from the upstream projects (json-schema-validator's in particular, if it has one), and no download has been made to check them or to build the fetched libraries.
+
+## Alternatives considered
+
+- **Always fetch.** Breaks offline builds and the no-network default.
+- **Vendoring sources in the repository.** Offline, but inflates the repository and complicates updates.
+- **Git submodules.** Needs network for checkout and offers no installed-package preference.
+- **A package manager as a hard requirement (vcpkg or Conan).** Excludes users of other managers.
+
+## Consequences
+
+- Default builds never touch the network.
+- Pins by commit are immune to moved tags.
+- Pins must be refreshed deliberately, and fetch mode is verified only when network access exists.
+
+## References
+
+- [CMake FetchContent](https://cmake.org/cmake/help/latest/module/FetchContent.html)
+- [docs/developer-guide.md](../developer-guide.md)
+- [docs/open-questions.md](../open-questions.md)

@@ -1,0 +1,109 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:praenora:schema:pmp-invocation:0.1",
+  "title": "PMP invocation document",
+  "description": "What invoke() receives once per tick: the input envelopes by port (absent optional inputs are omitted).",
+  "type": "object",
+  "required": [
+    "pmp_version",
+    "step",
+    "tick",
+    "logical_time",
+    "inputs"
+  ],
+  "properties": {
+    "pmp_version": {
+      "$ref": "#/definitions/semver"
+    },
+    "step": {
+      "$ref": "#/definitions/name"
+    },
+    "tick": {
+      "$ref": "#/definitions/count"
+    },
+    "logical_time": {
+      "type": "number"
+    },
+    "inputs": {
+      "type": "object",
+      "patternProperties": {
+        "^(?!(inputs|outputs)$)[a-z][a-z0-9_]*$": {
+          "$ref": "#/definitions/envelope"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "patternProperties": {
+    "^x-": {}
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "catalog_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)*$"
+    },
+    "count": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "endpoint": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$"
+    },
+    "envelope": {
+      "type": "object",
+      "required": [
+        "pmp_version",
+        "id",
+        "type",
+        "type_version",
+        "source",
+        "tick",
+        "logical_time",
+        "data"
+      ],
+      "patternProperties": {
+        "^x-": {}
+      },
+      "additionalProperties": false,
+      "properties": {
+        "pmp_version": {
+          "$ref": "#/definitions/semver"
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{16}:(0|[1-9][0-9]*):[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$",
+          "description": "<first 16 hex digits of the run fingerprint>:<tick>:<source>"
+        },
+        "type": {
+          "$ref": "#/definitions/catalog_id"
+        },
+        "type_version": {
+          "$ref": "#/definitions/semver"
+        },
+        "source": {
+          "$ref": "#/definitions/endpoint"
+        },
+        "tick": {
+          "$ref": "#/definitions/count"
+        },
+        "logical_time": {
+          "type": "number"
+        },
+        "data": {
+          "description": "The payload; its schema is the message type's schema."
+        }
+      }
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^(?!(inputs|outputs)$)[a-z][a-z0-9_]*$"
+    },
+    "semver": {
+      "type": "string",
+      "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$"
+    }
+  }
+}

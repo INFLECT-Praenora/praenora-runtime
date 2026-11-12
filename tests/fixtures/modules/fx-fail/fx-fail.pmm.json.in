@@ -1,0 +1,46 @@
+{
+  "kind": "module-manifest",
+  "format_version": "0.1.0",
+  "module": {
+    "name": "@PRAENORA_MODULE_NAME@",
+    "version": "@PRAENORA_MODULE_VERSION@",
+    "summary": "Test fixture: fails on purpose, in the phase and the way its parameters say."
+  },
+  "abi": { "major": @PRAENORA_ABI_MAJOR@, "minor": @PRAENORA_ABI_MINOR@ },
+  "pmp_version": "@PRAENORA_PMP_VERSION@",
+  "sdk_version": "@PRAENORA_SDK_VERSION@",
+  "library": { "path": "@PRAENORA_MODULE_LIBRARY_FILE@" },
+  "platform": { "os": "@PRAENORA_MODULE_OS@", "arch": "@PRAENORA_MODULE_ARCH@" },
+  "capabilities": @PRAENORA_MODULE_CAPABILITIES_JSON@,
+  "parameters_schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "properties": {
+      "phase": {
+        "type": "string",
+        "enum": ["create", "initialize", "invoke", "finalize"],
+        "default": "invoke"
+      },
+      "at_invocation": { "type": "integer", "minimum": 1, "default": 1 },
+      "mode": {
+        "type": "string",
+        "enum": [
+          "status",
+          "throw",
+          "bad_alloc",
+          "malformed_json",
+          "schema_violation",
+          "unknown_port",
+          "missing_required_output",
+          "no_outputs"
+        ],
+        "default": "status"
+      },
+      "status": { "type": "integer", "minimum": -2147483648, "maximum": 2147483647, "default": 11 },
+      "malformed_bytes": { "type": "integer", "minimum": 0, "maximum": 16777216, "default": 0 },
+      "diagnostics_bytes": { "type": "integer", "minimum": 0, "maximum": 16777216, "default": 0 }
+    },
+    "additionalProperties": false
+  },
+  "features": { "diagnostics": true }
+}

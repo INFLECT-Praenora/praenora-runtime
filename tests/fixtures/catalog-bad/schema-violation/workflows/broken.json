@@ -1,0 +1,9 @@
+{
+  "kind": "workflow-definition",
+  "format_version": "0.1.0",
+  "name": "test.broken",
+  "version": "0.1.0",
+  "status": "stable",
+  "steps": { "a": { "capability": "test.echo", "capability_version": "0.1.0" } },
+  "outputs": { "result": { "type": "test.blob", "type_version": "0.1.0" } }
+}

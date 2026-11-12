@@ -1,0 +1,12 @@
+# fx-fail fails its first invocation with FAILED: the run fails with STEP_FAILED (CLI test
+# cli.run.module_failure, exit code 1).
+kind: workflow-config
+format_version: "0.1.0"
+workflow: { name: test.single, version: "0.1.0" }
+run: { ticks: 2 }
+inputs:
+  source: { source: json-document, path: ../source.json }
+steps:
+  a:
+    module: { name: fx-fail, version: "0.1.0" }
+    parameters: { phase: invoke, at_invocation: 1 }

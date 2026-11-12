@@ -1,0 +1,27 @@
+{
+  "kind": "capability-definition",
+  "format_version": "0.1.0",
+  "id": "pmp.assess",
+  "version": "0.1.0",
+  "status": "draft",
+  "summary": "Scores predictions against known values (draft).",
+  "inputs": {
+    "predictions": {
+      "type": "pmp.prediction-set",
+      "type_version": "0.1.0",
+      "required": true
+    },
+    "observations": {
+      "type": "pmp.observation-batch",
+      "type_version": "0.1.0",
+      "required": true
+    }
+  },
+  "outputs": {
+    "assessment": {
+      "type": "pmp.assessment",
+      "type_version": "0.1.0",
+      "required": true
+    }
+  }
+}

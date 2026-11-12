@@ -1,0 +1,36 @@
+{
+  "kind": "workflow-definition",
+  "format_version": "0.1.0",
+  "name": "test.quiet",
+  "version": "0.1.0",
+  "status": "stable",
+  "summary": "One step whose output is optional (tests).",
+  "inputs": {
+    "source": {
+      "type": "test.blob",
+      "type_version": "0.1.0"
+    }
+  },
+  "steps": {
+    "a": {
+      "capability": "test.quiet",
+      "capability_version": "0.1.0"
+    }
+  },
+  "connections": [
+    {
+      "from": "inputs.source",
+      "to": "a.in"
+    },
+    {
+      "from": "a.out",
+      "to": "outputs.result"
+    }
+  ],
+  "outputs": {
+    "result": {
+      "type": "test.blob",
+      "type_version": "0.1.0"
+    }
+  }
+}

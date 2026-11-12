@@ -1,0 +1,13 @@
+{
+  "kind": "module-manifest",
+  "format_version": "0.1.0",
+  "module": { "name": "fx-bad", "version": "0.1.0" },
+  "abi": { "major": 0, "minor": 0 },
+  "pmp_version": "0.1.0",
+  "sdk_version": "0.1.0",
+  "library": {
+    "path": "/opt/praenora/modules/fx-bad.so"
+  },
+  "platform": { "os": "linux", "arch": "x86_64" },
+  "capabilities": [{ "id": "test.echo", "version": "0.1.0" }]
+}

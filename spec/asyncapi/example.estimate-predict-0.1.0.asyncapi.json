@@ -1,0 +1,557 @@
+{
+  "asyncapi": "3.0.0",
+  "channels": {
+    "estimate.state": {
+      "address": "example.estimate-predict/estimate.state",
+      "messages": {
+        "example.state-estimate": {
+          "$ref": "#/components/messages/example.state-estimate"
+        }
+      }
+    },
+    "inputs.observations": {
+      "address": "example.estimate-predict/inputs.observations",
+      "messages": {
+        "pmp.observation-batch": {
+          "$ref": "#/components/messages/pmp.observation-batch"
+        }
+      }
+    },
+    "predict.predictions": {
+      "address": "example.estimate-predict/predict.predictions",
+      "messages": {
+        "pmp.prediction-set": {
+          "$ref": "#/components/messages/pmp.prediction-set"
+        }
+      }
+    }
+  },
+  "components": {
+    "messages": {
+      "example.state-estimate": {
+        "contentType": "application/json",
+        "name": "example.state-estimate",
+        "payload": {
+          "additionalProperties": false,
+          "description": "A message as the runtime delivers it: identity, type, source endpoint, tick and logical time, and the data. Envelopes carry no wall-clock time.",
+          "patternProperties": {
+            "^x-": {}
+          },
+          "properties": {
+            "data": {
+              "additionalProperties": false,
+              "patternProperties": {
+                "^x-": {}
+              },
+              "properties": {
+                "estimates": {
+                  "items": {
+                    "additionalProperties": false,
+                    "patternProperties": {
+                      "^x-": {}
+                    },
+                    "properties": {
+                      "basis": {
+                        "enum": [
+                          "observation",
+                          "blend",
+                          "prior"
+                        ]
+                      },
+                      "series_id": {
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "time": {
+                        "type": "number"
+                      },
+                      "value": {
+                        "type": "number"
+                      },
+                      "variable_id": {
+                        "minLength": 1,
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "series_id",
+                      "variable_id",
+                      "time",
+                      "value",
+                      "basis"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "time_unit": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "time_unit",
+                "estimates"
+              ],
+              "type": "object"
+            },
+            "id": {
+              "description": "<first 16 hex digits of the run fingerprint>:<tick>:<source>",
+              "pattern": "^[0-9a-f]{16}:(0|[1-9][0-9]*):[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            "logical_time": {
+              "type": "number"
+            },
+            "pmp_version": {
+              "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$",
+              "type": "string"
+            },
+            "source": {
+              "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            "tick": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "pattern": "^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)*$",
+              "type": "string"
+            },
+            "type_version": {
+              "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "pmp_version",
+            "id",
+            "type",
+            "type_version",
+            "source",
+            "tick",
+            "logical_time",
+            "data"
+          ],
+          "title": "PMP message envelope",
+          "type": "object"
+        },
+        "title": "example.state-estimate@0.1.0"
+      },
+      "pmp.observation-batch": {
+        "contentType": "application/json",
+        "name": "pmp.observation-batch",
+        "payload": {
+          "additionalProperties": false,
+          "description": "A message as the runtime delivers it: identity, type, source endpoint, tick and logical time, and the data. Envelopes carry no wall-clock time.",
+          "patternProperties": {
+            "^x-": {}
+          },
+          "properties": {
+            "data": {
+              "additionalProperties": false,
+              "patternProperties": {
+                "^x-": {}
+              },
+              "properties": {
+                "observations": {
+                  "items": {
+                    "additionalProperties": false,
+                    "if": {
+                      "properties": {
+                        "value": {
+                          "type": "null"
+                        }
+                      },
+                      "required": [
+                        "value"
+                      ]
+                    },
+                    "patternProperties": {
+                      "^x-": {}
+                    },
+                    "properties": {
+                      "batch_id": {
+                        "type": "string"
+                      },
+                      "censoring": {
+                        "default": "none",
+                        "enum": [
+                          "none",
+                          "left",
+                          "right",
+                          "interval"
+                        ]
+                      },
+                      "group_id": {
+                        "type": "string"
+                      },
+                      "lower_limit": {
+                        "type": [
+                          "number",
+                          "null"
+                        ]
+                      },
+                      "missing": {
+                        "default": false,
+                        "type": "boolean"
+                      },
+                      "observation_id": {
+                        "type": "string"
+                      },
+                      "series_id": {
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "time": {
+                        "description": "In the batch's time_unit.",
+                        "type": "number"
+                      },
+                      "unit": {
+                        "description": "A label; units are not converted.",
+                        "type": "string"
+                      },
+                      "upper_limit": {
+                        "type": [
+                          "number",
+                          "null"
+                        ]
+                      },
+                      "value": {
+                        "type": [
+                          "number",
+                          "null"
+                        ]
+                      },
+                      "variable_id": {
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "weight": {
+                        "default": 1,
+                        "minimum": 0,
+                        "type": "number"
+                      }
+                    },
+                    "required": [
+                      "series_id",
+                      "variable_id",
+                      "time",
+                      "value"
+                    ],
+                    "then": {
+                      "anyOf": [
+                        {
+                          "properties": {
+                            "missing": {
+                              "const": true
+                            }
+                          },
+                          "required": [
+                            "missing"
+                          ]
+                        },
+                        {
+                          "properties": {
+                            "censoring": {
+                              "const": "left"
+                            },
+                            "upper_limit": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "censoring",
+                            "upper_limit"
+                          ]
+                        },
+                        {
+                          "properties": {
+                            "censoring": {
+                              "const": "right"
+                            },
+                            "lower_limit": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "censoring",
+                            "lower_limit"
+                          ]
+                        },
+                        {
+                          "properties": {
+                            "censoring": {
+                              "const": "interval"
+                            },
+                            "lower_limit": {
+                              "type": "number"
+                            },
+                            "upper_limit": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "censoring",
+                            "lower_limit",
+                            "upper_limit"
+                          ]
+                        }
+                      ]
+                    },
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "time_unit": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "window": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "end": {
+                      "type": "number"
+                    },
+                    "start": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "start",
+                    "end"
+                  ],
+                  "type": "object"
+                }
+              },
+              "required": [
+                "window",
+                "time_unit",
+                "observations"
+              ],
+              "type": "object"
+            },
+            "id": {
+              "description": "<first 16 hex digits of the run fingerprint>:<tick>:<source>",
+              "pattern": "^[0-9a-f]{16}:(0|[1-9][0-9]*):[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            "logical_time": {
+              "type": "number"
+            },
+            "pmp_version": {
+              "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$",
+              "type": "string"
+            },
+            "source": {
+              "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            "tick": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "pattern": "^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)*$",
+              "type": "string"
+            },
+            "type_version": {
+              "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "pmp_version",
+            "id",
+            "type",
+            "type_version",
+            "source",
+            "tick",
+            "logical_time",
+            "data"
+          ],
+          "title": "PMP message envelope",
+          "type": "object"
+        },
+        "title": "pmp.observation-batch@0.1.0"
+      },
+      "pmp.prediction-set": {
+        "contentType": "application/json",
+        "name": "pmp.prediction-set",
+        "payload": {
+          "additionalProperties": false,
+          "description": "A message as the runtime delivers it: identity, type, source endpoint, tick and logical time, and the data. Envelopes carry no wall-clock time.",
+          "patternProperties": {
+            "^x-": {}
+          },
+          "properties": {
+            "data": {
+              "additionalProperties": false,
+              "patternProperties": {
+                "^x-": {}
+              },
+              "properties": {
+                "issued_at": {
+                  "description": "The logical time of issue.",
+                  "type": "number"
+                },
+                "predictions": {
+                  "items": {
+                    "additionalProperties": false,
+                    "else": {
+                      "not": {
+                        "required": [
+                          "quantile"
+                        ]
+                      }
+                    },
+                    "if": {
+                      "properties": {
+                        "prediction_kind": {
+                          "const": "quantile"
+                        }
+                      },
+                      "required": [
+                        "prediction_kind"
+                      ]
+                    },
+                    "patternProperties": {
+                      "^x-": {}
+                    },
+                    "properties": {
+                      "draw": {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "prediction_kind": {
+                        "description": "Documented values: latent_mean, observation, state, residual, quantile.",
+                        "pattern": "^[a-z][a-z0-9_]*$",
+                        "type": "string"
+                      },
+                      "quantile": {
+                        "exclusiveMaximum": 1,
+                        "exclusiveMinimum": 0,
+                        "type": "number"
+                      },
+                      "series_id": {
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "time": {
+                        "type": "number"
+                      },
+                      "unit": {
+                        "type": "string"
+                      },
+                      "value": {
+                        "type": "number"
+                      },
+                      "variable_id": {
+                        "minLength": 1,
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "series_id",
+                      "variable_id",
+                      "time",
+                      "prediction_kind",
+                      "value"
+                    ],
+                    "then": {
+                      "required": [
+                        "quantile"
+                      ]
+                    },
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "time_unit": {
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "issued_at",
+                "time_unit",
+                "predictions"
+              ],
+              "type": "object"
+            },
+            "id": {
+              "description": "<first 16 hex digits of the run fingerprint>:<tick>:<source>",
+              "pattern": "^[0-9a-f]{16}:(0|[1-9][0-9]*):[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            "logical_time": {
+              "type": "number"
+            },
+            "pmp_version": {
+              "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$",
+              "type": "string"
+            },
+            "source": {
+              "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$",
+              "type": "string"
+            },
+            "tick": {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": {
+              "pattern": "^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)*$",
+              "type": "string"
+            },
+            "type_version": {
+              "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "pmp_version",
+            "id",
+            "type",
+            "type_version",
+            "source",
+            "tick",
+            "logical_time",
+            "data"
+          ],
+          "title": "PMP message envelope",
+          "type": "object"
+        },
+        "title": "pmp.prediction-set@0.1.0"
+      }
+    }
+  },
+  "defaultContentType": "application/json",
+  "info": {
+    "title": "example.estimate-predict",
+    "version": "0.1.0"
+  },
+  "operations": {
+    "estimate.state.publish": {
+      "action": "send",
+      "channel": {
+        "$ref": "#/channels/estimate.state"
+      }
+    },
+    "inputs.observations.publish": {
+      "action": "send",
+      "channel": {
+        "$ref": "#/channels/inputs.observations"
+      }
+    },
+    "predict.predictions.publish": {
+      "action": "send",
+      "channel": {
+        "$ref": "#/channels/predict.predictions"
+      }
+    }
+  }
+}

@@ -1,0 +1,9 @@
+observation_id,series_id,variable_id,time,value,unit,missing,censoring,lower_limit,upper_limit,weight,group_id,batch_id
+o007,S02,population,1.5,31.25,count,false,none,,,1,"group, B",B1
+o001,S01,population,0.0,10.0,count,false,none,,,1,control,B1
+o003,S01,population,1.0,13.4,count,FALSE,none,,,0.5,control,B1
+o002,S02,population,0.25,25.5,count,false,none,,,1,"group, B",B1
+o004,S01,population,1.0,,count,TRUE,none,,,1,control,B1
+o005,S02,population,2.75,,count,false,left,,2.0,1,"group, B",B2
+o006,S01,population,2.5,18.0,count,false,none,,,,control,"batch
+two"

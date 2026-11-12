@@ -1,0 +1,32 @@
+{
+  "kind": "capability-definition",
+  "format_version": "0.1.0",
+  "id": "pmp.propose",
+  "version": "0.1.0",
+  "status": "draft",
+  "summary": "Proposes a population of candidate models fitted to the data so far (draft).",
+  "inputs": {
+    "observations": {
+      "type": "pmp.observation-batch",
+      "type_version": "0.1.0",
+      "required": true
+    },
+    "model_set": {
+      "type": "pmp.model-set",
+      "type_version": "0.1.0",
+      "required": true
+    },
+    "replenish": {
+      "type": "pmp.replenishment-request",
+      "type_version": "0.1.0",
+      "required": false
+    }
+  },
+  "outputs": {
+    "candidates": {
+      "type": "pmp.candidate-set",
+      "type_version": "0.1.0",
+      "required": true
+    }
+  }
+}

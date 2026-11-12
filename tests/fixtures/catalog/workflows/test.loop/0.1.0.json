@@ -1,0 +1,39 @@
+{
+  "kind": "workflow-definition",
+  "format_version": "0.1.0",
+  "name": "test.loop",
+  "version": "0.1.0",
+  "status": "stable",
+  "summary": "Two echo steps in a loop closed by a delay (tests).",
+  "steps": {
+    "a": {
+      "capability": "test.echo",
+      "capability_version": "0.1.0"
+    },
+    "b": {
+      "capability": "test.echo",
+      "capability_version": "0.1.0"
+    }
+  },
+  "connections": [
+    {
+      "from": "a.out",
+      "to": "b.in"
+    },
+    {
+      "from": "b.out",
+      "to": "a.in",
+      "delay": 1
+    },
+    {
+      "from": "b.out",
+      "to": "outputs.result"
+    }
+  ],
+  "outputs": {
+    "result": {
+      "type": "test.blob",
+      "type_version": "0.1.0"
+    }
+  }
+}

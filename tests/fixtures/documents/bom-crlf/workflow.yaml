@@ -1,0 +1,23 @@
+﻿# Test document for byte-order-mark and line-ending handling. The copy in bom-crlf/ starts with a
+# UTF-8 byte order mark and uses CRLF line endings; the copy in lf/ uses LF and no mark.
+kind: workflow-config
+format_version: "0.1.0"
+
+workflow:
+  name: example.estimate-predict
+  version: "0.1.0"
+
+run:
+  seed: 20261110
+  time: { unit: d, start: 0.0, period: 1.0 }
+  timeouts: { invoke: 30s, lifecycle: 10s }
+
+steps:
+  estimate:
+    module: { name: example-estimator, version: "0.1.0" }
+    parameters:
+      gain: 0.6
+      label: "résumé"
+      note: |
+        first line
+        second line

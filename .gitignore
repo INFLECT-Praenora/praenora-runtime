@@ -1,0 +1,14 @@
+.idea/
+build/
+/install/
+out/
+CMakeUserPresets.json
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+.cache/
+.DS_Store
+Testing/
+/compile_commands.json
