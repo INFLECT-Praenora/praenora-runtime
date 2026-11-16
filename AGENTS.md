@@ -26,8 +26,9 @@ outputs and message trace, metrics, status and health), the module SDK, the prot
 catalog, the C++ API, the `praenora` CLI, the Python bindings, the example modules and workflow,
 the contract checks, the install rules and CMake package, the performance probe, the tests and the
 documentation. It is verified on macOS arm64 with AppleClang (Debug, AddressSanitizer and
-ThreadSanitizer builds). Linux x86-64 and Windows x86-64 have presets and portable code but are not
-yet verified; neither are the Python wheel build and fetch-mode downloads, on any platform.
+ThreadSanitizer builds, and a Python wheel built offline). Linux x86-64 and Windows x86-64 have
+presets and portable code but are not yet verified; neither are fetch-mode downloads and a wheel
+build that downloads its build requirements, on any platform.
 
 ## Setup and commands
 

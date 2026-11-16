@@ -227,27 +227,84 @@ not instrumented; `ctest --preset dev-asan -L python`, a run of that label alone
 
 ## Building a wheel
 
-Not yet verified: building a wheel needs scikit-build-core, which was not available where this was
-written. The root [`pyproject.toml`](../pyproject.toml) builds the distribution `praenora-runtime`
-with scikit-build-core (0.10 or newer) and SWIG (4.2 or newer, from PyPI or the system). It
-configures this CMake project with the Python bindings on and the tests, the examples and the tool
-off, so the C++ dependencies must be findable, for example through the `CMAKE_PREFIX_PATH`
-environment variable:
+The root [`pyproject.toml`](../pyproject.toml) builds the distribution `praenora-runtime` with
+scikit-build-core (0.10 or newer) and SWIG (4.2 or newer, from PyPI or the system). It sets
+`minimum-version = "0.10"`, so a newer scikit-build-core keeps the defaults of 0.10 (the wheel's
+metadata is `Metadata-Version: 2.1`) and does not warn about the `tool.scikit-build.metadata` table
+that reads the version from `CMakeLists.txt`. It configures this CMake project with the Python
+bindings on and the tests, the examples and the tool off, so the C++ dependencies must be findable,
+for example through the `CMAKE_PREFIX_PATH` environment variable. In the environment, prefixes are
+separated by `:` (`;` on Windows), not by the `;` of a preset's cache variable.
+
+Verified on macOS arm64 (macOS 15) with CPython 3.12, scikit-build-core 1.1.2 and Homebrew's
+SWIG 4.5.1, offline: scikit-build-core is installed once into a virtual environment, and the build
+uses that environment and the SWIG on `PATH` instead of downloading its requirements
+(`--no-build-isolation`). From the repository root (git ignores `build/`):
 
 ```sh
-CMAKE_PREFIX_PATH="/path/to/dependency/prefix" python3 -m pip wheel . --no-deps -w "${TMPDIR:-/tmp}/praenora-wheel"
+uv venv --python 3.12 build/wheel-tools
+uv pip install --python build/wheel-tools "scikit-build-core>=0.10"
+CMAKE_PREFIX_PATH="/opt/homebrew:/path/to/json-schema-validator/prefix" \
+    uv build --wheel --no-build-isolation --python build/wheel-tools/bin/python -o build/wheel \
+    -C cmake.define.CMAKE_OSX_DEPLOYMENT_TARGET=15.0
 ```
 
-A wheel build has only the Python package's install rules, so the wheel holds just
-`praenora/runtime/`: `__init__.py`, `_bindings.py`, the extension and the runtime library, which the
-extension finds beside itself (an RPATH of `$ORIGIN` on Linux, `@loader_path` on macOS; on Windows
-the DLL lies next to the extension). The extension is specific to one Python version (no stable-ABI
-wheel; [open-questions.md](open-questions.md), OQ-21).
+pip does the same, run by the environment's Python (`pip --python build/wheel-tools/bin/python
+wheel . --no-deps --no-build-isolation -w build/wheel
+--config-settings=cmake.define.CMAKE_OSX_DEPLOYMENT_TARGET=15.0`, with pip 22.3 or newer). Not yet
+verified: a build that downloads its requirements (the default build isolation of pip and uv, with
+SWIG from PyPI), and wheels for Linux, Windows, and Python 3.10 and 3.11.
 
-The runtime's third-party shared libraries are not bundled into the wheel: yaml-cpp, spdlog and fmt,
-for example, when they come from Homebrew or a Linux distribution as shared libraries. Such a wheel
-works only where those libraries are installed at the same places, so it is not yet a portable
-binary; bundling and manylinux wheels are open ([open-questions.md](open-questions.md), OQ-13).
+**macOS deployment target.** scikit-build-core tags the wheel with `CMAKE_OSX_DEPLOYMENT_TARGET`
+when it is given as a `cmake.define`, as above; otherwise with `MACOSX_DEPLOYMENT_TARGET` from the
+environment; otherwise with the running macOS version. It does not see the project's default of
+11.0 in `CMakeLists.txt`, and CMake keeps that default even when `MACOSX_DEPLOYMENT_TARGET` is set.
+So give the define, with the macOS version the dependency binaries target: Homebrew builds for the
+running release, as for the [local presets](developer-guide.md#local-presets). Without it the
+binaries target 11.0, the linker warns about every Homebrew library, and the tag names the running
+macOS version all the same (`macosx_15_0_arm64` on macOS 15).
+
+**Contents.** A wheel build has only the Python package's install rules, so the wheel holds just
+`praenora/runtime/` and its `.dist-info` (`METADATA`, `WHEEL` and `RECORD`); `praenora` has no
+`__init__.py`. The wheel built above is 0.84 MB, and 2.0 MB once installed:
+
+| File | Size | From |
+|---|---|---|
+| `__init__.py` | 15.7 kB | `python/praenora/runtime/`, through `wheel.packages` |
+| `_bindings.py` | 9.1 kB | SWIG's proxy module, installed by the build |
+| `_bindings_native.cpython-312-darwin.so` | 349 kB | The extension, installed by the build |
+| `libpraenora_runtime.0.1.dylib` | 1.6 MB | The runtime library, installed by the build |
+
+The binaries are Release builds, stripped on installation. The extension finds the runtime library
+beside itself (an RPATH of `$ORIGIN` on Linux, `@loader_path` on macOS; on Windows the DLL lies next
+to the extension), and it is specific to one Python version (no stable-ABI wheel;
+[open-questions.md](open-questions.md), OQ-21). Each file is in the wheel once:
+
+- A wheel cannot hold a symbolic link, so the runtime library's soname link would be stored as a
+  second copy of the whole library (the same build was 1.55 MB with it). In a wheel build the
+  library's file name is its soname (`libpraenora_runtime.0.1.dylib`; `libpraenora_runtime.so.0.1`
+  on Linux), so there is no link; its Mach-O current version is still the full runtime version.
+- `__init__.py` comes from `wheel.packages` only, and the install rules add only what the build
+  makes. scikit-build-core leaves out a package file that an install rule has already installed, so
+  installing a file both ways does not fail: the install rule's copy wins without a warning.
+
+**Installing it.** Into a fresh virtual environment:
+
+```sh
+uv venv --python 3.12 build/wheel-test
+uv pip install --python build/wheel-test build/wheel/praenora_runtime-0.1.0-cp312-cp312-macosx_15_0_arm64.whl
+build/wheel-test/bin/python -c 'import praenora.runtime as pr; print(pr.version()["runtime"], pr.version()["build_type"])'
+```
+
+prints `0.1.0 Release`. The tests of `tests/python` pass against the installed package as well, run
+with that environment's Python, CTest's environment for `python.unittest` and `PYTHONPATH` naming
+the environment's `site-packages` instead of `build/<preset>/python`.
+
+The runtime's third-party shared libraries are not bundled into the wheel: the macOS wheel above
+links yaml-cpp, spdlog and fmt from Homebrew by their absolute paths (json-schema-validator is
+linked statically, and nlohmann/json is header-only). Such a wheel works only where those libraries
+are installed at the same places, so it is not yet a portable binary; bundling and manylinux wheels
+are open ([open-questions.md](open-questions.md), OQ-13).
 
 ## Platform notes
 

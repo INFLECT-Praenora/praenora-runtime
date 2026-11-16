@@ -73,7 +73,9 @@ add_dependencies(praenora_python_bindings praenora_python_package)
 
 # The wheel (pyproject.toml, scikit-build-core): praenora/runtime holds the extension, _bindings.py,
 # __init__.py and the runtime library, which the extension finds beside itself ($ORIGIN or
-# @loader_path; on Windows the DLL sits next to it).
+# @loader_path; on Windows the DLL sits next to it). These rules install only what the build
+# makes; the package's own files, __init__.py, come from pyproject.toml's wheel.packages
+# (scikit-build-core leaves out a package file that an install rule already put in the wheel).
 if(SKBUILD)
     set(_praenora_wheel_dir "praenora/runtime")
     if(APPLE)
@@ -81,6 +83,15 @@ if(SKBUILD)
     elseif(UNIX)
         set_target_properties(praenora_python_bindings PROPERTIES INSTALL_RPATH "$ORIGIN")
     endif()
+    # A wheel cannot hold a symbolic link: the soname link (libpraenora_runtime.0.1.dylib, .so.0.1)
+    # would be stored as a second copy of the whole library. In a wheel build the library's file
+    # name is its soname, so there is one file and no link; the Mach-O current version keeps the
+    # full runtime version.
+    get_target_property(_praenora_runtime_version praenora_runtime VERSION)
+    get_target_property(_praenora_runtime_soversion praenora_runtime SOVERSION)
+    set_target_properties(praenora_runtime PROPERTIES
+        VERSION "${_praenora_runtime_soversion}"
+        MACHO_CURRENT_VERSION "${_praenora_runtime_version}")
     install(TARGETS praenora_python_bindings
         LIBRARY DESTINATION "${_praenora_wheel_dir}"
         RUNTIME DESTINATION "${_praenora_wheel_dir}")
@@ -88,6 +99,5 @@ if(SKBUILD)
         LIBRARY DESTINATION "${_praenora_wheel_dir}" NAMELINK_SKIP
         RUNTIME DESTINATION "${_praenora_wheel_dir}"
         ARCHIVE DESTINATION "${_praenora_wheel_dir}" EXCLUDE_FROM_ALL)
-    install(FILES "${_praenora_package_dir}/_bindings.py" "${_praenora_package_dir}/__init__.py"
-        DESTINATION "${_praenora_wheel_dir}")
+    install(FILES "${_praenora_package_dir}/_bindings.py" DESTINATION "${_praenora_wheel_dir}")
 endif()

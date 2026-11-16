@@ -27,7 +27,8 @@ with an example workflow; the contract checks for modules; the installation with
 | Linux x86-64 (GCC, Clang) | presets and portable code; not yet verified |
 | Windows x86-64 (Visual Studio 2022) | presets and portable code; not yet verified |
 
-Not yet verified anywhere: building the Python wheel, and downloading dependencies in fetch mode.
+Not yet verified anywhere: downloading dependencies in fetch mode, and a Python wheel build that
+downloads its build requirements (a wheel built offline is verified on macOS arm64).
 WebAssembly and the libRoadRunner and libAntimony services are designs only
 ([feasibility designs](docs/index.md#feasibility-designs)).
 

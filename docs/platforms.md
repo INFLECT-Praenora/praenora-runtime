@@ -8,14 +8,15 @@ and Windows commands below are given as they should work and are marked "not yet
 
 | Platform | Compiler | Status |
 |---|---|---|
-| macOS arm64 (macOS 15) | AppleClang 17 | Verified: configure, build without warnings, and every test in the `dev` (Debug), `dev-asan` and `dev-tsan` builds; an installation, moved; the Python bindings with CPython 3.12. |
+| macOS arm64 (macOS 15) | AppleClang 17 | Verified: configure, build without warnings, and every test in the `dev` (Debug), `dev-asan` and `dev-tsan` builds; an installation, moved; the Python bindings with CPython 3.12; a Python wheel built offline and installed into a fresh virtual environment ([python.md](python.md#building-a-wheel)). |
 | Linux x86-64 | GCC 9+, Clang 10+ | Presets and portable code; not yet verified. |
 | Windows x86-64 | MSVC 19.29+ (Visual Studio 2022) | Presets and portable code; not yet verified. |
 
 Not yet verified on any platform: downloading dependencies in fetch mode (every dependency was
 installed where this was checked, so nothing was downloaded), and with it the fetched projects'
 option names that keep their libraries static and their install rules off
-([ADR-0017](adr/ADR-0017-dependency-management.md)); building a Python wheel; Python 3.10 and 3.11;
+([ADR-0017](adr/ADR-0017-dependency-management.md)); building a Python wheel that downloads its
+build requirements (an offline wheel build is verified on macOS arm64); Python 3.10 and 3.11;
 and multi-configuration generators (Visual Studio, Xcode, Ninja Multi-Config). macOS x86-64 is not
 a target.
 

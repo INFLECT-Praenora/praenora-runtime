@@ -122,7 +122,9 @@ Loading then checks the table and the identity ([module-abi.md](module-abi.md#lo
 | A runtime release | `project(VERSION)` | None by this policy. |
 
 - The runtime's shared library carries `VERSION` 0.1.0 and `SOVERSION` 0.1
-  (`libpraenora_runtime.0.1.dylib` on macOS). The installed CMake package checks versions with
+  (`libpraenora_runtime.0.1.dylib` on macOS); in a Python wheel its `VERSION` is its `SOVERSION`,
+  so the wheel holds one file and no link ([python.md](../python.md#building-a-wheel)), and its
+  Mach-O current version stays 0.1.0. The installed CMake package checks versions with
   `SameMinorVersion` while the version is 0.x, so `find_package(Praenora 0.1)` accepts every 0.1.z.
 - The C++ API is source-compatible under SemVer but not binary-stable across compilers. The only
   binary-stable interface is the module ABI.
