@@ -15,6 +15,7 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -66,6 +67,11 @@ std::string nested_yaml_mappings(int depth) {
 std::string nested_json_arrays(int depth) {
     return std::string(static_cast<std::size_t>(depth), '[') + "1" +
            std::string(static_cast<std::size_t>(depth), ']');
+}
+
+// The offset of the first bracket that the nesting pre-scan finds beyond one level, or nullopt.
+std::optional<std::size_t> beyond_one_level(const std::string& text) {
+    return detail::find_excessive_nesting(text, 1);
 }
 
 std::string read_bytes(const fs::path& path) {
@@ -625,4 +631,146 @@ TEST(Json, ParseErrorHasLineAndColumn) {
 TEST(Json, PointerEscaping) {
     EXPECT_EQ(detail::json_pointer_escape("a/b~c"), "a~1b~0c");
     EXPECT_EQ(detail::json_pointer_escape("plain"), "plain");
+}
+
+TEST(NestingScan, QuoteInsidePlainScalarIsText) {
+    // A quote opens a string only where a scalar starts. Inside a plain scalar, continuation lines
+    // included, it is text and hides nothing after it.
+    const std::vector<std::string> plain_scalars = {
+        "k: a:'x\n", // after a colon that no space follows
+        "k: a:\"x\n",
+        "k: don't\n  'stop\n",   // on a continuation line
+        "k:\n  value\n 'more\n", // indented past the mapping, though less than the scalar
+        "k:\n- - a\n   'b\n",    // indented past the inner sequence
+        "&x k: a\n 'b\n",        // the mapping starts at the anchor
+        "k: [a:'x, b]\n",        // in a flow collection
+        "k: [a\n  'b, c]\n",     // on a continuation line in a flow collection
+        "k: {a:'x}\n",
+    };
+    for (const auto& prefix : plain_scalars) {
+        const std::string text = prefix + "v: [[1]]\n";
+        EXPECT_EQ(beyond_one_level(text), text.rfind("[[") + 1) << text;
+        EXPECT_NO_THROW(parse(text)) << text;
+    }
+}
+
+TEST(NestingScan, PlainScalarEndsWhereYamlEndsIt) {
+    // A line indented no further than the innermost collection starts a new token, so its quote
+    // opens a string.
+    const std::vector<std::string> new_tokens = {
+        "k: a\n'x [[': 1\n",     // back at the mapping
+        "k: a\n'x: [[': 1\n",    // the same, with ": " inside the string
+        "- a: b\n  'x [[': 1\n", // back at the inner mapping
+        "k: a # 'x\nv: '[['\n",  // after a comment
+        "a\n#x\n'[['\n",         // after a comment line, even below a top-level scalar
+        "a\n--- '[['\n",         // after a document marker
+    };
+    for (const auto& text : new_tokens) {
+        EXPECT_EQ(beyond_one_level(text), std::nullopt) << text;
+    }
+    // A '#' inside a plain scalar is text; in a flow collection a bracket ends the scalar.
+    EXPECT_EQ(beyond_one_level("a#b: [[1]]\n"), 6u);
+    EXPECT_EQ(beyond_one_level("v: [x[1]]\n"), 5u);
+    EXPECT_EQ(beyond_one_level("v: {x: a[1]}\n"), 8u);
+}
+
+TEST(NestingScan, FollowsYamlCppPossibleKeys) {
+    // yaml-cpp opens a level for a node that may be a key before it knows, so a scalar after the
+    // node continues only on lines indented past it. Each prefix is followed by the line "'q # c":
+    // where that line starts a token, its quote opens a string that hides the brackets after it.
+    struct Case {
+        const char* prefix;
+        bool hidden;
+    };
+    const Case cases[] = {
+        {"&a x\n", true},                 // the anchor starts a possible key
+        {"\t&a x\n", false},              // but not after a tab
+        {"k: &a x\n ", false},            // nor right after a key
+        {"&a |\n  x\n y\n", true},        // the key outlasts a block scalar
+        {"{a: 1}x\n", true},              // and a colon inside a flow collection
+        {"&a x\n- z\nw\n", true},         // and a sequence entry
+        {"{a: 1}: v\n ", false},          // only the colon after the collection confirms it
+        {"&a x\n- z # c\nw\n", false},    // the line break after a comment ends it
+        {"&a\nx\n", false},               // a line break between tokens ends it
+        {"k:\n  a\nb: x\n ", false},      // and so does a line indented less than the key
+        {"  k:\n  v\n &b x\n ", false},   // a key without a level of its own stays, and blocks &b
+        {"&a |\n  y\n : \n  x\n ", true}, // a colon after a key on an earlier line opens a level
+        {"&a |\n  y\n : \n x\n&b w\n", true}, // ending a possible key's level ends &a, so &b is one
+        {"k:\n%YAML 1.2\na\n", false},        // a directive ends every level
+    };
+    for (const auto& c : cases) {
+        const std::string text = std::string(c.prefix) + "'q # c\nj: [[1]]\n'";
+        const std::optional<std::size_t> expected =
+            c.hidden ? std::nullopt : std::optional<std::size_t>(text.find("[[") + 1);
+        EXPECT_EQ(beyond_one_level(text), expected) << text;
+    }
+}
+
+TEST(NestingScan, FollowsYamlCppLineEnds) {
+    // "\r\n" and a lone "\r" end a line too.
+    for (const std::string text : {"k: a\r'x [[': 1\r", "k: a\r\n'x [[': 1\r\n"}) {
+        EXPECT_EQ(beyond_one_level(text), std::nullopt) << text;
+    }
+    // Only the kind of the first line end starts a new column count, though: after a "\n", the
+    // columns go on past a lone "\r", so the line after it continues the scalar.
+    const std::string text = "\nk: a\r'q # c\nj: [[1]]\n'";
+    EXPECT_EQ(beyond_one_level(text), text.find("[[") + 1);
+}
+
+TEST(NestingScan, QuoteInsideBlockScalarIsText) {
+    // The content ends at the first line indented no further than the innermost collection.
+    for (const std::string block :
+         {"v: |\n  'x\n", "v: |\n  # x\n  'y\n", "v: |2\n    a\n  'x\n", "v: >\n\n"}) {
+        const std::string text = block + "w: [[1]]\n";
+        EXPECT_EQ(beyond_one_level(text), text.rfind("[[") + 1) << text;
+        EXPECT_NO_THROW(parse(text)) << text;
+    }
+}
+
+TEST(NestingScan, QuoteInsideAnchorOrTagIsText) {
+    for (const std::string prefix : {"k: &a'x\n", "k: !t'x\n"}) {
+        const std::string text = prefix + "v: [[1]]\n";
+        EXPECT_EQ(beyond_one_level(text), text.rfind("[[") + 1) << text;
+    }
+}
+
+TEST(NestingScan, QuotedScalarsAndCommentsHideBrackets) {
+    const std::vector<std::string> texts = {
+        "v: '[['\n",          // single-quoted
+        "v: 'it''s [['\n",    // with an escaped quote
+        "v: \"[[\\\"[[\"\n",  // double-quoted, with an escaped quote
+        "v: '[[\n  [['\n",    // over two lines
+        "{\"a\":'[[x'}\n",    // right after a JSON-like key and its colon
+        "[\"[[\", \"]][[\"]", // JSON
+        "# [[\nv: 1 # [[\n",  // comments
+        "v: [1]#[[\n",        // a comment right after a token
+    };
+    for (const auto& text : texts) {
+        EXPECT_EQ(beyond_one_level(text), std::nullopt) << text;
+    }
+}
+
+TEST(NestingScan, CountsBracketsInsidePlainAndBlockScalars) {
+    // yaml-cpp reads these as text, but one bracket too many is safe where one too few is not.
+    EXPECT_EQ(beyond_one_level("v: x[[ y]]\n"), 5u);
+    EXPECT_EQ(beyond_one_level("v: |\n  [[\n"), 8u);
+    EXPECT_EQ(beyond_one_level("v: !<t:[[x]]> y\n"), 8u);
+    // Closing brackets there balance them.
+    EXPECT_EQ(beyond_one_level("v: x[a] y[b]\nw: [1]\n"), std::nullopt);
+}
+
+TEST(NestingScan, CountsEveryOpeningBracketInTextItCannotSplit) {
+    // Past 4096 levels of block collections the scan stops following them, so that its memory
+    // stays small: the document nests too deep anyway.
+    std::string deep;
+    for (int i = 0; i < 5000; ++i) {
+        deep += "- ";
+    }
+    EXPECT_EQ(beyond_one_level(deep + "'[]['\n"), deep.size() + 3);
+    EXPECT_EQ(beyond_one_level(deep.substr(0, 200) + "'[]['\n"), std::nullopt);
+    // Text with a NUL byte is not UTF-8, but yaml-cpp reads UTF-16 and UTF-32. In UTF-16LE for
+    // "[\u2C41\u4E27, [[]]]" the bytes ",'" would open a string.
+    const char utf16[] = "[\0A,'N,\0 \0[\0[\0]\0]\0]\0";
+    EXPECT_EQ(beyond_one_level(std::string(utf16, sizeof utf16 - 1)), 10u);
+    EXPECT_EQ(beyond_one_level(std::string("[]\0[]", 5)), 3u);
 }

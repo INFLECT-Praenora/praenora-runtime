@@ -3,6 +3,7 @@
 #include <praenora/runtime/error.hpp>
 
 #include <algorithm>
+#include <vector>
 
 namespace praenora::detail {
 
@@ -207,66 +208,500 @@ TextPosition text_position(std::string_view text, std::size_t offset) {
     return position;
 }
 
-std::optional<std::size_t> find_excessive_nesting(std::string_view text, int max_depth) {
-    const auto is_space = [](char c) { return c == ' ' || c == '\t' || c == '\r' || c == '\n'; };
-    // A quote starts a string only where a token can start, so the apostrophe in a YAML plain
-    // scalar such as don't does not.
-    const auto starts_token = [&](std::size_t i) {
-        if (i == 0) {
-            return true;
+namespace {
+
+bool is_white(char c) { return c == ' ' || c == '\t' || c == '\r' || c == '\n'; }
+
+bool is_flow_indicator(char c) { return c == ',' || c == '[' || c == ']' || c == '{' || c == '}'; }
+
+// A character of a tag after its first '!': an ASCII word character, or a URI character other
+// than a flow indicator.
+bool is_tag_char(char c) {
+    return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+           std::string_view("-%!#;/?:@&=+$_.~*'()").find(c) != std::string_view::npos;
+}
+
+// The scan follows block collections this deep at most. An accepted document nests at most
+// kMaxNestingDepth deep, and yaml-cpp gives up long before this, so past it the scan just counts
+// every opening bracket, and its memory stays small.
+constexpr std::size_t kMaxBlockIndents = 4096;
+
+// Counts the brackets of YAML text (JSON is YAML too) outside quoted scalars and comments, so that
+// as long as it splits the text into tokens as yaml-cpp, the parser the scan protects, does, its
+// count is never below the flow nesting yaml-cpp will find. Brackets inside plain and
+// block scalars count too, though yaml-cpp reads them as text: one bracket too many is safe, one
+// too few is not.
+//
+// A quote opens a quoted scalar only where a token starts; inside a plain or block scalar, an
+// anchor or a tag it is text. So the scan splits the text into tokens as yaml-cpp does. Where a
+// plain or a block scalar ends depends on indentation, so it follows yaml-cpp's indentation levels
+// too, including those it opens for a possible key. In
+//
+//     key: it's
+//       'still the same scalar
+//
+// the second line continues the plain scalar, because it is indented past the mapping.
+class NestingScanner {
+public:
+    NestingScanner(std::string_view text, int max_depth) : text_(text), max_depth_(max_depth) {
+        // Like yaml-cpp, count columns and lines by the kind of the first line end in the text: a
+        // lone "\r" makes "\r" the line end, otherwise "\n" is. Either way, all three kinds end
+        // tokens.
+        const auto first = text_.find_first_of("\r\n");
+        if (first != std::string_view::npos && at_break(first) && text_[first] == '\r') {
+            line_end_ = '\r';
         }
-        const char before = text[i - 1];
-        return is_space(before) || before == '[' || before == '{' || before == ',' || before == ':';
+        // Text with a NUL byte is not UTF-8: yaml-cpp reads UTF-16 and UTF-32, where every
+        // bracket has one, and the scan cannot split those into tokens.
+        raw_ = text_.find('\0') != std::string_view::npos;
+    }
+
+    std::optional<std::size_t> run() {
+        while (i_ < text_.size() && !found_) {
+            const char c = text_[i_];
+            if (raw_) {
+                for (; i_ < text_.size(); ++i_) {
+                    if ((text_[i_] == '[' || text_[i_] == '{') && count(i_)) {
+                        break;
+                    }
+                }
+            } else if (at_break(i_)) {
+                ++i_;
+                if (!in_flow()) {
+                    invalidate_key(); // a key does not span lines
+                    key_allowed_ = true;
+                }
+            } else if (is_white(c)) {
+                if (c == '\t' && !in_flow()) {
+                    key_allowed_ = false; // yaml-cpp starts no key after a tab
+                }
+                ++i_;
+            } else if (c == '#') {
+                skip_comment(); // even one right after a token, as in [a]#b
+            } else {
+                scan_token();
+            }
+        }
+        return found_;
+    }
+
+private:
+    // A block collection's indentation level, as yaml-cpp keeps them: at the column of its first
+    // key or entry, or of a possible key that may yet turn out not to be one.
+    struct BlockIndent {
+        std::int64_t column;
+        bool sequence;
+        bool possible; // a possible key's level, before the key is confirmed
+        bool invalid;  // a possible key's level, after the key turned out not to be one
     };
-    int depth = 0;
-    for (std::size_t i = 0; i < text.size(); ++i) {
-        switch (text[i]) {
-        case '"':
-            if (starts_token(i)) {
-                for (++i; i < text.size() && text[i] != '"'; ++i) {
-                    if (text[i] == '\\') {
-                        ++i;
-                    }
-                }
+
+    bool in_flow() const { return depth_ > 0; }
+
+    // A line ends at "\n", at "\r\n" or at a lone "\r".
+    bool at_break(std::size_t offset) const {
+        return text_[offset] == '\n' ||
+               (text_[offset] == '\r' && (offset + 1 == text_.size() || text_[offset + 1] != '\n'));
+    }
+
+    // Whether the line, or the text, ends at `offset`.
+    bool line_ends_at(std::size_t offset) const {
+        return offset == text_.size() || text_[offset] == '\n' || text_[offset] == '\r';
+    }
+
+    // The column of `offset`, which may not be before any offset asked for earlier.
+    std::int64_t column(std::size_t offset) {
+        for (; columns_seen_ < offset; ++columns_seen_) {
+            if (text_[columns_seen_] == line_end_) {
+                line_start_ = columns_seen_ + 1;
             }
-            break;
-        case '\'':
-            if (starts_token(i)) {
-                for (++i; i < text.size(); ++i) {
-                    if (text[i] == '\'') {
-                        if (i + 1 < text.size() && text[i + 1] == '\'') {
-                            ++i; // '' is an escaped quote
-                        } else {
-                            break;
-                        }
-                    }
-                }
+        }
+        return static_cast<std::int64_t>(offset - line_start_);
+    }
+
+    // The column of the innermost level; -1 at the top level.
+    std::int64_t block_indent() const { return indents_.empty() ? -1 : indents_.back().column; }
+
+    // Whether whitespace or the end of the text follows `offset`.
+    bool separated_after(std::size_t offset) const {
+        return offset + 1 >= text_.size() || is_white(text_[offset + 1]);
+    }
+
+    // "---" or "...", then whitespace or the end of the text; only a marker at column 0.
+    bool is_document_marker(std::size_t offset) const {
+        const auto marker = text_.substr(offset, 3);
+        return (marker == "---" || marker == "...") && separated_after(offset + 2);
+    }
+
+    // Counts the character at `offset` if it is a bracket. Returns true, with found_ set, when it
+    // opens a level beyond max_depth_. A closing bracket that closes no flow collection does not
+    // take the count below the number of those that are open.
+    bool count(std::size_t offset) {
+        const char c = text_[offset];
+        if (c == '[' || c == '{') {
+            if (++count_ > max_depth_) {
+                found_ = offset;
+                return true;
             }
-            break;
-        case '#':
-            if (i == 0 || is_space(text[i - 1])) {
-                while (i + 1 < text.size() && text[i + 1] != '\n') {
-                    ++i;
-                }
+        } else if ((c == ']' || c == '}') && count_ > depth_) {
+            --count_;
+        }
+        return false;
+    }
+
+    void skip_comment() {
+        while (i_ < text_.size() && !at_break(i_)) {
+            ++i_;
+        }
+    }
+
+    // The rest of a line that holds no token the scan follows: its brackets count.
+    void count_to_line_end() {
+        for (; i_ < text_.size() && !at_break(i_); ++i_) {
+            if (count(i_)) {
+                return;
             }
-            break;
+        }
+    }
+
+    // Opens a level at `column` unless the innermost one is there or further right already (a
+    // sequence may open at the column of the mapping it is a value of). Returns whether it did.
+    // A possible key's level is `possible` until a colon confirms the key.
+    bool push_indent(std::int64_t column, bool sequence, bool possible = false) {
+        if (!indents_.empty()) {
+            const BlockIndent& top = indents_.back();
+            if (column < top.column || (column == top.column && !(sequence && !top.sequence))) {
+                return false;
+            }
+        }
+        if (indents_.size() == kMaxBlockIndents) {
+            raw_ = true;
+            return false;
+        }
+        indents_.push_back({column, sequence, possible, false});
+        return true;
+    }
+
+    // A token ends the levels right of it, and a sequence at its own column unless it is an entry
+    // of that sequence; then the levels of keys that turned out not to be keys.
+    void pop_indents(std::int64_t column, bool entry) {
+        while (!indents_.empty() &&
+               (indents_.back().column > column ||
+                (indents_.back().column == column && indents_.back().sequence && !entry))) {
+            pop_indent();
+        }
+        while (!indents_.empty() && indents_.back().invalid) {
+            pop_indent();
+        }
+    }
+
+    // Like yaml-cpp, ending a level that no confirmed key opened ends the pending key, whichever
+    // it is.
+    void pop_indent() {
+        const bool confirmed = !indents_.back().possible && !indents_.back().invalid;
+        indents_.pop_back();
+        if (!confirmed) {
+            invalidate_key();
+        }
+    }
+
+    // The node that starts at `column` may be the first key of a block mapping. Where a key may
+    // start and none is pending, it becomes the pending key, and like yaml-cpp the scan opens its
+    // mapping's level already.
+    void start_node(std::int64_t column) {
+        if (!in_flow() && key_allowed_ && !key_active_) {
+            key_active_ = true;
+            key_line_ = line_start_;
+            key_offset_ = i_;
+            key_indent_ = push_indent(column, false, true) ? indents_.size() - 1 : kNoIndent;
+        }
+        key_allowed_ = false;
+    }
+
+    // The pending key is not a key: its level ends at the next token, unless another level is open
+    // inside it.
+    void invalidate_key() {
+        if (key_active_ && key_indent_ < indents_.size()) {
+            indents_[key_indent_].invalid = true;
+        }
+        key_active_ = false;
+        key_indent_ = kNoIndent;
+    }
+
+    // ": " in a block collection. A pending key that starts on this line, at most 1024 bytes back,
+    // is a key, and its level stays open; no key may follow on this line. Otherwise a mapping opens
+    // here, and a key may follow.
+    void value_indicator(std::int64_t column) {
+        if (key_active_ && key_line_ == line_start_ && i_ - key_offset_ <= 1024) {
+            if (key_indent_ != kNoIndent) {
+                indents_[key_indent_].possible = false;
+            }
+            key_active_ = false;
+            key_indent_ = kNoIndent;
+            key_allowed_ = false;
+        } else {
+            invalidate_key();
+            push_indent(column, false);
+            key_allowed_ = true;
+        }
+    }
+
+    // Scans the token at i_.
+    void scan_token() {
+        const char c = text_[i_];
+        const std::int64_t col = column(i_);
+        if (col == 0 && (c == '%' || is_document_marker(i_))) {
+            // A directive or a document marker ends every level and the pending key.
+            indents_.clear();
+            key_active_ = false;
+            key_indent_ = kNoIndent;
+            key_allowed_ = false;
+            json_like_ = false;
+            if (c == '%') {
+                count_to_line_end();
+            } else {
+                i_ += 3;
+            }
+            return;
+        }
+        if (!in_flow()) {
+            pop_indents(col, c == '-' && separated_after(i_));
+        }
+        // In a flow collection, ':' right after a quoted scalar or a collection is an indicator.
+        const bool after_json_like = json_like_;
+        json_like_ = false;
+        switch (c) {
         case '[':
         case '{':
-            if (++depth > max_depth) {
-                return i;
+            start_node(col);
+            ++depth_;
+            if (!count(i_)) {
+                ++i_;
             }
-            break;
+            return;
         case ']':
         case '}':
-            if (depth > 0) {
-                --depth;
+            if (depth_ > 0) {
+                --depth_;
+                --count_;
+            } else {
+                count(i_);
+            }
+            key_allowed_ = false;
+            json_like_ = true;
+            ++i_;
+            return;
+        case ',':
+            ++i_;
+            return;
+        case '\'':
+        case '"':
+            start_node(col);
+            skip_quoted(c);
+            json_like_ = true;
+            return;
+        case '&': // an anchor
+        case '*': // an alias
+            start_node(col);
+            for (++i_; i_ < text_.size() && !is_white(text_[i_]) && !is_flow_indicator(text_[i_]);
+                 ++i_) {
+            }
+            return;
+        case '!':
+            start_node(col);
+            skip_tag();
+            return;
+        case '|':
+        case '>':
+            if (!in_flow()) {
+                skip_block_scalar();
+                return;
+            }
+            break;
+        case '-': // an entry of a block sequence
+        case '?': // an explicit key
+            if (separated_after(i_)) {
+                if (!in_flow()) {
+                    push_indent(col, c == '-');
+                    key_allowed_ = true;
+                }
+                ++i_;
+                return;
+            }
+            break;
+        case ':':
+            if (separated_after(i_) ||
+                (in_flow() && (after_json_like || is_flow_indicator(text_[i_ + 1])))) {
+                if (!in_flow()) {
+                    value_indicator(col);
+                }
+                ++i_;
+                return;
             }
             break;
         default:
             break;
         }
+        // A plain scalar. Its lines must be indented past the level open where it starts.
+        const std::int64_t min_indent = in_flow() ? 0 : block_indent() + 1;
+        start_node(col);
+        skip_plain_scalar(min_indent);
     }
-    return std::nullopt;
+
+    void skip_quoted(char quote) {
+        for (++i_; i_ < text_.size(); ++i_) {
+            if (quote == '"' && text_[i_] == '\\' && i_ + 1 < text_.size()) {
+                ++i_; // the escaped character, which may be a line break
+            } else if (text_[i_] == quote) {
+                if (quote == '"' || i_ + 1 == text_.size() || text_[i_ + 1] != '\'') {
+                    ++i_;
+                    return;
+                }
+                ++i_; // '' is a quote
+                continue;
+            }
+        }
+    }
+
+    void skip_tag() {
+        ++i_;
+        if (i_ < text_.size() && text_[i_] == '<') { // a verbatim tag, !<...>
+            for (; i_ < text_.size() && text_[i_] != '>' && !is_white(text_[i_]); ++i_) {
+                if (count(i_)) {
+                    return;
+                }
+            }
+            if (i_ < text_.size() && text_[i_] == '>') {
+                ++i_;
+            }
+            return;
+        }
+        while (i_ < text_.size() && is_tag_char(text_[i_])) {
+            ++i_;
+        }
+    }
+
+    // A literal (|) or folded (>) scalar: the rest of its header line, then every empty line and
+    // every line indented at least as far as the content. The header's indentation indicator
+    // gives that indentation, counted from the innermost level; otherwise the first line that is
+    // not empty does, and it is at least one column past that level.
+    void skip_block_scalar() {
+        const std::int64_t base = std::max<std::int64_t>(block_indent(), 0);
+        std::int64_t indent = base + 1;
+        bool detect = true;
+        for (++i_; i_ < text_.size() &&
+                   (text_[i_] == '+' || text_[i_] == '-' || (text_[i_] >= '0' && text_[i_] <= '9'));
+             ++i_) {
+            if (detect && text_[i_] >= '1' && text_[i_] <= '9') {
+                indent = base + (text_[i_] - '0');
+                detect = false;
+            }
+        }
+        while (i_ < text_.size() && (text_[i_] == ' ' || text_[i_] == '\t')) {
+            ++i_;
+        }
+        if (i_ < text_.size() && text_[i_] == '#') {
+            skip_comment();
+        } else {
+            count_to_line_end(); // text the parser rejects
+        }
+        bool found_text = false;
+        while (i_ < text_.size() && !found_) { // at a line break
+            const std::size_t start = i_ + 1;
+            std::size_t end = start;
+            while (end < text_.size() && text_[end] == ' ') {
+                ++end;
+            }
+            const std::int64_t line_indent = column(end);
+            const bool empty = line_ends_at(end);
+            if (detect && !found_text) {
+                indent = std::max(indent, line_indent); // an empty line before the text counts too
+            }
+            if (!empty) {
+                if (line_indent < indent) { // the first line after the scalar
+                    i_ = end;
+                    key_allowed_ = true;
+                    return;
+                }
+                found_text = true;
+            }
+            i_ = end;
+            count_to_line_end();
+        }
+    }
+
+    // A plain scalar ends before ": " and " #", in a flow collection also before a flow
+    // indicator, and at the end of a line that does not continue it.
+    void skip_plain_scalar(std::int64_t min_indent) {
+        while (i_ < text_.size()) {
+            const char c = text_[i_];
+            if (at_break(i_)) {
+                if (!continue_plain_scalar(min_indent)) {
+                    key_allowed_ = true;
+                    return;
+                }
+            } else if ((c == ':' &&
+                        (separated_after(i_) || (in_flow() && is_flow_indicator(text_[i_ + 1])))) ||
+                       (c == '#' && i_ > 0 && (text_[i_ - 1] == ' ' || text_[i_ - 1] == '\t')) ||
+                       (in_flow() && is_flow_indicator(c))) {
+                return;
+            } else if (count(i_)) {
+                return;
+            } else {
+                ++i_;
+            }
+        }
+    }
+
+    // At the end of a line of a plain scalar: moves past any empty lines to the first character of
+    // the next line that is not empty, and returns whether that line continues the scalar. A line
+    // indented less than `min_indent`, a comment and a document marker do not.
+    // The scalar takes these line breaks, so they leave the pending key alone, unlike one between
+    // tokens.
+    bool continue_plain_scalar(std::int64_t min_indent) {
+        std::size_t first = i_ + 1;
+        for (;;) {
+            while (first < text_.size() && is_white(text_[first]) && !at_break(first)) {
+                ++first;
+            }
+            if (first == text_.size() || !at_break(first)) {
+                break;
+            }
+            ++first;
+        }
+        i_ = first;
+        if (first == text_.size()) {
+            return false;
+        }
+        const std::int64_t indent = column(first);
+        return indent >= min_indent && text_[first] != '#' &&
+               !(indent == 0 && is_document_marker(first));
+    }
+
+    static constexpr std::size_t kNoIndent = static_cast<std::size_t>(-1);
+
+    std::string_view text_;
+    int max_depth_;
+    std::size_t i_ = 0;
+    char line_end_ = '\n';
+    std::size_t line_start_ = 0; // where the line of the offsets column() was last asked for starts
+    std::size_t columns_seen_ = 0;       // column() has looked for line ends before this offset
+    std::optional<std::size_t> found_;   // the bracket one level too deep
+    int depth_ = 0;                      // open flow collections; flow context when above 0
+    int count_ = 0;                      // brackets counted: at least depth_
+    std::vector<BlockIndent> indents_;   // open levels, innermost last
+    bool raw_ = false;                   // counting every opening bracket and no closing one
+    bool key_allowed_ = true;            // whether the next node may be a key
+    bool key_active_ = false;            // whether a key is pending
+    std::size_t key_line_ = 0;           // where the pending key's line starts
+    std::size_t key_offset_ = 0;         // where the pending key starts
+    std::size_t key_indent_ = kNoIndent; // the index of its level in indents_, if it opened one
+    bool json_like_ = false;             // the last token was a quoted scalar or a collection's end
+};
+
+} // namespace
+
+std::optional<std::size_t> find_excessive_nesting(std::string_view text, int max_depth) {
+    return NestingScanner(text, max_depth).run();
 }
 
 } // namespace praenora::detail

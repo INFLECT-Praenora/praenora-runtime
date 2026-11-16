@@ -43,9 +43,14 @@ struct TextPosition {
 };
 TextPosition text_position(std::string_view text, std::size_t offset);
 
-// The offset of the first '[' or '{' that opens level max_depth + 1, or nullopt. Brackets inside
-// quoted strings (a quote opens one only at the start of a token) and inside YAML comments ('#'
-// after whitespace) do not count. Meant for JSON and YAML text.
+// The offset of the first '[' or '{' that opens level max_depth + 1, or nullopt. Meant for JSON
+// and YAML text. Brackets count everywhere outside quoted scalars and comments, inside plain and
+// block scalars too. The quoted scalars and comments are found by splitting the text into tokens
+// as yaml-cpp does, and as long as that split agrees with yaml-cpp's, the count is at least the
+// flow nesting yaml-cpp finds. A quote opens a string only where a token starts, never inside a
+// plain scalar such as a:'x or don't, and where a scalar ends depends on indentation, which the
+// split follows too. Text with a NUL byte is not split (it is UTF-16 or UTF-32, which yaml-cpp
+// reads too, or not text): every opening bracket in it counts, and no closing one.
 std::optional<std::size_t> find_excessive_nesting(std::string_view text, int max_depth);
 
 } // namespace praenora::detail
