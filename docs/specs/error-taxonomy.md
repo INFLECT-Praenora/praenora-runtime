@@ -149,7 +149,9 @@ Notes on the table:
   exactly one document: `{"ok": true, "result": ...}` or
   `{"ok": false, "error": <Error::to_json()>, "diagnostics": [...]}`.
 - **Run failures.** The error of a failed run is also in the run summary, the run record's
-  `execution.error` and the status snapshot's `last_error`. Its details name the `step`, the
+  `execution.error` and the status snapshot's `last_error`, each an error record with the error's
+  code, message, `location` and `details` ([observability.md](observability.md#status-snapshot)),
+  even when an exception broke off the ending of the run. Its details name the `step`, the
   `module` (`name@version`), the `phase` (`load`, `create`, `initialize` or `invoke`), the `tick`
   during a tick, the module's error document as `cause`, and the instance's `diagnostics()` when the
   manifest declares them ([module-abi.md](module-abi.md#status-codes-and-errors)). A service
@@ -212,8 +214,9 @@ the environment, and 130 at a stop.
 A new code needs an `ErrorCode` enumerator in
 [`error.hpp`](../../include/praenora/runtime/error.hpp), a row in the runtime's table in
 [`error.cpp`](../../src/runtime/core/error.cpp), a row in this document and, for a general code, a
-`PRAENORA_STATUS_*` macro and a name in `praenora_status_name()` in `status.h` together with an ABI
-minor version and an ADR.
+`PRAENORA_STATUS_*` macro and a name in `praenora_status_name()` in `status.h` together with an ADR
+and, once versions are bumped again, an ABI minor version
+([compatibility-policy.md](compatibility-policy.md#changing-a-version)).
 
 ## References
 

@@ -298,7 +298,13 @@ class WorkflowErrorTest(WorkflowTestCase):
             self.assertEqual((caught.exception.name, caught.exception.category),
                              ("STEP_FAILED", "execution"))
             self.assertEqual(workflow.state, "failed")
-            self.assertEqual(workflow.status()["workflow"]["last_error"]["name"], "STEP_FAILED")
+            last_error = workflow.status()["workflow"]["last_error"]
+            self.assertEqual(last_error["name"], "STEP_FAILED")
+            # The status's error record holds the error's details (and its location: none here).
+            self.assertEqual(last_error["details"], caught.exception.details)
+            self.assertEqual(last_error["details"]["step"], "a")
+            self.assertEqual(caught.exception.location, {})
+            self.assertIsNone(last_error["location"])
             # A failed run throws its failure again.
             with self.assertRaises(pr.PraenoraError) as again:
                 workflow.run()

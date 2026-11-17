@@ -15,7 +15,8 @@ predictions. It is the catalog entry
 
 The runtime validates the workflow's graph like any other (the tests do), but the workflow cannot
 run until modules implement its capabilities. The runtime does not hard-code it: changing it is a
-catalog change, a new version of the definition, never a code change.
+catalog change (a new version of the definition once versions are bumped again;
+[compatibility-policy.md](compatibility-policy.md#changing-a-version)), never a code change.
 
 ## Graph
 

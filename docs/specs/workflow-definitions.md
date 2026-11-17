@@ -154,12 +154,13 @@ A workflow configuration (`workflow-config`) uses a definition as follows
 
 ## Versioning
 
-A catalog entry is immutable once published: a change to a definition's steps, ports, connections or
-types MUST be a new version of the entry, and a change to a capability or message type a new version
-of that entry. In v0 every reference is exact: a step names one capability version, a port one
-message type version, and a module must list the exact capability version
-([compatibility-policy.md](compatibility-policy.md)). Changing the workflow a deployment runs is a
-catalog change and a configuration change, never a code change.
+Once versions are bumped again, a published catalog entry is immutable: a change to a
+definition's steps, ports, connections or types MUST be a new version of the entry, and a change to
+a capability or message type a new version of that entry. For now an entry changes in place
+([compatibility-policy.md](compatibility-policy.md#changing-a-version)). In v0 every reference is
+exact: a step names one capability version, a port one message type version, and a module must list
+the exact capability version ([compatibility-policy.md](compatibility-policy.md)). Changing the
+workflow a deployment runs is a catalog change and a configuration change, never a code change.
 
 ## Inspecting a definition
 

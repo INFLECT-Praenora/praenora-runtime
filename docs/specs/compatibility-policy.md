@@ -87,9 +87,10 @@ The `pmp_version` that `describe()` reports is checked for its form only.
   service requirements ([manifest.md](manifest.md)), also when a module declares none. A runtime
   0.1 reads neither: a module built with SDK 0.2 needs a runtime 0.2 or later, while a runtime 0.2
   still reads the manifests that SDK 0.1 wrote. A manifest of format 0.1 declares no service.
-- A change to what a format's schema accepts MUST be a new format version with a schema file of its
-  own (`<kind>.<major>.<minor>.schema.json`). Patch versions share their schema, so a patch change
-  MUST NOT change what the schema accepts.
+- Once versions are bumped again ([Changing a version](#changing-a-version); for now a format
+  changes in place), a change to what a format's schema accepts MUST be a new format version with a
+  schema file of its own (`<kind>.<major>.<minor>.schema.json`). Patch versions share their
+  schema, so a patch change MUST NOT change what the schema accepts.
 
 ### Catalog entries
 
@@ -102,8 +103,9 @@ evolving message types and capabilities is open ([open-questions.md](../open-que
   (`CAPABILITY_NOT_IMPLEMENTED`), and its `describe()` document lists the same set of capabilities as
   its manifest (`MODULE_IDENTITY_MISMATCH`).
 
-A published entry is never changed; a change is a new version
-([workflow-definitions.md](workflow-definitions.md#versioning)).
+Once versions are bumped again, a published entry is never changed; a change is a new version
+([workflow-definitions.md](workflow-definitions.md#versioning)). For now an entry changes in place
+([Changing a version](#changing-a-version)).
 
 ### Modules
 
@@ -141,6 +143,16 @@ provider it uses. Loading then checks the table and the identity
 ([runtime-services.md](runtime-services.md#runs-and-checks)).
 
 ## Changing a version
+
+For now no version is bumped: nothing outside this repository uses the runtime, the SDK, the ABI,
+the document formats or the catalog yet, so a change goes into the current versions in place,
+schemas, catalog entries and this repository's modules included
+([AGENTS.md](../../AGENTS.md#change-rules)). Until versions are bumped again, only these rules wait:
+the pre-1.0 convention ([Semantic versions](#semantic-versions)), the "Version to bump" column
+below, the rule that a change to what a schema accepts is a new format version, the rule that a
+changed catalog entry is a new version, and the deprecation period (a feature deprecated one release
+before its removal). The "Also required" column applies now, and so do the checks of the rules
+above, which the runtime enforces whatever the versions.
 
 | Change | Version to bump | Also required |
 |---|---|---|

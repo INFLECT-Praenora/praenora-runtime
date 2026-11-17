@@ -417,6 +417,28 @@ TEST(Engine, SchemaViolatingOutputIsOutputInvalidWithPointer) {
     EXPECT_EQ(details.at("port"), "out");
     EXPECT_EQ(details.at("type"), "test.blob@0.1.0");
     EXPECT_EQ(engine.state(), WorkflowState::failed);
+
+    // The run's error record keeps the location and the details of the error thrown, in the
+    // summary, the status (the run's and the step's last error) and the run record.
+    const RunSummary summary = engine.summary();
+    ASSERT_TRUE(summary.error.has_value());
+    EXPECT_EQ(summary.error->location.pointer, "/outputs/out/data");
+    EXPECT_EQ(summary.error->location.file, "");
+    EXPECT_EQ(json::parse(summary.error->details_json), details);
+    const StatusSnapshot status = fixture.metrics.snapshot();
+    ASSERT_TRUE(status.last_error.has_value());
+    EXPECT_EQ(status.last_error->location.pointer, "/outputs/out/data");
+    EXPECT_EQ(json::parse(status.last_error->details_json), details);
+    const StepStatus& a = fixture.step_status(status, "a");
+    ASSERT_TRUE(a.last_error.has_value());
+    EXPECT_EQ(a.last_error->location.pointer, "/outputs/out/data");
+    EXPECT_EQ(json::parse(a.last_error->details_json), details);
+    const json record = json::parse(read_file(fixture.out() / "run-record.json"));
+    EXPECT_TRUE(schema_of("run-record").validate(record).empty()) << record.dump(2);
+    const json& recorded = record.at("execution").at("error");
+    EXPECT_EQ(recorded.at("location"), json({{"pointer", "/outputs/out/data"}}));
+    EXPECT_EQ(recorded.at("details"), details);
+    EXPECT_EQ(record.at("execution").at("final_status").at("workflow").at("last_error"), recorded);
 }
 
 TEST(Engine, OutputValidationOffAcceptsSchemaViolatingData) {
@@ -504,8 +526,11 @@ TEST(Engine, ModuleFailureFailsFastAndCleansUp) {
     EXPECT_EQ(summary.ticks_completed, 1u);
     ASSERT_TRUE(summary.error.has_value());
     EXPECT_EQ(summary.error->code, ErrorCode::STEP_FAILED);
+    EXPECT_EQ(summary.error->message, error.what());
     EXPECT_EQ(summary.error->tick, std::optional<std::uint64_t>(1));
     EXPECT_EQ(json::parse(summary.error->cause_json).at("code"), 11);
+    // Its details are those of the error thrown: step, module, phase, tick, cause, diagnostics.
+    EXPECT_EQ(json::parse(summary.error->details_json), details);
 
     const StatusSnapshot status = fixture.metrics.snapshot();
     EXPECT_EQ(status.state, WorkflowState::failed);
@@ -517,6 +542,8 @@ TEST(Engine, ModuleFailureFailsFastAndCleansUp) {
     EXPECT_EQ(a.succeeded, 1u);
     EXPECT_EQ(a.failed, 1u);
     EXPECT_EQ(a.state, StepState::failed);
+    ASSERT_TRUE(a.last_error.has_value());
+    EXPECT_EQ(json::parse(a.last_error->details_json), details);
     const StepStatus& b = fixture.step_status(status, "b");
     EXPECT_EQ(b.invocations, 1u);
     EXPECT_EQ(b.state, StepState::destroyed);
@@ -528,6 +555,8 @@ TEST(Engine, ModuleFailureFailsFastAndCleansUp) {
     EXPECT_EQ(record.at("execution").at("ticks_completed"), 1);
     EXPECT_EQ(record.at("execution").at("error").at("name"), "STEP_FAILED");
     EXPECT_EQ(record.at("execution").at("error").at("cause").at("code"), 11);
+    EXPECT_EQ(record.at("execution").at("error").at("location"), nullptr);
+    EXPECT_EQ(record.at("execution").at("error").at("details"), details);
     EXPECT_EQ(record, engine.run_record());
 }
 
@@ -1147,4 +1176,13 @@ TEST(Engine, ExistingRunRecordIsNotOverwritten) {
     // Nothing ran and the earlier record is untouched.
     EXPECT_TRUE(fixture.lifecycle().empty());
     EXPECT_EQ(read_file(fixture.out() / "run-record.json"), "{\"earlier\": true}\n");
+    // The error is located at that file, and so is the run's error record.
+    EXPECT_TRUE(contains(error.location().file, "run-record.json")) << error.to_json();
+    const RunSummary summary = engine.summary();
+    ASSERT_TRUE(summary.error.has_value());
+    EXPECT_EQ(summary.error->location.file, error.location().file);
+    const json status = json::parse(fixture.metrics.snapshot().to_json());
+    EXPECT_EQ(status.at("workflow").at("last_error").at("location"),
+              json({{"file", error.location().file}}));
+    EXPECT_EQ(status.at("workflow").at("last_error").at("details"), nullptr);
 }

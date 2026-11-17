@@ -36,6 +36,7 @@ Operators and scripts need to know what a run is doing, how it is performing and
 - The environment is read once, when the `Runtime` is constructed. An empty variable counts as unset; an invalid value makes the constructor throw `CONFIG_INVALID`, naming the variable. Each workflow logs through a log hub of its own, built with its resolved settings. Logging is never part of the run fingerprint.
 - The runtime's loggers are `praenora.runtime` (the `Runtime`), `praenora.engine` (a run, the loading of its modules included), `module.<step>` (a step's module messages and the events of its instance) and `module.check` (module messages during the contract checks); there are no `praenora.loader` or `praenora.config` loggers, because configuration and loading problems reach the caller as errors and validation diagnostics. Events per step, call or tick (`step.ready`, `invocation.completed`, `tick.completed`, `service.lookup`) are at debug level, and `invocation.completed` and `tick.completed` carry their durations in the `duration_ns` attribute rather than in the message text; `run.started`, `run.completed` and `run.stopped` are at info level.
 - A module's `diagnostics()` output appears only in the details of a failure, when the manifest declares `features.diagnostics`; the message trace carries each result's `diagnostics` object instead.
+- Later: [ADR-0028](ADR-0028-error-records-keep-location-and-details.md) gives every error record the location and details of its error (`location` and `details` in the document).
 
 ## Alternatives considered
 

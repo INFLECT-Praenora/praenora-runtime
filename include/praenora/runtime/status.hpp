@@ -30,13 +30,17 @@ enum class StepState { loaded, created, ready, busy, finalized, destroyed, faile
 enum class Health { unknown, healthy, degraded, unhealthy };
 
 // The last error of a step or of the workflow. `cause_json` holds the module's own error document
-// when a module call failed, otherwise it is empty.
+// when a module call failed, otherwise it is empty. `location` and `details_json` are those of the
+// error (Error::location() and Error::details_json(), "{}" when it has no details); a record that
+// does not come from a praenora::Error leaves them empty.
 struct ErrorRecord {
     ErrorCode code = ErrorCode::UNKNOWN;
     std::string message;
     std::optional<std::uint64_t> tick;
     std::int64_t at_unix_ns = 0;
     std::string cause_json;
+    SourceLocation location;
+    std::string details_json;
 };
 
 struct StepStatus {

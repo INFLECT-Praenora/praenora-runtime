@@ -198,8 +198,8 @@ TEST(RunRecord, ValidatesAgainstSchema) {
     EXPECT_EQ(text.find('\r'), std::string::npos);
     EXPECT_EQ(text.back(), '\n');
 
-    // A failed run records its error, with the module's error document as the cause; a cause that
-    // is not a JSON object is kept as text.
+    // A failed run records its error, with its location, its details and the module's error
+    // document as the cause; a cause that is not a JSON object is kept as text.
     RunRecordWriter failed(dir.path() / "failed", workflow.reproducibility, workflow.fingerprint,
                            {}, false);
     failed.write_started(kStartedAt);
@@ -213,6 +213,8 @@ TEST(RunRecord, ValidatesAgainstSchema) {
     error.tick = 1;
     error.at_unix_ns = kStartedAt;
     error.cause_json = R"({"code":11,"message":"bad row","details":{}})";
+    error.location.pointer = "/outputs/out";
+    error.details_json = R"({"step":"a","phase":"invoke","tick":1})";
     failure.error = error;
     failed.write_final(failure, kStartedAt + 1, {}, status_json(workflow, WorkflowState::failed));
     const json failed_record = json::parse(read_file(dir.path() / "failed" / "run-record.json"));
@@ -221,14 +223,15 @@ TEST(RunRecord, ValidatesAgainstSchema) {
     EXPECT_EQ(failed_execution.at("status"), "failed");
     EXPECT_EQ(failed_execution.at("validation"), "off");
     EXPECT_EQ(failed_execution.at("overrides"), json::object());
-    EXPECT_EQ(
-        failed_execution.at("error"),
-        json({{"code", 700},
-              {"name", "STEP_FAILED"},
-              {"message", "step 'a' failed"},
-              {"tick", 1},
-              {"at", "2023-11-14T22:13:20.123456789Z"},
-              {"cause", {{"code", 11}, {"message", "bad row"}, {"details", json::object()}}}}));
+    EXPECT_EQ(failed_execution.at("error"),
+              json({{"code", 700},
+                    {"name", "STEP_FAILED"},
+                    {"message", "step 'a' failed"},
+                    {"tick", 1},
+                    {"at", "2023-11-14T22:13:20.123456789Z"},
+                    {"cause", {{"code", 11}, {"message", "bad row"}, {"details", json::object()}}},
+                    {"location", {{"pointer", "/outputs/out"}}},
+                    {"details", {{"step", "a"}, {"phase", "invoke"}, {"tick", 1}}}}));
     EXPECT_EQ(failed_execution.at("outputs"), json::object());
     EXPECT_FALSE(failed_execution.contains("trace"));
 

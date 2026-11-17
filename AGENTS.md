@@ -253,9 +253,21 @@ docs/                         index.md, the guides (architecture, user-guide, co
 ## Change rules
 
 - Schema, catalog and documentation changes travel together.
-- An ABI or protocol change bumps its version (ABI: `include/praenora/sdk/abi.h`; SDK, PMP and
-  document formats: `cmake/PraenoraVersions.cmake`; runtime package: `project(VERSION)` in
-  `CMakeLists.txt`) and adds an ADR in `docs/adr/`.
+- **Versions are not bumped for now.** Nothing outside this repository uses the runtime, the SDK,
+  the ABI, the document formats or the catalog yet, so compatibility with earlier versions is not a
+  concern. Every version stays as it is: the runtime package, the SDK, PMP, the module ABI, the
+  provider interface, the simulation service, each document format, each catalog entry and the
+  modules of this repository. Make each change within the current version: edit the schema file,
+  header, catalog entry, documentation, tests and fixtures it affects. Never raise a version number,
+  and never add a schema file or a catalog entry file for a new version. This holds until the
+  maintainers decide to bump versions again; until then, the bump rules of
+  [docs/specs/compatibility-policy.md](docs/specs/compatibility-policy.md#changing-a-version) and
+  the specifications' rules that a change is a new version describe what will apply then, not what
+  to do now.
+- An ABI, protocol or document-format change adds an ADR in `docs/adr/`. Once versions are bumped
+  again, it also bumps its version (ABI: `include/praenora/sdk/abi.h`; SDK, PMP and document
+  formats: `cmake/PraenoraVersions.cmake`; runtime package: `project(VERSION)` in
+  `CMakeLists.txt`).
 - Resolving an open question updates its row in `docs/open-questions.md` and adds or supersedes an
   ADR. Calls made while building go into the relevant ADR as "Builder notes" (Proposed).
 - Golden files, and the committed AsyncAPI documents in `spec/asyncapi/`, are refreshed only with

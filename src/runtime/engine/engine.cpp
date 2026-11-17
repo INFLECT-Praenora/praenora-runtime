@@ -8,6 +8,7 @@
 #include "engine/envelope.hpp"
 #include "engine/result_check.hpp"
 #include "loader/library_file.hpp"
+#include "observability/status_json.hpp"
 #include "provider/provider_loader.hpp"
 
 #include <praenora/sdk/status.h>
@@ -120,13 +121,9 @@ void keep_forever(std::unique_ptr<ModuleInstance> instance) noexcept {
     }
 }
 
+// The record of `error`, with its location and details, stamped now.
 ErrorRecord record_of(const Error& error, std::optional<std::uint64_t> tick) {
-    ErrorRecord record;
-    record.code = error.code();
-    record.message = error.what();
-    record.tick = tick;
-    record.at_unix_ns = now_unix_ns();
-    return record;
+    return error_record_of(error, tick, now_unix_ns());
 }
 
 // INTERNAL: an envelope the engine built around `what` in `tick` breaks pmp-envelope. Only a defect
@@ -726,6 +723,7 @@ Error Engine::fail(const Error& error, const Failure& failure) {
     std::string details_text = error.details_json();
     try {
         record.message = error.what();
+        record.location = error.location();
         json details = json::parse(details_text, nullptr, false);
         if (!details.is_object()) {
             details = json::object();
@@ -756,6 +754,17 @@ Error Engine::fail(const Error& error, const Failure& failure) {
                     details["diagnostics"] = bounded_diagnostics(*text);
                 }
             }
+        }
+        // The record holds the details of the error thrown, complete. Without memory for them,
+        // the record goes without, and the step's metrics are still brought up to date.
+        try {
+            details_text = dump(details);
+            record.details_json = details_text;
+        } catch (...) {
+        }
+        if (failure.step != nullptr) {
+            Step& step = *failure.step;
+            const ResolvedStep& resolved = *step.resolved;
             // An invocation is counted (with its error); any other failure of the step is only
             // its last error.
             if (failed_call != nullptr && failure.phase != nullptr &&
@@ -765,13 +774,14 @@ Error Engine::fail(const Error& error, const Failure& failure) {
             } else {
                 metrics_.set_step_error(resolved.id, record);
             }
-            step.failed = true;
-            sync_step_state(step);
         }
-        details_text = dump(details);
         metrics_.set_last_error(record);
     } catch (...) {
         // Out of memory while describing the failure: the run still ends, with less detail.
+    }
+    if (failure.step != nullptr) {
+        failure.step->failed = true;
+        sync_step_state(*failure.step);
     }
     log(LogLevel::error, std::string("run failed: ") + error.what(),
         {{"event", "run.failed"}, {"code", std::string(error_code_info(error.code()).name)}});
@@ -913,13 +923,13 @@ std::optional<Error> Engine::finish(WorkflowState final_state, std::optional<Err
                     error_ = std::move(error);
                 }
             } else {
-                // The record of the error returned; when memory runs out, its code alone.
+                // The record of the error returned (its message, location and details); when
+                // memory runs out, its code alone.
                 ErrorRecord first;
                 first.code = problem ? problem->code() : ErrorCode::INTERNAL;
                 if (problem) {
                     try {
-                        first.message = problem->what();
-                        first.at_unix_ns = now_unix_ns();
+                        first = record_of(*problem, std::nullopt);
                     } catch (...) {
                     }
                 }
@@ -1000,10 +1010,7 @@ void Engine::teardown() noexcept {
             if (result.outcome != CallOutcome::succeeded) {
                 step.failed = step.instance->state() != StepState::unresponsive;
                 const Error error = call_error(step, "finalize", result, std::nullopt);
-                ErrorRecord record;
-                record.code = error.code();
-                record.message = error.what();
-                record.at_unix_ns = now_unix_ns();
+                ErrorRecord record = record_of(error, std::nullopt);
                 if (auto cause = module_cause(result)) {
                     record.cause_json = dump(*cause);
                 }

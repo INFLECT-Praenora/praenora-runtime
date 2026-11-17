@@ -1,6 +1,8 @@
 // The error-code table and the implementation of praenora/runtime/error.hpp.
 #include <praenora/runtime/error.hpp>
 
+#include "core/location_json.hpp"
+
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
@@ -189,20 +191,7 @@ template <typename Json> std::string dump(const Json& json) {
 }
 
 nlohmann::ordered_json location_json(const SourceLocation& location) {
-    auto json = nlohmann::ordered_json::object();
-    if (!location.file.empty()) {
-        json["file"] = location.file;
-    }
-    if (location.line > 0) {
-        json["line"] = location.line;
-        if (location.column > 0) {
-            json["column"] = location.column;
-        }
-    }
-    if (!location.pointer.empty()) {
-        json["pointer"] = location.pointer;
-    }
-    return json;
+    return detail::location_parts<nlohmann::ordered_json>(location);
 }
 
 } // namespace

@@ -122,8 +122,16 @@ from a copy of the metrics, so it never waits for a module call.
   `failed`. `stopping` is shown only while a stop or a failure winds the run down.
 - Step states are the instance states of the [module ABI](module-abi.md#lifecycle), `busy` during
   each call; a step whose call failed is shown as `failed` from then on.
-- An error record is `{code, name, message, tick, at, cause}`, where `cause` is the module's error
-  document. A step's last error stays until a later error replaces it; a stop sets no error.
+- An error record is `{code, name, message, tick, at, cause, location, details}`. `cause` is the
+  module's error document (one that is not a JSON object is kept as `{"text": ...}`), or null.
+  `location` and `details` are those of the error, as `praenora::Error` and the CLI's error
+  document hold them: `location` has the parts that are set (`file`, `line`, `column`, `pointer`;
+  a column only with a line), or is null when none is, and `details` is the error's details object
+  (for a run failure the `step`, `module`, `phase`, `tick`, `cause` and `diagnostics` of
+  [error-taxonomy.md](error-taxonomy.md#how-errors-are-reported)), or null when it has none (text
+  that is not a JSON object is kept as `{"text": ...}`). Every key is always written. A record
+  that does not come from an error, such as `RUN_STOPPED`, has a null `location` and null
+  `details`. A step's last error stays until a later error replaces it; a stop sets no error.
 - Instants are RFC 3339 strings, and an unset instant is `null` (except `generated_at`, which is
   always set). The document is compact JSON.
 

@@ -4,6 +4,7 @@
 #include "core/paths.hpp"
 #include "core/time.hpp"
 #include "io/run_record.hpp"
+#include "observability/status_json.hpp"
 
 #include <praenora/runtime/error.hpp>
 #include <praenora/runtime/status.hpp>
@@ -78,11 +79,8 @@ Workflow::Impl::Impl(std::shared_ptr<const detail::RuntimeContext> runtime_conte
             *status_path, status_interval, [this] { return metrics.snapshot().to_json(); },
             [this](const Error& error) {
                 // A write that failed degrades the run's health.
-                ErrorRecord record;
-                record.code = error.code();
-                record.message = error.what();
-                record.at_unix_ns = detail::now_unix_ns();
-                metrics.set_last_error(std::move(record));
+                metrics.set_last_error(
+                    detail::error_record_of(error, std::nullopt, detail::now_unix_ns()));
             });
         status_target.store(status_file.get());
     }
@@ -160,10 +158,14 @@ RunSummary Workflow::run(std::optional<std::uint64_t> max_ticks) {
             throw *impl_->failure;
         }
         // Nothing kept: the call that ended the run threw something other than a praenora::Error
-        // (out of memory, which the engine passes on as it is). The run's error record says why.
+        // (out of memory, which the engine passes on as it is). The run's error record says why,
+        // with the error's location and details.
         const std::optional<ErrorRecord> error = engine.summary().error;
-        throw Error(error ? error->code : ErrorCode::INTERNAL,
-                    error ? error->message : std::string("the run failed"));
+        if (!error) {
+            throw Error(ErrorCode::INTERNAL, "the run failed");
+        }
+        throw Error(error->code, error->message, error->location,
+                    error->details_json.empty() ? std::string("{}") : error->details_json);
     }
     try {
         if (engine.state() == WorkflowState::created) {

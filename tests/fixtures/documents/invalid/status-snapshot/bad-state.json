@@ -46,7 +46,9 @@
           "code": 10001,
           "message": "bad row",
           "details": {}
-        }
+        },
+        "location": null,
+        "details": null
       }
     }
   ]

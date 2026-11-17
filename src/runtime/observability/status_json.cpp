@@ -2,6 +2,7 @@
 // UTC strings, durations stay integers of nanoseconds (fields ending in _ns).
 #include <praenora/runtime/status.hpp>
 
+#include "core/location_json.hpp"
 #include "core/time.hpp"
 #include "observability/status_json.hpp"
 
@@ -38,25 +39,55 @@ json error_record(const std::optional<ErrorRecord>& record) {
     return record ? detail::error_record_json(*record) : json(nullptr);
 }
 
+// The JSON object of `text`, {"text": text} for any other text, or null when `text` is empty or,
+// unless `keep_empty`, an empty object.
+json object_or_text(const std::string& text, bool keep_empty) {
+    if (text.empty()) {
+        return nullptr;
+    }
+    json value = json::parse(text, nullptr, false);
+    if (!value.is_object()) {
+        return json{{"text", text}};
+    }
+    if (value.empty() && !keep_empty) {
+        return nullptr;
+    }
+    return value;
+}
+
+// The parts of `location` that are set, or null when none is.
+json location_json(const SourceLocation& location) {
+    json parts = detail::location_parts<json>(location);
+    return parts.empty() ? json(nullptr) : parts;
+}
+
 } // namespace
 
 namespace detail {
 
+ErrorRecord error_record_of(const Error& error, std::optional<std::uint64_t> tick,
+                            std::int64_t at_unix_ns) {
+    ErrorRecord record;
+    record.code = error.code();
+    record.message = error.what();
+    record.tick = tick;
+    record.at_unix_ns = at_unix_ns;
+    record.location = error.location();
+    record.details_json = error.details_json();
+    return record;
+}
+
 json error_record_json(const ErrorRecord& record) {
-    json cause = nullptr;
-    if (!record.cause_json.empty()) {
-        // The module's error document; anything that is not a JSON object is kept as text.
-        cause = json::parse(record.cause_json, nullptr, false);
-        if (!cause.is_object()) {
-            cause = json{{"text", record.cause_json}};
-        }
-    }
     return {{"code", static_cast<std::int32_t>(record.code)},
             {"name", std::string(error_code_info(record.code).name)},
             {"message", record.message},
             {"tick", record.tick ? json(*record.tick) : json(nullptr)},
             {"at", instant(record.at_unix_ns)},
-            {"cause", std::move(cause)}};
+            // The module's error document, which may be an empty object.
+            {"cause", object_or_text(record.cause_json, true)},
+            {"location", location_json(record.location)},
+            // "{}" is how an error says it has no details.
+            {"details", object_or_text(record.details_json, false)}};
 }
 
 } // namespace detail

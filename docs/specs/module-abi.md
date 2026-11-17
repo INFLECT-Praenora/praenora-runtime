@@ -296,9 +296,10 @@ Ownership is summarized in [threading-and-ownership.md](threading-and-ownership.
   and each side reads the other's `struct_size` to learn which exist.
 - A new generation N adds a table type `praenora_module_api_vN` that starts with the same
   `praenora_api_header`. A host MAY ask for its newest generation first and fall back to older ones.
-- Changing the ABI bumps the version in `abi.h` and adds an ADR. Structured logging and
-  module-defined metrics are candidate minor additions
-  ([open-questions.md](../open-questions.md), OQ-24).
+- Changing the ABI adds an ADR; once versions are bumped again, it also bumps the version in `abi.h`
+  ([compatibility-policy.md](compatibility-policy.md#changing-a-version)). Structured logging and
+  module-defined metrics are candidate minor additions ([open-questions.md](../open-questions.md),
+  OQ-24).
 
 ## C++ adapter and test kit (informative)
 

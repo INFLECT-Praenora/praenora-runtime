@@ -1,0 +1,70 @@
+{
+  "kind": "status-snapshot",
+  "format_version": "0.1.0",
+  "generated_at": "2026-11-10T16:04:05.123456789Z",
+  "runtime_version": "0.2.0",
+  "pid": 4242,
+  "workflow": {
+    "name": "example.estimate-predict",
+    "version": "0.1.0",
+    "fingerprint": "9f2c4e1a7b3d5e60000000000000000000000000000000000000000000000000",
+    "state": "failed",
+    "health": "unhealthy",
+    "started_at": "2026-11-10T16:04:05.123456789Z",
+    "uptime_ns": 1500000000,
+    "ticks_completed": 3,
+    "current_tick": 3,
+    "logical_time": 3.0,
+    "last_tick_duration_ns": 1200000,
+    "last_error": {
+      "code": 701,
+      "name": "OUTPUT_INVALID",
+      "message": "step 'estimate' (module example-estimator@0.1.0): output 'estimate' at tick 2 does not satisfy its message type",
+      "tick": 2,
+      "at": "2026-11-10T16:04:05.123456789Z",
+      "cause": null,
+      "location": {
+        "pointer": "/outputs/estimate/data/value"
+      },
+      "details": {
+        "module": "example-estimator@0.1.0",
+        "phase": "invoke",
+        "port": "estimate",
+        "step": "estimate",
+        "tick": 2
+      }
+    }
+  },
+  "steps": [
+    {
+      "step": "estimate",
+      "module_name": "example-estimator",
+      "module_version": "0.1.0",
+      "state": "failed",
+      "invocations": 3,
+      "succeeded": 2,
+      "failed": 1,
+      "timed_out": 0,
+      "cancelled": 0,
+      "last_duration_ns": 1000,
+      "total_duration_ns": 3000,
+      "min_duration_ns": 900,
+      "max_duration_ns": 1100,
+      "mean_duration_ns": 1000.0,
+      "last_invocation_at": "2026-11-10T16:04:05.123456789Z",
+      "last_success_at": null,
+      "last_error": {
+        "code": 701,
+        "name": "OUTPUT_INVALID",
+        "message": "step 'estimate' (module example-estimator@0.1.0): output 'estimate' at tick 2 does not satisfy its message type",
+        "tick": 2,
+        "at": "2026-11-10T16:04:05.123456789Z",
+        "cause": null,
+        "location": {
+          "pointer": "/outputs/estimate/data/value"
+        },
+        "details": "step estimate"
+      }
+    }
+  ]
+}

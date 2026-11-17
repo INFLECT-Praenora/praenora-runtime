@@ -1,6 +1,7 @@
 // The metrics registry, status snapshots, health, the status-snapshot JSON document and the
 // metrics export.
 #include "observability/metrics.hpp"
+#include "observability/status_json.hpp"
 
 #include "core/semver.hpp"
 #include "core/time.hpp"
@@ -428,7 +429,8 @@ TEST(StatusJson, ValidatesAgainstSchema) {
     json expected_error = json::parse(R"({"code":700,"name":"STEP_FAILED","tick":3,
                                           "at":"2023-11-14T22:13:20.123456809Z",
                                           "cause":{"code":10001,"message":"bad row",
-                                                   "details":{}}})");
+                                                   "details":{}},
+                                          "location":null,"details":null})");
     expected_error["message"] = "a failed: r\xC3\xA9sum\xC3\xA9";
     EXPECT_EQ(a.at("last_error"), expected_error);
     const json& b = document.at("steps").at(1);
@@ -438,6 +440,72 @@ TEST(StatusJson, ValidatesAgainstSchema) {
     EXPECT_EQ(b.at("last_error").at("cause"), json::parse(R"({"text":"{oops"})"));
     EXPECT_EQ(b.at("last_error").at("at"), nullptr);
     EXPECT_EQ(b.at("last_error").at("tick"), nullptr);
+}
+
+TEST(StatusJson, ErrorRecordKeepsTheLocationAndDetailsOfItsError) {
+    using praenora::Error;
+    using praenora::SourceLocation;
+    using praenora::detail::error_record_json;
+    using praenora::detail::error_record_of;
+
+    SourceLocation where;
+    where.file = "out/outputs/result.jsonl";
+    where.line = 4;
+    where.column = 2;
+    where.pointer = "/data/0";
+    const Error error(ErrorCode::IO_ERROR, "cannot write 'result'", where,
+                      R"({"path":"out/outputs/result.jsonl","bytes":12})");
+    const std::int64_t at = 1700000000123456789;
+    const ErrorRecord record = error_record_of(error, 7, at);
+    EXPECT_EQ(record.code, ErrorCode::IO_ERROR);
+    EXPECT_EQ(record.message, "cannot write 'result'");
+    EXPECT_EQ(record.tick, std::optional<std::uint64_t>(7));
+    EXPECT_EQ(record.at_unix_ns, at);
+    EXPECT_EQ(record.cause_json, "");
+    EXPECT_EQ(record.location.file, where.file);
+    EXPECT_EQ(record.location.line, 4);
+    EXPECT_EQ(record.location.column, 2);
+    EXPECT_EQ(record.location.pointer, "/data/0");
+    EXPECT_EQ(record.details_json, error.details_json());
+
+    EXPECT_EQ(error_record_json(record),
+              json::parse(R"({"code":9,"name":"IO_ERROR","message":"cannot write 'result'",
+                              "tick":7,"at":"2023-11-14T22:13:20.123456789Z","cause":null,
+                              "location":{"file":"out/outputs/result.jsonl","line":4,
+                                          "column":2,"pointer":"/data/0"},
+                              "details":{"path":"out/outputs/result.jsonl","bytes":12}})"));
+
+    // Only the parts of a location that are set are written (a column only with a line), and a
+    // location with none is null; so are details that are empty or an empty object, while text
+    // that is not a JSON object is kept as text.
+    const auto shown = [](SourceLocation location, std::string details) {
+        ErrorRecord partial;
+        partial.code = ErrorCode::INTERNAL;
+        partial.location = std::move(location);
+        partial.details_json = std::move(details);
+        const json document = error_record_json(partial);
+        return std::make_pair(document.at("location"), document.at("details"));
+    };
+    SourceLocation column_only;
+    column_only.column = 3;
+    column_only.pointer = "/a";
+    EXPECT_EQ(shown(column_only, "{}"), std::make_pair(json({{"pointer", "/a"}}), json(nullptr)));
+    EXPECT_EQ(shown({}, ""), std::make_pair(json(nullptr), json(nullptr)));
+    EXPECT_EQ(shown({}, "[1]"), std::make_pair(json(nullptr), json({{"text", "[1]"}})));
+    EXPECT_EQ(shown({}, "{oops"), std::make_pair(json(nullptr), json({{"text", "{oops"}})));
+    // A record built by hand (not from an Error) has neither.
+    EXPECT_EQ(shown(ErrorRecord{}.location, ErrorRecord{}.details_json),
+              std::make_pair(json(nullptr), json(nullptr)));
+
+    // Both appear in the status snapshot, the workflow's last error and a step's alike.
+    MetricsRegistry metrics;
+    prepare(metrics);
+    metrics.set_step_error("a", record);
+    metrics.set_last_error(record);
+    const json document = json::parse(metrics.snapshot().to_json());
+    expect_valid_status_document(document);
+    EXPECT_EQ(document.at("workflow").at("last_error"), error_record_json(record));
+    EXPECT_EQ(document.at("steps").at(0).at("last_error"), error_record_json(record));
 }
 
 TEST(MetricsJson, HasOtelStyleNames) {

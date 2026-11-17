@@ -64,7 +64,8 @@
 // one it was ending with, else an error met earlier in the ending (an output file), else an
 // INTERNAL one; the run records the very error that the control call that ended the run throws
 // (shutdown() and the destructor only record it), so a failed run always carries its error in the
-// summary, the run record and the status.
+// summary, the run record and the status. Every error record the engine makes of an error keeps
+// its location and details (for a run failure, the details the error is thrown with).
 //
 // Stop. request_stop() raises the stop flag, which every instance sees as its calls start, and
 // asks the call in flight to cancel. The engine starts no module call while the flag is up: the

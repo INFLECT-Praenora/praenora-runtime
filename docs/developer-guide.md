@@ -437,11 +437,14 @@ Deprecated.
 Changes that come with obligations:
 
 - A schema, catalog or documentation change travels with the others it affects.
-- An ABI change bumps the ABI version in `include/praenora/sdk/abi.h`; a change of the SDK, the
-  protocol or a document format bumps its version in
-  [`cmake/PraenoraVersions.cmake`](../cmake/PraenoraVersions.cmake); each comes with an ADR. The
-  rules for which part of a version to bump are in
-  [specs/compatibility-policy.md](specs/compatibility-policy.md).
+- For now no version is bumped: a change goes into the current versions in place, schemas, catalog
+  entries and this repository's modules included ([AGENTS.md](../AGENTS.md#change-rules)). An ABI,
+  protocol or document-format change comes with an ADR. Once versions are bumped again, an ABI
+  change also bumps the ABI version in `include/praenora/sdk/abi.h`, and a change of the SDK, the
+  protocol or a document format its version in
+  [`cmake/PraenoraVersions.cmake`](../cmake/PraenoraVersions.cmake); the rules for which part of a
+  version to bump are in
+  [specs/compatibility-policy.md](specs/compatibility-policy.md#changing-a-version).
 - Golden files and the AsyncAPI documents in `spec/asyncapi/` change only through
   `PRAENORA_UPDATE_GOLDEN=1` ([testing.md](testing.md#golden-files)); regenerate the AsyncAPI
   documents whenever a workflow definition, a message type or the envelope schema changes.

@@ -89,7 +89,8 @@ documents passed to modules, the recorded outputs and the message trace.
 A run record (`kind: run-record`, [`run-record.0.2.schema.json`](../../spec/schemas/run-record.0.2.schema.json);
 the runtime writes format 0.2.0, and the 0.1 schema,
 [`run-record.0.1.schema.json`](../../spec/schemas/run-record.0.1.schema.json), stays for records of
-format 0.1.x, which have no `services`) describes one run:
+format 0.1.x, which have no `services` and whose error records have no `location` and no
+`details`) describes one run:
 `{kind, format_version, fingerprint, reproducibility, execution}`. The
 `reproducibility` section is the one hashed; the `execution` section holds facts about the run:
 
@@ -98,7 +99,7 @@ format 0.1.x, which have no `services`) describes one run:
 | `status` | `running` from the start, then `completed`, `stopped` or `failed`. |
 | `started_at`, `finished_at` | Wall-clock instants (`finished_at` is null until the end). |
 | `ticks_completed` | The ticks completed. |
-| `error` | The failure of a failed run, a `RUN_STOPPED` record for a stopped one, null otherwise. |
+| `error` | The failure of a failed run, a `RUN_STOPPED` record for a stopped one, null otherwise: an error record of the status snapshot ([observability.md](observability.md#status-snapshot)), so a failure keeps its location and details. |
 | `platform` | `{os, arch, compiler, build_type}` of the runtime build. |
 | `overrides` | The run settings the caller overrode (`seed`, `ticks`); `{}` when none. |
 | `validation` | `strict`, or `off` for a performance measurement. |

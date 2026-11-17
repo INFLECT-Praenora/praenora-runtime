@@ -320,8 +320,9 @@ manifest, that brings an engine for one or more runtime services
 - **Topology is catalog data.** Which steps a workflow has, which capability each step needs and how
   steps connect come from a versioned workflow definition in the protocol catalog. The runtime
   hard-codes no module, step, order or connection. A new workflow is a new catalog entry, and a
-  changed one a new version of it
-  ([ADR-0010](adr/ADR-0010-workflow-definitions-as-catalog-data.md)).
+  changed one a new version of it once versions are bumped again; for now an entry changes in
+  place ([ADR-0010](adr/ADR-0010-workflow-definitions-as-catalog-data.md),
+  [specs/compatibility-policy.md](specs/compatibility-policy.md#changing-a-version)).
 - **The configuration binds.** A workflow configuration pins one definition, binds each step to a
   module (name and exact version) with parameters, binds each workflow input to a data source, and
   sets run, output and logging options ([configuration.md](configuration.md)).

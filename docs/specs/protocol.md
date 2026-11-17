@@ -64,7 +64,7 @@ used ([ADR-0008](../adr/ADR-0008-json-schema-draft-07-embedded-schemas.md)):
 | [`pmp-result.0.1.schema.json`](../../spec/schemas/pmp-result.0.1.schema.json) | `pmp-result` | `pmp_version` (optional) | The result document of one invocation. | [Result document](#result-document) |
 | [`provider-manifest.0.1.schema.json`](../../spec/schemas/provider-manifest.0.1.schema.json) | `provider-manifest` | `format_version` | A service provider's manifest. | [runtime-services.md](runtime-services.md#provider-manifest) |
 | [`run-record.0.1.schema.json`](../../spec/schemas/run-record.0.1.schema.json) | `run-record` | `format_version` | The record of one run, format 0.1.x (written by runtime 0.1). | [reproducibility.md](reproducibility.md) |
-| [`run-record.0.2.schema.json`](../../spec/schemas/run-record.0.2.schema.json) | `run-record` | `format_version` | The record of one run, format 0.2.x: with the services of the run. | [reproducibility.md](reproducibility.md) |
+| [`run-record.0.2.schema.json`](../../spec/schemas/run-record.0.2.schema.json) | `run-record` | `format_version` | The record of one run, format 0.2.x: with the services of the run, and error records with their `location` and `details`. | [reproducibility.md](reproducibility.md) |
 | [`status-snapshot.0.1.schema.json`](../../spec/schemas/status-snapshot.0.1.schema.json) | `status-snapshot` | `format_version` | The status of a run at one moment. | [observability.md](observability.md) |
 | [`workflow-config.0.1.schema.json`](../../spec/schemas/workflow-config.0.1.schema.json) | `workflow-config` | `format_version` | A workflow configuration (YAML or JSON). | [ADR-0010](../adr/ADR-0010-workflow-definitions-as-catalog-data.md) |
 | [`workflow-definition.0.1.schema.json`](../../spec/schemas/workflow-definition.0.1.schema.json) | `workflow-definition` | `format_version` | A catalog entry: a workflow definition. | [workflow-definitions.md](workflow-definitions.md) |
@@ -234,8 +234,9 @@ schema of its kind:
 - References between entries (a port's message type, a step's capability) are resolved when a
   workflow that uses them is validated: an unknown one is `CATALOG_ENTRY_NOT_FOUND`, located in the
   entry that names it.
-- A change to an entry is a new version of it. `praenora catalog list` and
-  `praenora catalog show <id>@<version>` print the catalog.
+- A change to an entry is a new version of it once versions are bumped again; for now an entry
+  changes in place ([compatibility-policy.md](compatibility-policy.md#changing-a-version)).
+  `praenora catalog list` and `praenora catalog show <id>@<version>` print the catalog.
 
 Capabilities and workflow definitions are specified in
 [workflow-definitions.md](workflow-definitions.md). The catalog of this version holds the entries

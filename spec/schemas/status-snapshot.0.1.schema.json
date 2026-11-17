@@ -245,7 +245,9 @@
       "required": [
         "code",
         "name",
-        "message"
+        "message",
+        "location",
+        "details"
       ],
       "additionalProperties": false,
       "properties": {
@@ -284,6 +286,25 @@
             "object",
             "null"
           ]
+        },
+        "location": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/source_location"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Where the error was found: the parts of its location that are set, or null when none is."
+        },
+        "details": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "minProperties": 1,
+          "description": "The error's code-specific details, or null when it has none."
         }
       }
     },
@@ -298,6 +319,35 @@
     "semver": {
       "type": "string",
       "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$"
+    },
+    "source_location": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "properties": {
+        "file": {
+          "type": "string",
+          "minLength": 1
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "column": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "pointer": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "dependencies": {
+        "column": [
+          "line"
+        ]
+      },
+      "description": "A file (UTF-8 path), a 1-based line and column (columns count bytes; a column only with a line) and a JSON pointer into the document."
     },
     "timestamp": {
       "type": "string",
