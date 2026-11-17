@@ -512,8 +512,9 @@ TEST(Api, GraphOfAWorkflowOrAConfiguration) {
 }
 
 TEST(Api, GraphOfAnInvalidDefinitionFailsWithItsFirstError) {
-    // Two problems: the failure is the first of them, named after the definition, located where
-    // it was found; the details hold both, in the order they were found.
+    // Two problems: the failure is the first of them, located where it was found; the details
+    // hold both, in the order they were found. The failure names the definition once, in the
+    // problem's own prefix.
     RuntimeOptions options = fixture_options();
     options.catalog_paths.push_back(
         utf8(praenora::test::fixture_path("catalog-bad/fan-in-and-output-unconnected")));
@@ -527,9 +528,9 @@ TEST(Api, GraphOfAnInvalidDefinitionFailsWithItsFirstError) {
     EXPECT_EQ(diagnostics[0].at("name"), "GRAPH_INVALID");
     EXPECT_EQ(diagnostics[1].at("name"), "PORT_UNCONNECTED");
     EXPECT_EQ(invalid.code(), ErrorCode::GRAPH_INVALID);
-    EXPECT_EQ(std::string(invalid.what()),
-              "workflow definition bad.fan-in-and-output-unconnected@0.1.0 is invalid: " +
-                  diagnostics[0].at("message").get<std::string>());
+    const std::string first = diagnostics[0].at("message").get<std::string>();
+    EXPECT_EQ(first.rfind("workflow bad.fan-in-and-output-unconnected@0.1.0: ", 0), 0u) << first;
+    EXPECT_EQ(std::string(invalid.what()), "invalid workflow definition: " + first);
     EXPECT_EQ(invalid.location().pointer, "/connections/1/to");
     EXPECT_EQ(invalid.location().line, diagnostics[0].at("location").at("line"));
     EXPECT_EQ(invalid.location().column, diagnostics[0].at("location").at("column"));

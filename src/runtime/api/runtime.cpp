@@ -651,13 +651,12 @@ std::string Runtime::graph(const GraphRequest& request) const {
                         detail::locate(config->document, "/workflow"));
         }
     }
-    // An invalid definition: every problem, located in its catalog entry, in the details.
+    // An invalid definition: every problem, located in its catalog entry, in the details. Each
+    // problem's message already names the workflow ("workflow <name>@<version>: ...").
     const ValidationReport problems = detail::validate_graph(*definition, catalog);
     if (const Diagnostic* first = problems.first_error()) {
-        throw Error(first->code,
-                    "workflow definition " + identity(definition->name, definition->version) +
-                        " is invalid: " + first->message,
-                    first->location, problems.to_json());
+        throw Error(first->code, "invalid workflow definition: " + first->message, first->location,
+                    problems.to_json());
     }
     return detail::export_graph(*definition, catalog, request.format);
 }
