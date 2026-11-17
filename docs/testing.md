@@ -49,7 +49,7 @@ themselves.
 |---|---|---|
 | `unit` | Runtime internals, white-box: documents and YAML, canonical JSON, SHA-256, versions, durations, seeds, CSV and other input sources, configuration, logging, metrics, health, status files, run records, the error table against `status.h`, and the SDK's headers, adapter and test kit. | `praenora_unit_tests` |
 | `protocol` | Every schema and catalog entry, valid and invalid documents per kind, graph validation and schedules, graph export, and the committed AsyncAPI documents. | `praenora_protocol_tests` |
-| `contract` | Manifests and discovery, the loader, module instances, the engine and the contract checks, through the real loader and the fixture modules; service providers and runs that use their services, with the fixture providers; the service checks of the simulation service; provider libraries as files: their exported symbols, and the same results in two processes. | `praenora_contract_tests`, `providers.<provider>.exports`, `providers.<provider>.processes` |
+| `contract` | Manifests and discovery, the loader, module instances, the engine and the contract checks, through the real loader and the fixture modules; service providers and runs that use their services, with the fixture providers; the service checks of the simulation service; provider libraries as files: their exported symbols, and the same results in two processes, and how the driver of the latter shows two outputs that differ. | `praenora_contract_tests`, `providers.<provider>.exports`, `providers.<provider>.processes`, `providers.run_twice.shows_first_difference` |
 | `negative` | What must be refused: bad manifests, configurations and graphs, incompatible modules, failing validations, services no provider serves, providers that do not load in a run, each with its code and location. | `praenora_negative_tests` |
 | `lifecycle` | Call order and cleanup, timeouts, unresponsive modules, cancellation and stop requests, calls into one library from instances of several loads of it (they take turns, and are refused behind an abandoned call), and the runtime services an instance is served. | `praenora_lifecycle_tests` |
 | `integration` | The public API through the shared library only, and the example workflow end to end: golden outputs, determinism, the fingerprint, files on disk, status queries during a run. | `praenora_integration_tests` |
@@ -177,7 +177,7 @@ Start from the label:
 |---|---|---|
 | `unit` | The suite's component (`Csv` is `src/runtime/io/csv`, `Yaml` is `src/runtime/document`, `SdkAbi`, `Adapter` and `TestKit` are the SDK). | runtime |
 | `protocol` | `spec/schemas/`, `spec/catalog/` or the graph code (`src/runtime/graph`, `src/runtime/api/graph_export`). A difference from the committed AsyncAPI documents needs a refresh or is a regression. | protocol |
-| `contract` | The loader, discovery, instance or engine code, or a fixture module that changed. | runtime |
+| `contract` | The loader, discovery, instance or engine code, or a fixture module that changed. For `providers.run_twice.*`, the driver `tests/providers/run_twice.cmake` or the drivers' shared `tests/support/run_command.cmake`, or, after an intended change of its report, the expected texts in `tests/providers/check_run_twice.cmake`. | runtime |
 | `negative` | Validation: a bad input was accepted, or refused with another code or location. | runtime |
 | `lifecycle` | `src/runtime/instance` and `src/runtime/engine`: call order, deadlines, cancellation, teardown. | runtime |
 | `integration` | The public API (`src/runtime/api`), or the example modules when their outputs changed (golden files). | runtime, or the example modules |
@@ -261,7 +261,12 @@ gate in every build that has them: the contract tests run the checks on them.
   (`check_exports.cmake`; not on Windows) and requires the entry point to be the only one, and
   `providers.<provider>.processes` runs `praenora_simulation_print` twice, each time in a new
   process (`run_twice.cmake`): it simulates a model of `tests/fixtures/models/`, runs a kernel and a
-  plan's batch, prints every double exactly, and the two outputs must be the same bytes.
+  plan's batch, prints every double exactly, and the two outputs must be the same bytes. When they
+  are not, the report names the first line where they differ and shows it as each run printed it; it
+  says which output is shorter when one is a prefix of the other, and otherwise names the byte of
+  that line where they first differ; the first run's outputs follow, and then the second run's
+  command, exit code and outputs; `providers.run_twice.shows_first_difference`
+  (`check_run_twice.cmake`) checks that report.
 - **Service checks.** The simulation service's checks
   ([`tests/contract/simulation_service_checks.hpp`](../tests/contract/simulation_service_checks.hpp))
   are a parameterized suite: a provider of the service is checked by a source file that instantiates

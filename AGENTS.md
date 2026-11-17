@@ -113,12 +113,13 @@ Project presets: `linux-x64-{debug,release,asan,tsan}`, `macos-arm64-{debug,rele
 `docs`. The `contract` label also holds the tests of provider libraries as files,
 `providers.<provider>.exports` (the library exports only the provider entry point) and
 `providers.<provider>.processes` (two fresh processes print the same bytes), for `test-simulation`
-and, when it is built, `roadrunner`. The `cli` label holds the CLI driver tests, named
-`cli.<command>.<case>`; `cli.driver.passes_empty_arguments`, which checks that each argument of a
-command reaches its program, an empty one included, and `cli.driver.shows_failing_command`, which
-checks how that driver shows a failing command; and the `CliTable.*` and `Frontend.*` unit tests
-of the tool's helpers and of what it shares with the Python extension
-(`ctest --preset dev -L cli`). The `python` label
+and, when it is built, `roadrunner`. It also holds `providers.run_twice.shows_first_difference`,
+which checks how the driver of the `processes` tests shows two outputs that differ. The `cli` label
+holds the CLI driver tests, named `cli.<command>.<case>`; `cli.driver.passes_empty_arguments`, which
+checks that each argument of a command reaches its program, an empty one included, and
+`cli.driver.shows_failing_command`, which checks how that driver shows a failing command; and the
+`CliTable.*` and `Frontend.*` unit tests of the tool's helpers and of what it shares with the Python
+extension (`ctest --preset dev -L cli`). The `python` label
 holds one CTest test, `python.unittest`, which runs the unittest suite of `tests/python` against the
 package in `build/<preset>/python`; with `PRAENORA_SANITIZERS` set it is registered but disabled,
 because an instrumented extension does not load into an interpreter that is not instrumented. So a
@@ -181,7 +182,8 @@ tests/                        unit/, protocol/, negative/, contract/, lifecycle/
                               run_install_test.cmake and the projects consumer-module/ and
                               consumer-app/), perf/ (performance probe praenora_perf and its
                               driver run_perf.cmake), providers/ (tests of provider libraries:
-                              check_exports.cmake, run_twice.cmake and praenora_simulation_print),
+                              check_exports.cmake, run_twice.cmake, check_run_twice.cmake (its
+                              check) and praenora_simulation_print),
                               docs/ (documentation test check_docs.cmake), support/ (test
                               helpers, and run_command.cmake, which the CMake drivers share);
                               fixtures/: modules/ (fixture modules), providers/ (fixture

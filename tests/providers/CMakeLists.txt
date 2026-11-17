@@ -9,7 +9,9 @@
 #   bytes.
 #
 # They run for the fixture provider test-simulation and, with PRAENORA_WITH_ROADRUNNER, for the
-# roadrunner provider (with tests/fixtures/models/sbml/decay.xml).
+# roadrunner provider (with tests/fixtures/models/sbml/decay.xml). One more test checks the driver
+# of the second: providers.run_twice.shows_first_difference (check_run_twice.cmake), how it shows
+# two outputs that differ.
 
 # The helper loads providers through the runtime's provider loader, an internal API, so it links
 # the runtime's object library, as the white-box tests do.
@@ -63,3 +65,14 @@ if(PRAENORA_WITH_ROADRUNNER)
     praenora_add_provider_file_tests(roadrunner praenora_provider_roadrunner sbml
         "${PROJECT_SOURCE_DIR}/tests/fixtures/models/sbml/decay.xml" 2)
 endif()
+
+# The check of run_twice.cmake, the driver of providers.<name>.processes (check_run_twice.cmake):
+# how it shows two outputs that differ. It runs only CMake. Its timeout stops a driver whose search
+# for the line that differs does not end.
+add_test(NAME providers.run_twice.shows_first_difference
+    COMMAND "${CMAKE_COMMAND}"
+        "-DWORK=${CMAKE_CURRENT_BINARY_DIR}/run_twice-check"
+        -P "${_praenora_providers_dir}/check_run_twice.cmake")
+set_tests_properties(providers.run_twice.shows_first_difference PROPERTIES
+    LABELS contract
+    TIMEOUT 120)
