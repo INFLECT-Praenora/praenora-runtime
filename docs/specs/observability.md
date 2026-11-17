@@ -21,8 +21,8 @@ unaffected.
 |---|---|---|
 | `praenora.runtime` | The `Runtime`. | `runtime.ready` (module and provider search paths, number of modules, providers and catalog entries) |
 | `praenora.engine` | A run. | `run.started`, `step.ready`, `invocation.completed`, `tick.completed`, `run.completed`, `run.stopped`, `run.failed`, `run.output_failed`, `trace.skipped`, `teardown.finalize_failed`, `teardown.skipped` |
-| `module.<step>` | The messages a step's module logs through the host API, and events about the step's instance. | `call.deadline`, `instance.unresponsive`, `call.refused`, `call.failed`, `service.lookup` |
-| `module.check` | Module messages during the contract checks. | |
+| `module.<step>` | The messages a step's module logs through the host API, and events about the step's instance. | `call.deadline`, `instance.unresponsive`, `call.refused`, `call.failed`, `library.refused` (a call not made: an abandoned call may still be running in the library), `instance.kept` (an instance kept because its `finalize` or `destroy` was refused), `service.lookup` |
+| `module.check` | Module messages during the contract checks, and events about the checks' instances. | the events of `module.<step>` |
 | `provider.<name>` | The messages a service provider logs through its host, with the attribute `provider` (`name@version`), and events about it, in the logs of the run (or, for `validate --load` and the contract checks, of the `Runtime`) that loaded it last ([runtime-services.md](runtime-services.md#loading)). | `provider.loaded` (once per process, with `library_sha256`) |
 
 Records go to standard error, without colors, unless `RuntimeOptions::logging.to_stderr` is false;
@@ -86,7 +86,10 @@ Each run keeps an in-process metrics registry:
 - per step: the module, the state, invocation counts by outcome (`succeeded`, `failed`, `timed_out`,
   `cancelled`; an unresponsive call counts as `timed_out`), the last, total, minimum, maximum and
   mean invocation durations, the times of the last invocation and the last success, and the last
-  error;
+  error. An invoke that never reached the module is not an invocation: one refused because an
+  abandoned call may still be running in its library is only the step's last error, and one stopped
+  while it waited for its turn at the library is not counted at all
+  ([threading-and-ownership.md](threading-and-ownership.md#concurrency-across-instances));
 - per workflow: the state, the start time, the uptime (on the steady clock, frozen when the run
   ends), the ticks completed, the current tick and its logical time, the last tick's duration and
   the last error.

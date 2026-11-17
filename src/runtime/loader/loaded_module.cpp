@@ -50,6 +50,12 @@ std::vector<std::string> missing_functions(const praenora_module_api_v0& api) {
     return missing;
 }
 
+// The lease a call into an instance of `manifest`'s module takes (LoadedModule::call_access()).
+LibraryGate::Access access_of(const ModuleManifest& manifest) {
+    return manifest.features.concurrency == "instance" ? LibraryGate::Access::shared
+                                                       : LibraryGate::Access::exclusive;
+}
+
 std::string joined(const std::vector<std::string>& items) {
     std::string text;
     for (const auto& item : items) {
@@ -183,10 +189,10 @@ void check_identity(const ModuleManifest& manifest, const nlohmann::json& descri
 } // namespace
 
 LoadedModule::LoadedModule(ModuleManifest manifest, SharedLibrary library,
-                           const praenora_module_api_v0& api, nlohmann::json describe,
-                           std::string library_sha256)
-    : manifest_(std::move(manifest)), library_(std::move(library)), api_(api),
-      describe_(std::move(describe)), library_sha256_(std::move(library_sha256)) {}
+                           std::shared_ptr<LibraryGate> gate, const praenora_module_api_v0& api,
+                           nlohmann::json describe, std::string library_sha256)
+    : manifest_(std::move(manifest)), library_(std::move(library)), gate_(std::move(gate)),
+      api_(api), describe_(std::move(describe)), library_sha256_(std::move(library_sha256)) {}
 
 std::string check_library_file(const ModuleManifest& manifest) {
     LibraryFile file;
@@ -248,6 +254,14 @@ std::shared_ptr<LoadedModule> LoadedModule::load(const ModuleManifest& manifest,
         keep && *keep == "1") {
         library.pin();
     }
+    // Opening a library that is loaded already runs none of its code, so the gate can still keep
+    // the module from being called while an abandoned call may be running in it.
+    std::shared_ptr<LibraryGate> gate = LibraryGate::of(library.image());
+    if (const auto blocker = gate->refusal(access_of(manifest))) {
+        fail(ErrorCode::MODULE_UNRESPONSIVE,
+             "its library cannot be used now: " + refusal_reason(*blocker), "/library/path",
+             nlohmann::json{{"abandoned_call", to_json(*blocker)}}.dump());
+    }
 
     // 3.-4. The entry point and the table it returns for ABI major 0.
     reach(Check::entry_point);
@@ -299,8 +313,8 @@ std::shared_ptr<LoadedModule> LoadedModule::load(const ModuleManifest& manifest,
     reach(Check::identity);
     check_identity(manifest, describe, fail);
 
-    return std::shared_ptr<LoadedModule>(
-        new LoadedModule(manifest, std::move(library), api, std::move(describe), digest));
+    return std::shared_ptr<LoadedModule>(new LoadedModule(
+        manifest, std::move(library), std::move(gate), api, std::move(describe), digest));
 }
 
 const praenora_module_api_v0& LoadedModule::api() const noexcept { return api_; }
@@ -310,6 +324,10 @@ const nlohmann::json& LoadedModule::describe() const noexcept { return describe_
 const std::string& LoadedModule::library_sha256() const noexcept { return library_sha256_; }
 
 const ModuleManifest& LoadedModule::manifest() const noexcept { return manifest_; }
+
+LibraryGate& LoadedModule::gate() const noexcept { return *gate_; }
+
+LibraryGate::Access LoadedModule::call_access() const noexcept { return access_of(manifest_); }
 
 void LoadedModule::pin() noexcept { library_.pin(); }
 

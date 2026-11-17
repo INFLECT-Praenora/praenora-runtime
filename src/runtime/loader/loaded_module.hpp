@@ -1,10 +1,11 @@
-// A module library that is loaded and checked: its v0 function table, its describe() identity
-// and its digest. Shared (std::shared_ptr) by every instance of the module; the library is
-// unloaded when the last owner lets go, unless it is pinned.
+// A module library that is loaded and checked: its v0 function table, its describe() identity,
+// its digest and its gate. Shared (std::shared_ptr) by every instance of the module; the library
+// is unloaded when the last owner lets go, unless it is pinned.
 #ifndef PRAENORA_RUNTIME_LOADER_LOADED_MODULE_HPP
 #define PRAENORA_RUNTIME_LOADER_LOADED_MODULE_HPP
 
 #include "discovery/manifest.hpp"
+#include "loader/library_gate.hpp"
 #include "loader/shared_library.hpp"
 
 #include <praenora/sdk/abi.h>
@@ -34,7 +35,11 @@ public:
     //   1. check_library_file() (below): the library file exists (LIBRARY_NOT_FOUND); its
     //      SHA-256 is computed and, when the manifest pins library.sha256, must match before any
     //      of its code runs (LIBRARY_DIGEST_MISMATCH);
-    //   2. the library loads (LIBRARY_LOAD_FAILED, with the operating system's text);
+    //   2. the library loads (LIBRARY_LOAD_FAILED, with the operating system's text), and no
+    //      abandoned call that its calls would have to wait for may still be running in it
+    //      (MODULE_UNRESPONSIVE at /library/path, naming that call; details
+    //      {"abandoned_call": to_json(call)}): its gate (library_gate.hpp) is asked for
+    //      call_access() before any of the module's code runs;
     //   3. it exports praenora_module_get_api (ENTRY_POINT_MISSING);
     //   4. praenora_module_get_api(0) returns a table (API_TABLE_INVALID);
     //   5. the table's header reports ABI major 0 (ABI_INCOMPATIBLE);
@@ -64,17 +69,28 @@ public:
     const std::string& library_sha256() const noexcept; // always computed
     const ModuleManifest& manifest() const noexcept;
 
+    // The gate of the library's image, shared by every LoadedModule of it in the process.
+    LibraryGate& gate() const noexcept;
+    // The lease a call into one of the module's instances takes: exclusive unless the manifest
+    // declares independent instances (features.concurrency "instance"). self_test() always takes
+    // an exclusive one.
+    LibraryGate::Access call_access() const noexcept;
+
     // Keeps the library loaded for the rest of the process (an instance of it is unresponsive and
     // its code may still be running). Thread-safe.
     void pin() noexcept;
     bool pinned() const noexcept;
 
 private:
-    LoadedModule(ModuleManifest manifest, SharedLibrary library, const praenora_module_api_v0& api,
-                 nlohmann::json describe, std::string library_sha256);
+    LoadedModule(ModuleManifest manifest, SharedLibrary library, std::shared_ptr<LibraryGate> gate,
+                 const praenora_module_api_v0& api, nlohmann::json describe,
+                 std::string library_sha256);
 
     ModuleManifest manifest_;
     SharedLibrary library_;
+    // After library_, so it goes first: a gate is never left behind for an image that is unloaded
+    // and may come back at the same address.
+    std::shared_ptr<LibraryGate> gate_;
     praenora_module_api_v0 api_{};
     nlohmann::json describe_;
     std::string library_sha256_;

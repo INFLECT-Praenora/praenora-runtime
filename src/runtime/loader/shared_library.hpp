@@ -45,6 +45,12 @@ public:
 
     const std::filesystem::path& path() const noexcept;
 
+    // The loaded image: the same for every open of one library file in the process, however the
+    // file is named (a process holds one copy of each library), and another for a copy of the
+    // file at another path. NULL once moved from. Identifies the library's gate
+    // (loader/library_gate.hpp).
+    const void* image() const noexcept;
+
 private:
     SharedLibrary(void* handle, std::filesystem::path path) noexcept;
     void close() noexcept;

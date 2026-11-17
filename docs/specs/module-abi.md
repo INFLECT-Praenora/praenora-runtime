@@ -167,7 +167,7 @@ per step, except that a step whose call failed is shown as `failed` from then on
 | `loaded` | The library is loaded; the instance has not been created. | `created`, `failed` |
 | `created` | `create` returned an instance. | `ready`, `failed`, `destroyed` (a stop came before `initialize`) |
 | `ready` | `initialize` succeeded; the instance may be invoked. | `finalized`, `failed` |
-| `busy` | A call into the instance is running. | the state the call's outcome leads to |
+| `busy` | A call into the instance is running, or waiting for its turn at the library ([threading-and-ownership.md](threading-and-ownership.md#concurrency-across-instances)). | the state the call's outcome leads to |
 | `finalized` | `finalize` succeeded. | `destroyed` |
 | `destroyed` | `destroy` returned. | none |
 | `failed` | A `create`, `initialize` or `finalize` did not succeed. | `destroyed` (when an instance exists) |
@@ -185,10 +185,17 @@ A host MUST give these guarantees, and a module MAY rely on them:
    instance that exists, last created first, then joins the instance threads, and only then unloads
    the libraries.
 5. An `unresponsive` instance is never finalized or destroyed; its thread is detached and its library
-   stays loaded for the rest of the process. The other instances of its library are kept the same
-   way unless the manifest declares `features.concurrency: "instance"`
-   ([threading-and-ownership.md](threading-and-ownership.md)).
-6. A library is unloaded after its last instance is destroyed, unless it is pinned. Setting the
+   stays loaded for the rest of the process. Until its call returns, no call that would have to
+   wait for it is made, in any run or contract-check session of the process: with
+   `features.concurrency: "module"`, no call into the library at all. An instance whose `finalize`
+   or `destroy` is refused for that reason is kept the same way, and a `ready` instance is never
+   destroyed without being finalized
+   ([threading-and-ownership.md](threading-and-ownership.md#unresponsive-instances)).
+6. Unless the manifest declares `features.concurrency: "instance"`, calls into different instances
+   of the library are never concurrent anywhere in the process. `self_test` is never concurrent
+   with another call into the library, whatever the manifest declares
+   ([ADR-0030](../adr/ADR-0030-library-gate-across-runs.md)).
+7. A library is unloaded after its last instance is destroyed, unless it is pinned. Setting the
    environment variable `PRAENORA_DEBUG_KEEP_LIBRARIES` to `1` pins every library, which helps
    debuggers and leak checkers.
 

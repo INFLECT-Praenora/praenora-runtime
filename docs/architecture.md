@@ -69,7 +69,7 @@ The runtime's internals live in `src/runtime/`, one directory per component, in 
 | `config/` | The workflow configuration: schema, defaults, relative paths, overrides. |
 | `discovery/` | Module search paths, manifest loading and the module index; what module and provider discovery share (search paths, reading a manifest). |
 | `compat/` | Compatibility of a manifest with the host: platform, ABI, protocol, capabilities. |
-| `loader/` | Opening libraries (`platform/posix/`, `platform/windows/`), function-table checks, the identity check, library digests. |
+| `loader/` | Opening libraries (`platform/posix/`, `platform/windows/`), function-table checks, the identity check, library digests, and the process-wide gate of each loaded library, which orders the calls into it and refuses those behind an abandoned call. |
 | `provider/` | Service providers: provider manifests, the provider index and the resolution of services, the process-wide provider loader, and the internal provider interface `provider_abi.h`. |
 | `instance/` | One module instance: its worker thread, lifecycle state, host API, deadlines and cancellation; the services it sees and the registry of built-in services. |
 | `graph/` | Validating a workflow definition's graph and computing its schedule. |
@@ -258,12 +258,13 @@ and its library stays loaded for the rest of the process. An unresponsive `creat
 or `invoke` fails the run with `MODULE_UNRESPONSIVE`; a `finalize` or `destroy` of the teardown,
 or a `diagnostics` call made while a failure is reported, leaves the run's ending as it was
 ([specs/time-cancellation-timeouts.md](specs/time-cancellation-timeouts.md#deadlines)). Unless the
-manifest declares `features.concurrency: "instance"`, the run's other instances of that library
-stay as they are too, never called again
+manifest declares `features.concurrency: "instance"`, no other instance of that library is called
+while the abandoned call may still be running, in this run or in any other run or contract-check
+session of the process: their calls, and loads of the library, are refused with
+`MODULE_UNRESPONSIVE`, and a teardown leaves such instances as they are
 ([specs/threading-and-ownership.md](specs/threading-and-ownership.md#unresponsive-instances)).
-That rule holds within one run (and one contract-check session), not across runs: a process must
-not run two workflows at the same time that use one such library, nor use the library again after
-`MODULE_UNRESPONSIVE` (run them in separate processes, or restart the process)
+Each loaded library has one gate for the whole process, which also makes the calls of concurrent
+runs into a `"module"` library take turns
 ([specs/threading-and-ownership.md](specs/threading-and-ownership.md#concurrency-across-instances)).
 
 A `create` that does not succeed leaves no instance to destroy, except one that returned OK with an

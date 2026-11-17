@@ -8,6 +8,7 @@
 #include "engine/envelope.hpp"
 #include "engine/result_check.hpp"
 #include "loader/library_file.hpp"
+#include "loader/library_gate.hpp"
 #include "observability/status_json.hpp"
 #include "provider/provider_loader.hpp"
 
@@ -73,10 +74,11 @@ json cause_of(const CallResult& result) {
 }
 
 // The module's error document of a call that did not succeed, when the module said why: none
-// for an unresponsive call, which never returned, or for one that returned OK without an error
-// document (late, after its deadline).
+// for an unresponsive call, which never returned, for a refused one, which never started, or for
+// one that returned OK without an error document (late, after its deadline).
 std::optional<json> module_cause(const CallResult& result) {
     if (result.outcome == CallOutcome::succeeded || result.outcome == CallOutcome::unresponsive ||
+        result.outcome == CallOutcome::refused ||
         (result.status == PRAENORA_STATUS_OK && result.error_json.empty())) {
         return std::nullopt;
     }
@@ -104,11 +106,11 @@ std::string dump(const json& value) {
     return value.dump(-1, ' ', false, json::error_handler_t::replace);
 }
 
-// Keeps an instance that must never be called again (its library has an unresponsive instance and
-// allows no concurrent calls into its instances): never finalized, destroyed or freed. Reachable
-// from a static pointer, so leak checkers do not report it. Its runtime services are withdrawn
-// first, as an abandoned instance's are: the registry goes away with the run, while the module's
-// own threads may still ask for a service.
+// Keeps an instance that may not be called (its call was refused: an abandoned call that it would
+// have to wait for may still be running in its library): never finalized, destroyed or freed.
+// Reachable from a static pointer, so leak checkers do not report it. Its runtime services are
+// withdrawn first, as an abandoned instance's are: the registry goes away with the run, while the
+// module's own threads may still ask for a service.
 void keep_forever(std::unique_ptr<ModuleInstance> instance) noexcept {
     static auto* const mutex = new std::mutex;
     static auto* const kept = new std::vector<std::unique_ptr<ModuleInstance>>;
@@ -174,6 +176,9 @@ struct Engine::Step {
     std::shared_ptr<spdlog::logger> logger; // module.<step>, or none
     std::unique_ptr<ModuleInstance> instance;
     bool failed = false; // reported as failed in the metrics from now on
+    // Set by the teardown when a call into the instance is refused: the abandoned call the
+    // refusal named. The instance is then kept as it is.
+    std::optional<LibraryCall> kept;
 };
 
 // Where a failure happened.
@@ -395,6 +400,8 @@ bool Engine::start_step(Step& step) {
 
     InstanceOptions options;
     options.step = resolved.id;
+    options.caller = "step '" + resolved.id + "' of workflow " +
+                     identity(workflow_.definition->name, workflow_.definition->version);
     options.lifecycle_timeout = resolved.timeouts.lifecycle;
     options.invoke_timeout = resolved.timeouts.invoke;
     options.cancel_grace = resolved.timeouts.cancel_grace;
@@ -468,6 +475,14 @@ Error Engine::call_error(const Step& step, const char* phase, const CallResult& 
                          " and the cancellation grace of " +
                          format_duration(resolved.timeouts.cancel_grace) + when +
                          "; the instance is abandoned and its library stays loaded");
+    case CallOutcome::refused:
+        if (result.refused_by) {
+            return Error(ErrorCode::MODULE_UNRESPONSIVE,
+                         who + " was refused" + when + ": " + refusal_reason(*result.refused_by),
+                         SourceLocation{},
+                         dump(json{{"abandoned_call", to_json(*result.refused_by)}}));
+        }
+        break;
     case CallOutcome::succeeded:
     case CallOutcome::failed:
     case CallOutcome::cancelled:
@@ -627,8 +642,12 @@ bool Engine::run_step(Step& step, std::uint64_t tick, double logical_time,
 
     const CallResult result = call(step, [&] { return step.instance->invoke(document, tick); });
     if (result.outcome == CallOutcome::cancelled) {
-        metrics_.record_invocation(resolved.id, result.outcome, result.duration, now_unix_ns(),
-                                   std::nullopt);
+        // An invoke stopped while it waited for its library never reached the module: like a
+        // stop that comes before the call, it is not an invocation.
+        if (result.called) {
+            metrics_.record_invocation(resolved.id, result.outcome, result.duration, now_unix_ns(),
+                                       std::nullopt);
+        }
         sync_step_state(step);
         stop_run(tick);
         return false;
@@ -748,9 +767,12 @@ Error Engine::fail(const Error& error, const Failure& failure) {
             if (failure.phase != nullptr) {
                 details["phase"] = failure.phase;
             }
-            // The failing instance's diagnostics, while it is still there.
+            // The failing instance's diagnostics, while it is still there: not when its call was
+            // refused, since its library would refuse them too.
+            const bool refused =
+                failed_call != nullptr && failed_call->outcome == CallOutcome::refused;
             if (step.instance != nullptr && resolved.manifest->features.diagnostics &&
-                step.instance->state() != StepState::unresponsive) {
+                step.instance->state() != StepState::unresponsive && !refused) {
                 if (auto text = step.instance->diagnostics()) {
                     details["diagnostics"] = bounded_diagnostics(*text);
                 }
@@ -767,8 +789,8 @@ Error Engine::fail(const Error& error, const Failure& failure) {
             Step& step = *failure.step;
             const ResolvedStep& resolved = *step.resolved;
             // An invocation is counted (with its error); any other failure of the step is only
-            // its last error.
-            if (failed_call != nullptr && failure.phase != nullptr &&
+            // its last error, as is an invoke that was refused and never reached the module.
+            if (failed_call != nullptr && failed_call->called && failure.phase != nullptr &&
                 std::string(failure.phase) == "invoke") {
                 metrics_.record_invocation(resolved.id, failure.counted, failed_call->duration,
                                            record.at_unix_ns, record);
@@ -973,42 +995,29 @@ std::optional<Error> Engine::finish(WorkflowState final_state, std::optional<Err
 }
 
 void Engine::teardown() noexcept {
-    // A library that has an unresponsive instance and allows no concurrent calls into its
-    // instances (features.concurrency "module") may still be running that instance's call, so no
-    // other instance of it may be called, not even to finalize or destroy it. By library: the
-    // step of the unresponsive instance.
-    std::map<const LoadedModule*, std::string> held;
-    const auto note = [&held](const Step& step) {
-        if (step.instance != nullptr && step.instance->state() == StepState::unresponsive &&
-            step.instance->module().manifest().features.concurrency == "module") {
-            held.emplace(&step.instance->module(), step.resolved->id);
+    // Every call goes through its library's gate (loader/library_gate.hpp), which refuses one
+    // that would have to wait for an abandoned call, of this run or another one in the process,
+    // since that call may still be running in the library. The instance of a refused call is
+    // left as it is from then on: neither finalized nor destroyed, never freed (Step::kept).
+    const auto keep = [](Step& step, const std::optional<LibraryCall>& by) noexcept {
+        try {
+            step.kept = by ? *by : LibraryCall{};
+        } catch (...) {
+            step.kept.emplace(); // out of memory: kept all the same, without its reason
         }
     };
-    // An instance never created (loaded) or already destroyed is called no more, not even by its
-    // destructor, so it needs no holding back; every other one may still exist in the module.
-    const auto blocked = [&held](const Step& step) {
-        if (step.instance == nullptr) {
-            return false;
-        }
-        const StepState state = step.instance->state();
-        return state != StepState::unresponsive && state != StepState::loaded &&
-               state != StepState::destroyed && held.count(&step.instance->module()) != 0;
-    };
-    for (const Step& step : steps_) {
-        note(step);
-    }
 
     for (auto it = steps_.rbegin(); it != steps_.rend(); ++it) {
         Step& step = *it;
-        if (step.instance == nullptr || step.instance->state() != StepState::ready ||
-            blocked(step)) {
+        if (step.instance == nullptr || step.instance->state() != StepState::ready) {
             continue;
         }
         try {
             show_step_state(step, StepState::busy);
             const CallResult result = step.instance->finalize();
-            note(step);
-            if (result.outcome != CallOutcome::succeeded) {
+            if (result.outcome == CallOutcome::refused) {
+                keep(step, result.refused_by);
+            } else if (result.outcome != CallOutcome::succeeded) {
                 step.failed = step.instance->state() != StepState::unresponsive;
                 const Error error = call_error(step, "finalize", result, std::nullopt);
                 ErrorRecord record = record_of(error, std::nullopt);
@@ -1026,30 +1035,33 @@ void Engine::teardown() noexcept {
         sync_step_state(step);
     }
     for (auto it = steps_.rbegin(); it != steps_.rend(); ++it) {
-        if (it->instance == nullptr || blocked(*it) ||
+        if (it->instance == nullptr || it->kept ||
             it->instance->state() == StepState::unresponsive) {
             continue; // an unresponsive instance is never destroyed
         }
         show_step_state(*it, StepState::busy);
-        it->instance->destroy();
-        note(*it);
+        if (it->instance->destroy() == CallOutcome::refused) {
+            keep(*it, it->instance->last_refusal());
+        }
         sync_step_state(*it);
     }
     // Instances first (their worker threads are joined), then the libraries. The instances that
     // may not be called are left as they are, for good.
     for (auto it = steps_.rbegin(); it != steps_.rend(); ++it) {
-        if (blocked(*it)) {
+        if (it->kept) {
             const std::string& id = it->resolved->id;
             const StepState state = it->instance->state();
-            log(LogLevel::warn,
-                "step '" + id + "' (module " + it->module + ") " + left_undone(state) +
-                    ": the instance of step '" + held.at(&it->instance->module()) +
-                    "' of the same library is unresponsive, and the module allows no concurrent "
-                    "calls into its instances (features.concurrency \"module\")",
-                {{"event", "teardown.skipped"},
-                 {"step", id},
-                 {"module", it->module},
-                 {"state", to_string(state)}});
+            try {
+                log(LogLevel::warn,
+                    "step '" + id + "' (module " + it->module + ") " + left_undone(state) + ": " +
+                        refusal_reason(*it->kept),
+                    {{"event", "teardown.skipped"},
+                     {"step", id},
+                     {"module", it->module},
+                     {"state", to_string(state)}});
+            } catch (...) {
+                // Out of memory while building the warning; the instance is kept all the same.
+            }
             keep_forever(std::move(it->instance));
             continue;
         }

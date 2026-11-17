@@ -3,7 +3,8 @@
 - **Version:** ABI 0.0 and runtime 0.2.0
 - **Status:** Normative, MVP. Proposed
   ([ADR-0005](../adr/ADR-0005-ownership-and-allocation-across-the-abi.md),
-  [ADR-0006](../adr/ADR-0006-threading-model.md)).
+  [ADR-0006](../adr/ADR-0006-threading-model.md),
+  [ADR-0030](../adr/ADR-0030-library-gate-across-runs.md)).
 - **Requirement keywords:** MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are used as described in
   [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119).
 
@@ -50,9 +51,11 @@ platform allows it. A host MUST give these guarantees:
 - Calls into different instances of one library are never concurrent unless the manifest declares
   `features.concurrency: "instance"` (see below).
 
-The runtime of this version makes exactly one module call at a time in a run: one control thread
-runs the ticks, posts each call to the instance's worker and waits for it on a deadline
-([time-cancellation-timeouts.md](time-cancellation-timeouts.md)).
+These guarantees hold for the whole process, across runs and contract-check sessions. The
+runtime of this version makes exactly one module call at a time in a run: one control thread runs
+the ticks, posts each call to the instance's worker and waits for it on a deadline
+([time-cancellation-timeouts.md](time-cancellation-timeouts.md)). Runs and sessions that use the
+same library take turns as the next section says.
 
 ## What a module must do
 
@@ -84,25 +87,38 @@ the same time:
 
 | Value | Meaning | Effect in this runtime version |
 |---|---|---|
-| `module` (default) | Two instances of the library MUST NOT be called concurrently. | The calls of a run are sequential anyway. When an instance of the library becomes unresponsive, its call may still be running, so the run calls no other instance of the library again. |
-| `instance` | Instances are independent and MAY be called concurrently. | The calls of a run are sequential anyway. The other instances are finalized and destroyed as usual. |
+| `module` (default) | Two instances of the library MUST NOT be called concurrently. | Calls into the library wait for each other across the process. While an abandoned call may still be running in the library, every other call into it, and every load of it, is refused. |
+| `instance` | Instances are independent and MAY be called concurrently. | Calls into the library do not wait for each other, except `self_test()`, which waits for every other call and is refused while an abandoned call may still be running in the library. |
 
-The runtime keeps the `module` rule within one run and within one contract-check session
-(`praenora modules check`, `Runtime::check_module()`), whose calls it serializes, and not across
-them: what one run or session knows about a library, an unresponsive instance included, does not
-reach another. A host process that uses the C++ API or the Python package therefore keeps the rule
-itself:
+The runtime keeps these rules for the whole process: across runs and contract-check sessions
+(`praenora modules check`, `Runtime::check_module()`), whichever `Runtime` started them. Each
+loaded library has one gate, shared by every run and session that loads it; a copy of the library at
+another path is another library, with globals of its own, and has a gate of its own.
 
-- It MUST NOT run two workflows at the same time, on two threads for example, nor a workflow and a
-  contract-check session, when both use the same `module` library. Run them one after another, or
-  in separate processes.
-- After `MODULE_UNRESPONSIVE`, it MUST NOT use that library again in the same process, in a later
-  run or contract-check session: the abandoned call may still be running in it. Restart the process
-  instead.
+- **Turns.** Every call takes a lease on the gate before it starts and gives it back when the module
+  returns: an exclusive lease for a `module` library and for `self_test()`, a shared one otherwise.
+  Leases are granted in order of arrival, so two runs that share a `module` library take turns, call
+  by call. The wait is not part of the call's deadline
+  ([time-cancellation-timeouts.md](time-cancellation-timeouts.md#deadlines)): it lasts as long as
+  the calls ahead of it, each bounded by its own deadline and cancellation grace, unless one of them
+  has no deadline. A stop requested meanwhile ends the wait of a `create`, `initialize` or `invoke`
+  without calling the module, and the run ends as stopped; the `finalize` and `destroy` calls of its
+  teardown, and a `diagnostics` call made while a failure is reported, still wait for their turn.
+- **Abandoned calls.** A call that becomes unresponsive keeps its lease until it returns, which may
+  be never. A call that would have to wait for it is refused at once, without calling the module: a
+  `create`, `initialize` or `invoke` fails its run with `MODULE_UNRESPONSIVE`, naming the abandoned
+  call in its message and in its details (`abandoned_call`: the call, who made it and the module); a
+  refused `finalize` or `destroy` leaves its instance as it is
+  ([Unresponsive instances](#unresponsive-instances)). The library is refused at load in the same
+  case, before any of its code runs: a run fails at its step's load with `MODULE_UNRESPONSIVE`,
+  `validate --load` reports `MODULE_UNRESPONSIVE` with the same details, and the contract checks
+  fail `library.load` with a message that starts `MODULE_UNRESPONSIVE:` and names the abandoned
+  call. Once the abandoned call returns, the library can be used again.
 
-The `praenora` tool runs one workflow or one contract-check session per process, so it keeps both
-rules. This runtime version does not enforce them across runs; a host that breaks them can make
-module code race.
+Taking turns makes concurrent runs safe, not reproducible: they still share the global state of a
+`module` library, so their results may depend on the order of their calls. Run workflows that share
+such a library one after another, or in separate processes, when their results must be reproducible
+([reproducibility.md](reproducibility.md#determinism)).
 
 ## Unresponsive instances
 
@@ -116,15 +132,22 @@ abandoned for the rest of the process:
 - its worker thread is detached and keeps running the call; its library stays loaded (pinned);
 - its host API stays valid, but `get_service` returns NULL from then on for every service, provider
   services included, because the runtime's service registry may go away;
-- it is never finalized or destroyed, and its memory is never freed.
+- it is never finalized or destroyed, and its memory is never freed;
+- its call keeps its lease on the library's gate until it returns, so the calls and loads that would
+  have to wait for it are refused meanwhile
+  ([Concurrency across instances](#concurrency-across-instances)).
 
-With `features.concurrency: "module"`, the run's other instances of the library that were created
-are kept the same way: never called again, never finalized, destroyed or freed, their services
-withdrawn. A warning (event `teardown.skipped`) names each and says what was left undone. Instances
-that were never created, or already destroyed, are released as usual. Other runs in the process are
-not told ([Concurrency across instances](#concurrency-across-instances)). The rationale is in
-[ADR-0006](../adr/ADR-0006-threading-model.md) and
-[ADR-0011](../adr/ADR-0011-tick-based-synchronous-execution.md).
+With `features.concurrency: "module"`, no other instance of the library, in this run or in any other
+run or session of the process, can be called while the abandoned call may still be running. When a
+run ends, its instances whose `finalize` or `destroy` is refused are kept the same way: never
+finalized or destroyed, never freed, their services withdrawn. A warning (event `teardown.skipped`)
+names each, says what was left undone and names the abandoned call. Instances that were never
+created, or already destroyed, are released as usual, and once the abandoned call returns, the
+teardown's calls are made as usual. An instance of a contract-check session is kept the same way
+when its `finalize` or `destroy` is refused (event `instance.kept`). The rationale is in
+[ADR-0006](../adr/ADR-0006-threading-model.md),
+[ADR-0011](../adr/ADR-0011-tick-based-synchronous-execution.md) and
+[ADR-0030](../adr/ADR-0030-library-gate-across-runs.md).
 
 ## Runtime threads
 

@@ -1,7 +1,8 @@
 # Time, cancellation and timeouts
 
 - **Version:** runtime 0.2.0, ABI 0.0 and the `workflow-config` format 0.1.0
-- **Status:** Normative, MVP. Proposed ([ADR-0012](../adr/ADR-0012-time-timeouts-and-cancellation.md)).
+- **Status:** Normative, MVP. Proposed ([ADR-0012](../adr/ADR-0012-time-timeouts-and-cancellation.md),
+  [ADR-0030](../adr/ADR-0030-library-gate-across-runs.md)).
 - **Requirement keywords:** MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are used as described in
   [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119).
 
@@ -63,7 +64,10 @@ contract checks use their own timeouts: invoke 30 s, also for `self_test`, lifec
 cancellation grace of 5 s.)
 
 - The deadline counts on the steady clock from the moment the call is posted to the instance's
-  worker thread.
+  worker thread. That is after the call's turn at its library's gate, which another run or
+  contract-check session of the process may hold: the wait for it is not part of the deadline, and a
+  stop requested during it ends a `create`, `initialize` or `invoke` without calling the module
+  ([threading-and-ownership.md](threading-and-ownership.md#concurrency-across-instances)).
 - Whether a call timed out depends on when the module returned, not on when the waiting thread woke.
 - When the deadline passes, the runtime raises the call's cancellation request, so
   `cancel_requested()` returns nonzero, logs a warning (event `call.deadline`) and waits for up to
@@ -81,6 +85,8 @@ The outcome of a `create`, `initialize` or `invoke` call, and its effect on the 
 | returns any other status before its deadline | failed | The run fails with `STEP_FAILED` (`OUTPUT_INVALID` for an unacceptable result). |
 | returns after its deadline but within the cancellation grace, whatever its status | timed out | The run fails with `STEP_TIMEOUT`. |
 | does not return within its deadline plus the cancellation grace | unresponsive | The run fails with `MODULE_UNRESPONSIVE`; the instance is abandoned ([threading-and-ownership.md](threading-and-ownership.md#unresponsive-instances)). |
+| is not made: it would have to wait for an abandoned call that may still be running in its library | refused | The run fails with `MODULE_UNRESPONSIVE`, naming the abandoned call ([threading-and-ownership.md](threading-and-ownership.md#concurrency-across-instances)). |
+| is not made: a stop was requested while it waited for its library | cancelled | The run ends as stopped (`RUN_STOPPED`). |
 
 - A `finalize` or `destroy` call of the teardown, and a `diagnostics` call made while a failure is
   reported, never change how the run ends, whatever their outcome: a run that completed, stopped or
@@ -88,7 +94,7 @@ The outcome of a `create`, `initialize` or `invoke` call, and its effect on the 
   warning (event `teardown.finalize_failed`) and becomes its step's last error; a `diagnostics` call
   that does not succeed only leaves the diagnostics out of the error's details; any of them that
   does not return within its deadline plus the cancellation grace still makes its instance
-  unresponsive and abandoned
+  unresponsive and abandoned, and a refused `finalize` or `destroy` leaves its instance as it is
   ([threading-and-ownership.md](threading-and-ownership.md#unresponsive-instances)).
 - An invocation that fails, times out or is cancelled leaves its instance `ready`, so it is still
   finalized. A `create`, `initialize` or `finalize` that does not succeed leaves it `failed`.

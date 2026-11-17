@@ -174,15 +174,26 @@ Every call into the runtime releases the GIL, so while one thread runs a workflo
 its `status()`, `metrics()`, `latest_outputs()` or `request_stop()`. The control calls (`start`,
 `tick`, `run`, `close`) are made one at a time.
 
-Two workflows may also run at the same time on two threads, but the runtime serializes the module
-calls of one run (and of one `check_module()`) only, not those of different runs. So two workflows,
-or a workflow and a `check_module()`, must not run at the same time when they use the same module
-library whose manifest keeps the default `features.concurrency: "module"`. Once any call into a
-library has become unresponsive, whether it failed the run with `MODULE_UNRESPONSIVE` or was only the
-last error of a `finalize` or `destroy` step of a run that ended `completed` or `stopped`, that
-library must not be used again in the process: the abandoned call may still be running. Run such
-workflows one after another or in separate processes, and restart the interpreter after an
-unresponsive call
+Two workflows may also run at the same time on two threads, and a workflow beside a
+`check_module()`. When they use the same module library whose manifest keeps the default
+`features.concurrency: "module"`, their calls into it take turns: a call waits while another run's
+call into the library runs, and the wait does not count toward its timeout. Once a call into such a
+library has become unresponsive, whether it failed the run with `MODULE_UNRESPONSIVE` or was only
+the last error of a `finalize` or `destroy` step of a run that ended `completed` or `stopped`, the
+abandoned call may still be running, and until it returns the library is refused:
+
+- a workflow's `start()`, `tick()` or `run()` that would load the library, or call `create`,
+  `initialize` or `invoke` in it, raises `MODULE_UNRESPONSIVE`, whose details name the abandoned
+  call (`abandoned_call`); a teardown leaves the workflow's instances of the library as they are;
+- `validate(..., load=True)` raises with the report's first error, `MODULE_UNRESPONSIVE` when that
+  is the library's; in the report (the error's `details`), the library's diagnostic names the
+  abandoned call in its own `details`;
+- `check_module()` raises `FAILED`, its report's `library.load` check failed with a message that
+  names the abandoned call.
+
+A new interpreter starts without the abandoned call. Taking turns keeps the runs safe, not
+reproducible: they still share the library's global state, so run workflows one after another when
+their results must not depend on each other
 ([specs/threading-and-ownership.md](specs/threading-and-ownership.md#concurrency-across-instances)).
 
 Ctrl+C does not interrupt a blocking `run()`: Python handles the signal only when the call returns

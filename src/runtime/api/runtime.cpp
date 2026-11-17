@@ -60,7 +60,7 @@ auto environment_setting(const char* name, Parse parse) -> std::optional<decltyp
 }
 
 void add(ValidationReport& report, ErrorCode code, std::string message, SourceLocation location,
-         std::string step = {}, std::string module = {}) {
+         std::string step = {}, std::string module = {}, std::string details_json = {}) {
     Diagnostic diagnostic;
     diagnostic.severity = Severity::error;
     diagnostic.code = code;
@@ -68,7 +68,13 @@ void add(ValidationReport& report, ErrorCode code, std::string message, SourceLo
     diagnostic.location = std::move(location);
     diagnostic.step = std::move(step);
     diagnostic.module = std::move(module);
+    diagnostic.details_json = std::move(details_json);
     report.add(std::move(diagnostic));
+}
+
+// An error's details for a diagnostic: none when it has none ("{}").
+std::string details_of(const Error& error) {
+    return error.details_json() == "{}" ? std::string() : error.details_json();
 }
 
 ModuleInfo module_info(const detail::ModuleManifest& manifest) {
@@ -132,7 +138,8 @@ void check_loading(const detail::ValidatedWorkflow& workflow, ValidationReport& 
                 user == workflow.steps.end() ? std::string() : user->id,
                 user == workflow.steps.end()
                     ? std::string()
-                    : identity(user->manifest->name, user->manifest->version));
+                    : identity(user->manifest->name, user->manifest->version),
+                details_of(e));
         }
     }
     for (const auto& manifest : workflow.manifests) {
@@ -158,7 +165,7 @@ void check_loading(const detail::ValidatedWorkflow& workflow, ValidationReport& 
                     std::move(location), user->id, module);
             }
         } catch (const Error& e) {
-            add(report, e.code(), e.what(), e.location(), user->id, module);
+            add(report, e.code(), e.what(), e.location(), user->id, module, details_of(e));
         }
     }
 }

@@ -4,9 +4,12 @@
 // tolerance, and the report document.
 #include "api/module_check.hpp"
 #include "core/semver.hpp"
+#include "discovery/manifest.hpp"
 #include "document/schema_registry.hpp"
 
 #include "instance_fixtures.hpp"
+#include "loader/library_gate.hpp"
+#include "loader/loaded_module.hpp"
 #include "module_fixtures.hpp"
 #include "test_support.hpp"
 #include "validation_fixtures.hpp"
@@ -351,6 +354,7 @@ TEST(ModuleCheck, UnresponsiveCallSkipsLaterChecksAndFailsUnload) {
     const ModuleCheckReport report = praenora::detail::check_module(
         fixture_manifest("fx-hang"), dir.path() / "vectors.json", *context, nullptr, deadlines);
     gate.open(); // the abandoned call returns now
+    EXPECT_TRUE(praenora::test::wait_until_loadable("fx-hang"));
     EXPECT_FALSE(report.passed());
     const auto statuses = statuses_of(report);
     EXPECT_EQ(statuses.at("lifecycle.full"), "pass") << shown(report);
@@ -514,4 +518,96 @@ TEST(ModuleCheck, SimulatingModulePassesWithTheSimulationService) {
     EXPECT_EQ(check_of(refused, "library.load").status, "fail") << shown(refused);
     EXPECT_EQ(check_of(refused, "library.load").message.rfind("SERVICE_UNAVAILABLE: ", 0), 0u)
         << shown(refused);
+}
+
+namespace {
+
+// A call into fixture module `name`'s library that was abandoned, as an unresponsive invoke of
+// step 'a' of workflow test.chain@0.1.0 leaves it: an exclusive lease on the library's gate,
+// marked abandoned, held with the library (as the abandoned call's task holds it) until reset(),
+// when the call returns.
+class AbandonedCall {
+public:
+    explicit AbandonedCall(const char* name) : module_(praenora::test::load_fixture_module(name)) {
+        using praenora::detail::LibraryGate;
+        LibraryGate::Grant grant = module_->gate().acquire(
+            LibraryGate::Access::exclusive,
+            praenora::detail::LibraryCall{std::string(name) + "@0.1.0", "invoke",
+                                          "step 'a' of workflow test.chain@0.1.0"});
+        if (grant.lease == nullptr) {
+            throw std::runtime_error("the library's gate granted no lease");
+        }
+        lease_ = std::move(grant.lease);
+        lease_->abandon();
+    }
+
+    void reset() {
+        lease_.reset();
+        module_.reset();
+    }
+
+private:
+    std::shared_ptr<praenora::detail::LoadedModule> module_;
+    std::shared_ptr<praenora::detail::LibraryGate::Lease> lease_;
+};
+
+} // namespace
+
+TEST(ModuleCheck, LibraryWithAnAbandonedCallFailsLibraryLoad) {
+    // A call into fx-echo's library was abandoned and may still be running: the checks do not
+    // load the library (library.load fails, naming that call) and call nothing in it.
+    const Runtime runtime(check_options());
+    AbandonedCall abandoned("fx-echo");
+    const ModuleCheckReport report = runtime.check_module(utf8(fixture_manifest("fx-echo")));
+    const CheckResult& load = check_of(report, "library.load");
+    EXPECT_EQ(load.status, "fail") << shown(report);
+    EXPECT_EQ(load.message.rfind("MODULE_UNRESPONSIVE: ", 0), 0u) << load.message;
+    EXPECT_TRUE(contains(load.message, "invoke by step 'a' of workflow test.chain@0.1.0"))
+        << load.message;
+    const auto statuses = statuses_of(report);
+    EXPECT_EQ(statuses.at("library.entry_point"), "skip");
+    EXPECT_EQ(statuses.at("lifecycle.full"), "skip");
+    EXPECT_FALSE(report.passed());
+
+    abandoned.reset(); // the abandoned call returns
+    EXPECT_TRUE(runtime.check_module(utf8(fixture_manifest("fx-echo"))).passed());
+}
+
+TEST(Runtime, ValidateLoadRefusesALibraryWithAnAbandonedCall) {
+    // validate --load loads every module as a run would, and so reports the library of fx-echo
+    // as unusable while an abandoned call may still be running in it.
+    ScratchDir dir;
+    write_text_file(dir.path() / "source.json", "{\"value\": 1}");
+    write_text_file(dir.path() / "workflow.yaml",
+                    "kind: workflow-config\n"
+                    "format_version: \"0.1.0\"\n"
+                    "workflow: { name: test.single, version: \"0.1.0\" }\n"
+                    "run: { ticks: 1 }\n"
+                    "inputs:\n"
+                    "  source: { source: json-document, path: source.json }\n"
+                    "steps:\n"
+                    "  a:\n"
+                    "    module: { name: fx-echo, version: \"0.1.0\" }\n"
+                    "    parameters: {}\n"
+                    "outputs: { directory: out }\n");
+    RuntimeOptions options = check_options();
+    options.module_paths = {PRAENORA_TEST_MODULES_DIR};
+    const Runtime runtime(options);
+    praenora::ValidateOptions load;
+    load.load = true;
+    const std::string file = utf8(dir.path() / "workflow.yaml");
+    ASSERT_TRUE(runtime.validate(file, load).ok());
+
+    AbandonedCall abandoned("fx-echo");
+    const praenora::ValidationReport report = runtime.validate(file, load);
+    ASSERT_FALSE(report.ok()) << report.to_text();
+    const praenora::Diagnostic& error = *report.first_error();
+    EXPECT_EQ(error.code, praenora::ErrorCode::MODULE_UNRESPONSIVE) << report.to_text();
+    EXPECT_EQ(error.step, "a");
+    EXPECT_EQ(error.location.pointer, "/library/path");
+    EXPECT_EQ(json::parse(error.details_json).at("abandoned_call").at("by"),
+              "step 'a' of workflow test.chain@0.1.0");
+
+    abandoned.reset();
+    EXPECT_TRUE(runtime.validate(file, load).ok());
 }

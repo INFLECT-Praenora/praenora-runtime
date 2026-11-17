@@ -1,8 +1,10 @@
 // The loader: shared libraries, the entry point, function-table validation, the describe()
 // identity cross-check and library digests, with the fixture modules.
+#include "core/paths.hpp"
 #include "core/sha256.hpp"
 #include "discovery/manifest.hpp"
 #include "document/yaml_loader.hpp"
+#include "loader/library_gate.hpp"
 #include "loader/loaded_module.hpp"
 #include "loader/shared_library.hpp"
 #include "platform/platform.hpp"
@@ -30,12 +32,14 @@ namespace fs = std::filesystem;
 using praenora::Error;
 using praenora::ErrorCode;
 using praenora::detail::check_library_file;
+using praenora::detail::LibraryCall;
+using praenora::detail::LibraryGate;
 using praenora::detail::load_manifest;
 using praenora::detail::LoadedModule;
 using praenora::detail::ModuleManifest;
 using praenora::detail::SharedLibrary;
-using praenora::test::ScopedEnvironment;
 using praenora::test::fixture_manifest;
+using praenora::test::ScopedEnvironment;
 using praenora::test::ScratchDir;
 using praenora::test::utf8_path;
 
@@ -455,4 +459,79 @@ TEST(Loader, KeepLibrariesVariablePinsEveryLibrary) {
                                                        : std::nullopt);
         EXPECT_FALSE(load_fixture("fx-noop")->pinned());
     }
+}
+
+TEST(Loader, OneLibraryFileIsOneImage) {
+    // Every load of one library file shares its loaded image, and so its gate; a copy of the file
+    // at another path is another image, with globals and a gate of its own.
+    const auto first = load_fixture("fx-echo");
+    const auto second = load_fixture("fx-echo");
+    EXPECT_EQ(&first->gate(), &second->gate());
+
+    const ScratchDir scratch;
+    const auto copy =
+        LoadedModule::load(load_manifest(copy_fixture("fx-echo", scratch.path() / "copy")));
+    EXPECT_NE(&copy->gate(), &first->gate());
+#ifndef _WIN32
+    // A symbolic link to the library file names the same image.
+    const ModuleManifest manifest = load_manifest(fixture_manifest("fx-echo"));
+    const fs::path linked = scratch.path() / "linked";
+    fs::create_directories(linked);
+    fs::create_symlink(manifest.library_path, linked / manifest.library_path.filename());
+    fs::copy_file(manifest.manifest_path, linked / manifest.manifest_path.filename());
+    const auto through_link =
+        LoadedModule::load(load_manifest(linked / manifest.manifest_path.filename()));
+    EXPECT_EQ(&through_link->gate(), &first->gate());
+#endif
+}
+
+TEST(Loader, RefusesALibraryWithAnAbandonedCall) {
+    // A call into fx-noop (concurrency "module") was abandoned and may still be running: the
+    // library is refused, by check 2, until that call returns.
+    const ModuleManifest manifest = load_manifest(fixture_manifest("fx-noop"));
+    const auto loaded = LoadedModule::load(manifest);
+    const LibraryCall abandoned{"fx-noop@0.1.0", "invoke", "step 'a' of workflow test.chain@0.1.0"};
+    const LibraryGate::Grant grant = loaded->gate().acquire(LibraryGate::Access::shared, abandoned);
+    ASSERT_NE(grant.lease, nullptr);
+    grant.lease->abandon();
+
+    LoadedModule::Check reached = LoadedModule::Check::identity;
+    try {
+        static_cast<void>(LoadedModule::load(manifest, &reached));
+        FAIL() << "the library was loaded";
+    } catch (const Error& error) {
+        EXPECT_EQ(error.code(), ErrorCode::MODULE_UNRESPONSIVE);
+        EXPECT_EQ(reached, LoadedModule::Check::library_open);
+        EXPECT_EQ(error.location().file, praenora::detail::path_to_utf8(manifest.manifest_path));
+        EXPECT_EQ(error.location().pointer, "/library/path");
+        EXPECT_TRUE(contains(error.what(), "invoke by step 'a' of workflow test.chain@0.1.0"))
+            << error.what();
+        EXPECT_EQ(nlohmann::json::parse(error.details_json()),
+                  (nlohmann::json{{"abandoned_call", praenora::detail::to_json(abandoned)}}));
+    }
+
+    grant.lease->release(); // the abandoned call returned
+    EXPECT_NE(LoadedModule::load(manifest), nullptr);
+}
+
+TEST(Loader, IndependentInstancesAreRefusedOnlyBehindAnExclusiveCall) {
+    // fx-slow's instances are independent (concurrency "instance"): an abandoned call into one of
+    // them leaves the others free, while an abandoned self_test() refuses the library.
+    const ModuleManifest manifest = load_manifest(fixture_manifest("fx-slow"));
+    const auto loaded = LoadedModule::load(manifest);
+    const LibraryGate::Grant invoke = loaded->gate().acquire(
+        LibraryGate::Access::shared, LibraryCall{"fx-slow@0.1.0", "invoke", "step 'a'"});
+    ASSERT_NE(invoke.lease, nullptr);
+    invoke.lease->abandon();
+    EXPECT_NE(LoadedModule::load(manifest), nullptr);
+    invoke.lease->release();
+
+    const LibraryGate::Grant self_test =
+        loaded->gate().acquire(LibraryGate::Access::exclusive,
+                               LibraryCall{"fx-slow@0.1.0", "self_test", "the contract checks"});
+    ASSERT_NE(self_test.lease, nullptr);
+    self_test.lease->abandon();
+    EXPECT_EQ(load_failure(manifest).code, ErrorCode::MODULE_UNRESPONSIVE);
+    self_test.lease->release();
+    EXPECT_NE(LoadedModule::load(manifest), nullptr);
 }

@@ -205,8 +205,10 @@ docs/                         index.md, the guides (architecture, user-guide, co
 - Modules are independently built `MODULE` libraries, found through `*.pmm.json` manifests on
   module search paths, loaded with `dlopen`/`LoadLibraryExW` and called only through the ABI v0
   function table returned by `praenora_module_get_api`.
-- Each module instance has its own worker thread and calls into it are serialized. The host
-  enforces timeouts; cancellation is cooperative.
+- Each module instance has its own worker thread and calls into it are serialized; calls into a
+  library that allows no concurrent calls (`features.concurrency: "module"`) take turns across the
+  whole process, at one gate per loaded library. The host enforces timeouts; cancellation is
+  cooperative.
 - Heavy engines come from service providers: separately built `MODULE` libraries, found through
   `*.provider.json` manifests on provider search paths and loaded on demand, when a run,
   `validate --load` or the contract checks need one of their services; each is started once and

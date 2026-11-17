@@ -22,6 +22,7 @@ Some modules will need shared facilities, for example simulating a model from a 
 - Each `get_service()` call is logged at debug level on the step's module logger (event `service.lookup`, with the service, major and whether it was provided).
 - Once an instance is unresponsive, its `get_service()` returns NULL: the runtime may tear the registry down while the abandoned module still runs.
 - The same holds for the instances the engine keeps after an unresponsive one of the same library (`features.concurrency` `"module"`; ADR-0011): `ModuleInstance::withdraw_services()` clears their registry pointer, under the lock that lookups take, before they are kept, so a module thread that asks for a service once the run, and with it the registry, is gone gets NULL instead of reaching freed memory.
+- Later: [ADR-0030](ADR-0030-library-gate-across-runs.md) keeps those instances whenever a call into them is refused because an abandoned call may still be running in their library, whichever run abandoned it; their services are withdrawn the same way, also by `ModuleInstance`'s destructor (event `instance.kept`).
 - The test-only `test.gate` service (major 0) is the C struct `praenora_test_gate_v0` in `tests/support/test_gate.h`: the common table header, a context pointer and `is_open(context)`.
 - The message trace (`trace/messages.jsonl`) holds envelopes and result diagnostics only, so runtime-service lookups do not appear in it: in this version the Decision's "logged in the trace" is met by the `service.lookup` log event.
 

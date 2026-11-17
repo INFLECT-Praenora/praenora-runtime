@@ -349,7 +349,7 @@ step, module and `details` (for example the service, the search paths and the pr
 | `IO_ERROR`, exit 74 | A missing or unreadable file or directory (the configuration, a manifest, a catalog directory), a file that cannot be written, or an output directory with an earlier run (add `--overwrite`). A missing data file is `TARGET_DATA_INVALID` instead (exit 3). |
 | `LIBRARY_LOAD_FAILED`, exit 4 | The operating system could not load the module library, for example because a library it needs is missing; the message holds the system's text. For a service provider, located in its manifest, `details.reason` names the check that failed: `start` (the provider's own error in `details.cause`), `identity` (a stale provider manifest), `service`, `conflict` or `library`. |
 | `STEP_FAILED`, exit 1 | A module returned an error. Its own code and message are in the error's `cause`; its log records are on the logger `module.<step>`. |
-| `STEP_TIMEOUT`, `MODULE_UNRESPONSIVE`, exit 5 | A call ran past its deadline (`run.timeouts`, `steps.<step>.timeouts`); an unresponsive module ignored the cancellation and never returned. |
+| `STEP_TIMEOUT`, `MODULE_UNRESPONSIVE`, exit 5 | A call ran past its deadline (`run.timeouts`, `steps.<step>.timeouts`); an unresponsive module ignored the cancellation and never returned. While such a call may still be running, the process refuses the calls and loads of its library that would have to wait for it (all of them for `features.concurrency: "module"`) with `MODULE_UNRESPONSIVE` too, naming the call in `details.abandoned_call`. |
 | `RUN_STOPPED`, exit 130 | The run was stopped on request. |
 
 The [error taxonomy's triage table](specs/error-taxonomy.md#triage) says where to look for every

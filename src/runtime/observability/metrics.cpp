@@ -74,6 +74,7 @@ void MetricsRegistry::record_invocation(const std::string& step, CallOutcome out
         status.last_success_at_unix_ns = at_unix_ns;
         break;
     case CallOutcome::failed:
+    case CallOutcome::refused: // not called: its library has an abandoned call
         ++status.failed;
         break;
     case CallOutcome::timed_out:

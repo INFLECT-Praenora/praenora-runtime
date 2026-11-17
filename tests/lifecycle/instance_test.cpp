@@ -312,10 +312,8 @@ TEST(Timeout, UncooperativeModuleBecomesUnresponsive) {
 
     // Release the detached thread, so it finishes before the test ends.
     gate.open();
-    const auto deadline = Clock::now() + milliseconds(150);
-    while (gate.seen_open() == 0 && Clock::now() < deadline) {
-        std::this_thread::sleep_for(milliseconds(1));
-    }
+    // The abandoned call returns and gives its library back, so the next test can load it.
+    EXPECT_TRUE(praenora::test::wait_until_loadable("fx-hang"));
     EXPECT_GT(gate.seen_open(), 0);
     std::this_thread::sleep_for(milliseconds(20)); // the thread exits right after the call returns
     EXPECT_TRUE(module->pinned());

@@ -48,6 +48,7 @@ add_library(praenora_runtime_objects OBJECT
     io/run_record.cpp
     io/trace_writer.cpp
     loader/library_file.cpp
+    loader/library_gate.cpp
     loader/loaded_module.cpp
     core/duration.cpp
     core/error.cpp

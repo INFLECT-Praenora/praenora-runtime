@@ -149,6 +149,7 @@ praenora_add_gtest(praenora_unit_tests LABEL unit WHITEBOX
         unit/locale_test.cpp
         unit/runtime_context_test.cpp
         unit/run_record_test.cpp
+        unit/library_gate_test.cpp
     LINK Praenora::ModuleSDK)
 # sdk_abi_c99_check.c, simulation_c99_check.c and provider_abi_c99_check.c prove that the SDK's C
 # headers (the simulation service's included) and the provider interface header are valid C99.
@@ -224,11 +225,13 @@ if(PRAENORA_WITH_ROADRUNNER)
     add_dependencies(praenora_contract_tests praenora_provider_roadrunner)
 endif()
 
-# Lifecycle tests: call order, cleanup, timeouts and cancellation of module instances, and the
-# runtime services an instance is served.
+# Lifecycle tests: call order, cleanup, timeouts and cancellation of module instances, calls into
+# one library from instances of several loads of it, and the runtime services an instance is
+# served.
 praenora_add_gtest(praenora_lifecycle_tests LABEL lifecycle WHITEBOX
     SOURCES
         lifecycle/instance_test.cpp
+        lifecycle/library_sharing_test.cpp
         lifecycle/service_visibility_test.cpp)
 add_dependencies(praenora_lifecycle_tests praenora_test_modules praenora_test_providers)
 

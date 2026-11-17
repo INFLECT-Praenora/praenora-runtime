@@ -78,13 +78,25 @@
 // Teardown. Every ready instance is finalized, the last created first; then every created instance
 // is destroyed, again the last created first; then the libraries are released (unloaded unless
 // pinned). finalize and destroy run normally after a stop. Unresponsive instances are left alone:
-// never finalized or destroyed, their libraries pinned. When the module of an unresponsive
-// instance allows no concurrent calls into its instances (features.concurrency "module"), its
-// other instances are left alone too, since its call may still be running: from then on they are
-// neither finalized nor destroyed, never freed, and served no more runtime services (a warning,
-// event teardown.skipped, names each and what was left undone). Only instances already destroyed
-// or never created (still loaded) are released as usual: they make no module call when released.
-// This also applies when an instance becomes unresponsive during the teardown itself.
+// never finalized or destroyed, their libraries pinned. Every call goes through its library's
+// gate (loader/library_gate.hpp), which refuses a call that would have to wait for an abandoned
+// call, of this run or another one in the process: with features.concurrency "module", any call
+// into a library while an abandoned call may still be running in it. An instance whose finalize
+// or destroy is refused is left alone too: from then on it is neither finalized nor destroyed,
+// never freed, and served no more runtime services (a warning, event teardown.skipped, names it,
+// what was left undone and the abandoned call). Instances already destroyed or never created
+// (still loaded) make no module call when released. This also applies when an instance becomes
+// unresponsive during the teardown itself; and once the abandoned call returns, the calls that
+// follow are made as usual.
+//
+// Calls into a library shared with other runs. A call waits for its turn at the library's gate
+// before its deadline starts (with concurrency "module", while another run's call into the
+// library runs). A stop ends the wait of a create, initialize or invoke, which is then not an
+// invocation; the teardown's finalize and destroy, and the diagnostics of a failure, still wait.
+// A create, initialize or invoke that is refused fails the run with MODULE_UNRESPONSIVE, naming
+// the abandoned call (details: abandoned_call), and its step as failed; the module is not
+// called, and a refused invoke is the step's last error, not an invocation. A load of a library
+// refused that way (LoadedModule::load()) fails the run the same way, at its step's load.
 //
 // Metrics. The constructor registers the run and its steps with EngineSettings::metrics (so a
 // status-file writer built afterwards has them). The engine keeps the workflow state there
@@ -92,8 +104,10 @@
 // then stopped or failed), each step's state (busy during each call the engine makes into it;
 // failed, sticky, for a step whose call failed or whose finalize failed; unresponsive), every
 // invocation, every tick, and the last errors: a failure is the workflow's last error and the
-// failing step's (counted with its invocation, or set on its own for load, create, initialize and
-// finalize); a failed finalize at the end is only the step's. A stop sets no last error.
+// failing step's (counted with its invocation, or set on its own for load, create, initialize,
+// finalize and an invoke that was refused); a failed finalize at the end is only the step's. An
+// invoke that a stop ended while it waited for its library is not counted. A stop sets no last
+// error.
 //
 // Threading. start(), run_tick() and shutdown() are control calls, made by one thread at a time;
 // the destructor too. All other methods are thread-safe and may be called at any time from any
@@ -234,7 +248,7 @@ private:
     Error fail(const Error& error, const Failure& failure);
     // The error of a call into the step's instance that did not succeed (`phase`: create,
     // initialize, invoke or finalize; `tick` during a tick): STEP_TIMEOUT, MODULE_UNRESPONSIVE
-    // or STEP_FAILED.
+    // (also for a refused call, with details {"abandoned_call": ...}) or STEP_FAILED.
     Error call_error(const Step& step, const char* phase, const CallResult& result,
                      std::optional<std::uint64_t> tick) const;
     // TARGET_DATA_INVALID for workflow input `input` in `tick`: `problem`, then the first of

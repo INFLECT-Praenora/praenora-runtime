@@ -356,23 +356,25 @@ module should return.
 **Threading.** The runtime makes every call for one instance, from `create` to `destroy`, on one
 thread of its own (`praenora:<step>`), never two at once. When the manifest's
 `features.concurrency` is `"module"` (the default), different instances of a library are never
-called concurrently within one run or one contract-check session; `"instance"` declares instances
-independent. That promise does not reach across runs. A host process must not run two workflows
-that use your library at the same time, nor use the library again after one of its calls became
-unresponsive
-([specs/threading-and-ownership.md](specs/threading-and-ownership.md#concurrency-across-instances)),
-and the `praenora` tool runs one workflow per process; but the runtime does not enforce it, so a
-host that breaks the rule can call two of your instances at once. The host callbacks (`log`,
-`log_enabled`, `cancel_requested`, `get_service`) are thread-safe and may be called from any thread
-of the module while the instance exists. A module that starts threads must join them before
-`destroy` returns.
+called concurrently anywhere in the process: two workflows that run at the same time and use your
+library take turns calling it, and so do the contract checks. `"instance"` declares instances
+independent; only `self_test` then waits for the other calls. While a call into your library that
+became unresponsive may still be running, the runtime makes no call that would have to wait for it
+(with `"module"`, no call into the library at all) and does not load the library for such calls
+([specs/threading-and-ownership.md](specs/threading-and-ownership.md#concurrency-across-instances)).
+Global state of a `"module"` library is still shared by the runs of a process, so keep results
+independent of it, or expect them to depend on the order of the runs' calls. The host callbacks
+(`log`, `log_enabled`, `cancel_requested`, `get_service`) are thread-safe and may be called from
+any thread of the module while the instance exists. A module that starts threads must join them
+before `destroy` returns.
 
 **Deadlines and cancellation.** Each call has a deadline (`invoke` 300 s and other calls 60 s by
 default, set by the configuration). When it passes, `cancel_requested()` returns nonzero for that
 call: a module with long loops should poll it and return `PRAENORA_STATUS_CANCELLED` soon. A call
 that still has not returned after the cancellation grace makes the instance unresponsive: the
 runtime abandons it, never destroys it and keeps its library loaded, and an unresponsive `create`,
-`initialize` or `invoke` fails the run.
+`initialize` or `invoke` fails the run. The time a call waits for its turn at the library is not
+part of its deadline.
 
 **Errors.** A failing call returns a status: a general code from 1 to 99 (`PRAENORA_STATUS_*`, 1 to
 12 defined) or a code of the module's own from `PRAENORA_STATUS_MODULE_BASE` (10000) up, never one
@@ -703,7 +705,7 @@ capabilities when they are not in the built-in catalog.
 | `manifest.schema` | The manifest satisfies the `module-manifest` schema. |
 | `manifest.semantics` | Its paths are relative, its capabilities unique, its parameter schema compiles, it fits this runtime (platform, ABI major, PMP version) and the catalog defines its capabilities. |
 | `library.digest` | The library exists and matches `library.sha256` when the manifest pins one. |
-| `library.load` | The library loads. |
+| `library.load` | The library loads, and no abandoned (unresponsive) call that its calls would have to wait for may still be running in it. |
 | `library.entry_point` | It exports `praenora_module_get_api`. |
 | `api.header` | The table's header is valid for ABI 0. |
 | `api.required_functions` | Every required function is set. |

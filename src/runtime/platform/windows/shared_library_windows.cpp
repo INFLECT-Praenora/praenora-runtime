@@ -172,4 +172,6 @@ bool SharedLibrary::pinned() const noexcept { return pinned_.load(); }
 
 const std::filesystem::path& SharedLibrary::path() const noexcept { return path_; }
 
+const void* SharedLibrary::image() const noexcept { return handle_; }
+
 } // namespace praenora::detail

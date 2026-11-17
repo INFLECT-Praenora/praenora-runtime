@@ -13,6 +13,7 @@
 #include "document/json_util.hpp"
 #include "document/schema_registry.hpp"
 #include "instance/services.hpp"
+#include "loader/library_gate.hpp"
 #include "observability/metrics.hpp"
 
 #include "instance_fixtures.hpp"
@@ -31,6 +32,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <exception>
 #include <filesystem>
 #include <fstream>
 #include <map>
@@ -205,6 +207,18 @@ void wait_until_busy(const EngineFixture& fixture, const std::string& id) {
         }
         std::this_thread::sleep_for(milliseconds(1));
     }
+}
+
+// Waits (up to 10 s) until `condition` holds, and reports whether it does.
+template <class Condition> bool wait_for(Condition condition) {
+    const auto deadline = Clock::now() + std::chrono::seconds(10);
+    while (!condition()) {
+        if (Clock::now() >= deadline) {
+            return false;
+        }
+        std::this_thread::sleep_for(milliseconds(1));
+    }
+    return true;
 }
 
 // The warnings (event teardown.skipped) about instances the teardown left alone: step -> message.
@@ -663,12 +677,7 @@ TEST(Engine, UnresponsiveStepIsModuleUnresponsive) {
 
     // Release the detached thread, so it finishes before the test ends.
     gate.open();
-    const auto deadline = Clock::now() + milliseconds(500);
-    while (gate.seen_open() == 0 && Clock::now() < deadline) {
-        std::this_thread::sleep_for(milliseconds(1));
-    }
-    EXPECT_GT(gate.seen_open(), 0);
-    std::this_thread::sleep_for(milliseconds(20));
+    EXPECT_TRUE(praenora::test::wait_until_loadable("fx-hang"));
 }
 
 TEST(Engine, StopRequestEndsAsStopped) {
@@ -1061,16 +1070,256 @@ TEST(Engine, UnresponsiveInstanceKeepsItsLibraryToItself) {
     ASSERT_EQ(skipped.size(), 1u);
     ASSERT_EQ(skipped.count("b"), 1u);
     EXPECT_TRUE(contains(skipped.at("b"), "is neither finalized nor destroyed")) << skipped.at("b");
+    EXPECT_TRUE(contains(skipped.at("b"), "invoke by step 'a' of workflow test.chain@0.1.0"))
+        << skipped.at("b");
     fixture.engine.reset();
 
     // Release the detached thread, so it finishes before the test ends.
     gate.open();
-    const auto deadline = Clock::now() + milliseconds(500);
-    while (gate.seen_open() == 0 && Clock::now() < deadline) {
+    EXPECT_TRUE(praenora::test::wait_until_loadable("fx-hang"));
+}
+
+TEST(Engine, LaterRunRefusesALibraryWithAnAbandonedCall) {
+    // A run abandons a call into fx-hang (concurrency "module"), which may still be running: a
+    // later run in the process that uses fx-hang fails as it loads it, with MODULE_UNRESPONSIVE
+    // naming the abandoned call, until that call returns.
+    static TestGate gate; // static: the detached thread polls it after the engines are gone
+    gate.close();
+    ServiceRegistry services;
+    services.add("test.gate", 0, gate.table());
+    EngineFixture first;
+    Engine& abandoning =
+        first.open(single("fx-hang", "{}", "    timeouts: { invoke: 50ms, cancel_grace: 50ms }\n"),
+                   {}, &services);
+    abandoning.start();
+    EXPECT_EQ(error_of([&] { abandoning.run_tick(); }).code(), ErrorCode::MODULE_UNRESPONSIVE);
+    first.engine.reset();
+
+    EngineFixture second;
+    Engine& refused = second.open(single("fx-hang", "{ hang: none }"), {}, &services);
+    const Error error = error_of([&] { refused.start(); });
+    EXPECT_EQ(error.code(), ErrorCode::MODULE_UNRESPONSIVE) << error.to_json();
+    EXPECT_TRUE(contains(error.what(), "invoke by step 'a' of workflow test.single@0.1.0"))
+        << error.what();
+    const json details = details_of(error);
+    EXPECT_EQ(details.at("phase"), "load");
+    EXPECT_EQ(details.at("abandoned_call"),
+              json({{"module", "fx-hang@0.1.0"},
+                    {"call", "invoke"},
+                    {"by", "step 'a' of workflow test.single@0.1.0"}}));
+    EXPECT_EQ(refused.state(), WorkflowState::failed);
+    EXPECT_EQ(error.location().pointer, "/library/path");
+    second.engine.reset();
+
+    gate.open(); // the abandoned call returns, and the library is usable again
+    ASSERT_TRUE(praenora::test::wait_until_loadable("fx-hang"));
+    EngineFixture third;
+    Engine& later = third.open(single("fx-hang", "{ hang: none }"), {}, &services);
+    later.start();
+    for (int tick = 0; tick < 3; ++tick) {
+        later.run_tick();
+    }
+    EXPECT_EQ(later.state(), WorkflowState::completed);
+}
+
+TEST(Engine, RunStopsCallingALibraryThatAnotherRunAbandoned) {
+    // Two runs in one process use fx-hang. The first is between ticks when the second abandons a
+    // call into it: the first run's next invoke is refused without calling the module
+    // (MODULE_UNRESPONSIVE, naming the other run's call), and its teardown keeps its instance as
+    // it is instead of finalizing it.
+    static TestGate gate; // static: the detached thread polls it after the engines are gone
+    gate.close();
+    ServiceRegistry services;
+    services.add("test.gate", 0, gate.table());
+    EngineFixture first;
+    Engine& running = first.open(single("fx-hang", "{ hang: none }"), {}, &services);
+    running.start();
+    running.run_tick();
+
+    EngineFixture second;
+    Engine& abandoning =
+        second.open(config("test.chain", "run: { ticks: 1 }\n", kJsonSource,
+                           "steps:\n" +
+                               step("a", "fx-hang", "{}",
+                                    "    timeouts: { invoke: 50ms, cancel_grace: 50ms }\n") +
+                               step("b", "fx-echo")),
+                    {}, &services);
+    abandoning.start();
+    EXPECT_EQ(error_of([&] { abandoning.run_tick(); }).code(), ErrorCode::MODULE_UNRESPONSIVE);
+    second.engine.reset();
+
+    const Error error = error_of([&] { running.run_tick(); });
+    EXPECT_EQ(error.code(), ErrorCode::MODULE_UNRESPONSIVE) << error.to_json();
+    EXPECT_TRUE(contains(error.what(), "step 'a' (module fx-hang@0.1.0): invoke was refused"))
+        << error.what();
+    EXPECT_TRUE(contains(error.what(), "invoke by step 'a' of workflow test.chain@0.1.0"))
+        << error.what();
+    const json details = details_of(error);
+    EXPECT_EQ(details.at("abandoned_call").at("by"), "step 'a' of workflow test.chain@0.1.0");
+    EXPECT_EQ(details.at("phase"), "invoke");
+    EXPECT_FALSE(details.contains("cause")); // the module was not called
+    EXPECT_EQ(running.state(), WorkflowState::failed);
+    const StatusSnapshot status = first.metrics.snapshot();
+    const StepStatus& a = first.step_status(status, "a");
+    EXPECT_EQ(a.state, StepState::failed);
+    // The refused invoke never reached the module: it is the step's last error, not an invocation.
+    EXPECT_EQ(a.invocations, 1u);
+    EXPECT_EQ(a.succeeded, 1u);
+    EXPECT_EQ(a.failed, 0u);
+    EXPECT_EQ(a.min_duration_ns, a.last_duration_ns);
+    ASSERT_TRUE(a.last_error.has_value());
+    EXPECT_EQ(a.last_error->code, ErrorCode::MODULE_UNRESPONSIVE);
+    // Refused twice: the invoke, then the teardown's finalize (the failure asks for no
+    // diagnostics, and a step whose finalize is refused is not destroyed).
+    int refusals = 0;
+    for (const json& event : first.logs.events()) {
+        const json& attributes = event.at("attributes");
+        if (attributes.value("event", std::string()) == "library.refused" &&
+            attributes.value("step", std::string()) == "a") {
+            ++refusals;
+        }
+    }
+    EXPECT_EQ(refusals, 2);
+    const auto skipped = skipped_in_teardown(first);
+    ASSERT_EQ(skipped.count("a"), 1u);
+    EXPECT_TRUE(contains(skipped.at("a"), "is neither finalized nor destroyed")) << skipped.at("a");
+    EXPECT_TRUE(contains(skipped.at("a"), "invoke by step 'a' of workflow test.chain@0.1.0"))
+        << skipped.at("a");
+    first.engine.reset();
+
+    gate.open();
+    EXPECT_TRUE(praenora::test::wait_until_loadable("fx-hang"));
+}
+
+TEST(Engine, StopEndsARunsWaitForItsLibrary) {
+    // Run a's invoke is in fx-hang, blocked at the closed test.gate; run b's invoke waits for its
+    // turn. A stop ends b's wait without calling the module: b ends stopped, no invocation is
+    // counted, and its teardown (which no stop shortens) finalizes and destroys b's instance once
+    // a's call has returned.
+    static TestGate gate;
+    gate.close();
+    ServiceRegistry services;
+    services.add("test.gate", 0, gate.table());
+    EngineFixture first, second;
+    Engine& blocking = first.open(single("fx-hang"), {}, &services);
+    Engine& waiting = second.open(single("fx-hang", "{ hang: none }"), {}, &services);
+    blocking.start();
+    waiting.start();
+    const auto library = praenora::test::load_fixture_module("fx-hang");
+
+    // What a thread's run_tick() threw, if anything: it fails the test instead of ending the
+    // process.
+    std::exception_ptr a_threw, b_threw;
+    std::thread a([&blocking, &a_threw] {
+        try {
+            blocking.run_tick();
+        } catch (...) {
+            a_threw = std::current_exception();
+        }
+    });
+    std::thread b;
+    struct Join {
+        TestGate& gate;
+        std::thread& a;
+        std::thread& b;
+        ~Join() {
+            gate.open();
+            for (std::thread* thread : {&a, &b}) {
+                if (thread->joinable()) {
+                    thread->join();
+                }
+            }
+        }
+    } join{gate, a, b};
+    ASSERT_TRUE(wait_for([] { return gate.polled() > 0; })); // a's call is in the module
+    b = std::thread([&waiting, &b_threw] {
+        try {
+            waiting.run_tick();
+        } catch (...) {
+            b_threw = std::current_exception();
+        }
+    });
+    ASSERT_TRUE(wait_for([&library] { return library->gate().waiting() == 1; }));
+    waiting.request_stop();
+    EXPECT_TRUE(wait_for([&waiting] { return waiting.state() == WorkflowState::stopping; }));
+    EXPECT_EQ(gate.seen_open(), 0); // a's call is still blocked
+    gate.open();
+    b.join();
+    a.join();
+    EXPECT_FALSE(a_threw);
+    EXPECT_FALSE(b_threw);
+
+    EXPECT_EQ(waiting.state(), WorkflowState::stopped);
+    const StatusSnapshot status = second.metrics.snapshot();
+    const StepStatus& step = second.step_status(status, "a");
+    EXPECT_EQ(step.invocations, 0u);
+    EXPECT_EQ(step.state, StepState::destroyed);
+    EXPECT_TRUE(skipped_in_teardown(second).empty());
+    EXPECT_EQ(first.step_status(first.metrics.snapshot(), "a").succeeded, 1u);
+}
+
+TEST(Engine, LibraryIsCalledAsUsualOnceTheAbandonedCallReturns) {
+    // Run a is started when run b abandons a call into fx-hang. Once that call returns, a's ticks
+    // and its teardown call the library as usual: nothing is refused or kept.
+    static TestGate gate;
+    gate.close();
+    ServiceRegistry services;
+    services.add("test.gate", 0, gate.table());
+    EngineFixture first;
+    Engine& running = first.open(single("fx-hang", "{ hang: none }"), {}, &services);
+    running.start();
+
+    EngineFixture second;
+    Engine& abandoning =
+        second.open(single("fx-hang", "{}", "    timeouts: { invoke: 50ms, cancel_grace: 50ms }\n"),
+                    {}, &services);
+    abandoning.start();
+    EXPECT_EQ(error_of([&] { abandoning.run_tick(); }).code(), ErrorCode::MODULE_UNRESPONSIVE);
+    second.engine.reset();
+    gate.open();
+    ASSERT_TRUE(praenora::test::wait_until_loadable("fx-hang"));
+
+    for (int tick = 0; tick < 3; ++tick) {
+        running.run_tick();
+    }
+    EXPECT_EQ(running.state(), WorkflowState::completed);
+    const StatusSnapshot status = first.metrics.snapshot();
+    const StepStatus& step = first.step_status(status, "a");
+    EXPECT_EQ(step.succeeded, 3u);
+    EXPECT_EQ(step.state, StepState::destroyed);
+    EXPECT_TRUE(skipped_in_teardown(first).empty());
+}
+
+TEST(Engine, IndependentInstancesServeOtherRunsBesideAnAbandonedCall) {
+    // fx-slow's instances are independent (concurrency "instance"): a call that one run abandons
+    // keeps no other run from loading the library and calling it.
+    EngineFixture first;
+    Engine& abandoning = first.open(single("fx-slow", "{ sleep_ms: 2000, cooperative: false }",
+                                           "    timeouts: { invoke: 50ms, cancel_grace: 50ms }\n"));
+    abandoning.start();
+    EXPECT_EQ(error_of([&] { abandoning.run_tick(); }).code(), ErrorCode::MODULE_UNRESPONSIVE);
+    first.engine.reset();
+
+    EngineFixture second;
+    Engine& other = second.open(single("fx-slow", "{ sleep_ms: 0 }"));
+    other.start();
+    for (int tick = 0; tick < 3; ++tick) {
+        other.run_tick();
+    }
+    EXPECT_EQ(other.state(), WorkflowState::completed);
+    // The abandoned call was still running all along: it still holds its lease, for which an
+    // exclusive call (a self_test()) would be refused.
+    using praenora::detail::LibraryGate;
+    const auto library = praenora::test::load_fixture_module("fx-slow");
+    EXPECT_TRUE(library->gate().refusal(LibraryGate::Access::exclusive).has_value());
+
+    // Let the abandoned call end before the test does.
+    const auto deadline = Clock::now() + std::chrono::seconds(10);
+    while (library->gate().refusal(LibraryGate::Access::exclusive).has_value() &&
+           Clock::now() < deadline) {
         std::this_thread::sleep_for(milliseconds(1));
     }
-    EXPECT_GT(gate.seen_open(), 0);
-    std::this_thread::sleep_for(milliseconds(20));
+    EXPECT_FALSE(library->gate().refusal(LibraryGate::Access::exclusive).has_value());
 }
 
 TEST(Engine, InstanceConcurrencyTearsDownOtherInstances) {
@@ -1122,12 +1371,7 @@ TEST(Engine, TeardownReleasesSiblingsAlreadyDestroyed) {
 
     // Release the detached thread, so it finishes before the test ends.
     gate.open();
-    const auto deadline = Clock::now() + milliseconds(500);
-    while (gate.seen_open() == 0 && Clock::now() < deadline) {
-        std::this_thread::sleep_for(milliseconds(1));
-    }
-    EXPECT_GT(gate.seen_open(), 0);
-    std::this_thread::sleep_for(milliseconds(20));
+    EXPECT_TRUE(praenora::test::wait_until_loadable("fx-hang"));
 }
 
 TEST(Engine, TeardownSkipWarningSaysWhatWasLeftUndone) {
@@ -1158,12 +1402,7 @@ TEST(Engine, TeardownSkipWarningSaysWhatWasLeftUndone) {
     fixture.engine.reset();
 
     gate.open();
-    const auto deadline = Clock::now() + milliseconds(500);
-    while (gate.seen_open() == 0 && Clock::now() < deadline) {
-        std::this_thread::sleep_for(milliseconds(1));
-    }
-    EXPECT_GT(gate.seen_open(), 0);
-    std::this_thread::sleep_for(milliseconds(20));
+    EXPECT_TRUE(praenora::test::wait_until_loadable("fx-hang"));
 }
 
 TEST(Engine, ExistingRunRecordIsNotOverwritten) {

@@ -99,7 +99,7 @@ as `a/b` names both parties that commonly own the fix; `none` marks codes that r
 | 700 | `STEP_FAILED` | execution | 1 | module | no | A module call returned an error. |
 | 701 | `OUTPUT_INVALID` | execution | 1 | module | no | A module result is malformed, names an undeclared port or violates the port's schema. |
 | 702 | `STEP_TIMEOUT` | timeout | 5 | module/config | yes | A module call passed its deadline and returned within the cancellation grace period. |
-| 703 | `MODULE_UNRESPONSIVE` | timeout | 5 | module | no | A module call did not return within its deadline plus the cancellation grace period. |
+| 703 | `MODULE_UNRESPONSIVE` | timeout | 5 | module | no | A module call did not return within its deadline plus the cancellation grace period, or a call or load was refused because such a call may still be running in the module's library. |
 | 704 | `INPUT_MISSING` | execution | 1 | runtime | no | A required input message was not available when a step ran. |
 | 705 | `RUN_STOPPED` | cancelled | 130 | none | no | The run was stopped on request. |
 | 800 | `TARGET_DATA_INVALID` | data | 1 | user data | no | Target data is malformed or breaks the observation rules. |
@@ -194,7 +194,7 @@ from 10000 up, never appears as the error's code: it is `details.cause.code` of 
 | `STEP_FAILED` | `details.step`, `details.phase`, `details.cause` (the module's own code and message) and `details.diagnostics`; the step's log records (logger `module.<step>`). |
 | `OUTPUT_INVALID` | `details.port`, the pointer into the result and `details.issues`; with tracing on, the trace's last records ([observability.md](observability.md#message-trace)); the module's test vectors. |
 | `STEP_TIMEOUT` | The step's timeouts (`run.timeouts`, `steps.<step>.timeouts`) against its durations in the metrics, and whether the module polls `cancel_requested()` ([time-cancellation-timeouts.md](time-cancellation-timeouts.md)). |
-| `MODULE_UNRESPONSIVE` | A module that ignored cancellation and never returned. Its library stays loaded and its thread keeps running; restart the process before loading the module again. |
+| `MODULE_UNRESPONSIVE` | A module that ignored cancellation and never returned. Its library stays loaded and its thread keeps running, and until the call returns the process refuses the calls and loads of that library that would wait for it (all of them for `features.concurrency: "module"`); a refusal names the call in `details.abandoned_call` (`call`, `by`, `module`) ([threading-and-ownership.md](threading-and-ownership.md#concurrency-across-instances)). Make the module poll `cancel_requested()`; a new process starts without the abandoned call. |
 | `RUN_STOPPED` | A stop was requested (Ctrl+C, SIGTERM, `request_stop()`, `close()`). Not a fault. |
 | `IO_ERROR` | The path in the message: permissions, free space; an output directory that already holds a run record (pass `--overwrite`). |
 | `INVALID_ARGUMENT`, `INVALID_STATE` | The calling code or command line: argument values, and the order of calls (for example `tick()` before `start()`, or two control calls at once). |

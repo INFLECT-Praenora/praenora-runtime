@@ -11,8 +11,10 @@
 //                           each capability and the message types of its ports;
 //   library.digest ... describe.identity
 //                           the checks of LoadedModule::load(), one id each: the library file and
-//                           its pinned SHA-256, loading it, the entry point, the table's header,
-//                           the required functions, the describe() document and its identity.
+//                           its pinned SHA-256, loading it (refused, MODULE_UNRESPONSIVE, while
+//                           an abandoned call may still be running in it), the entry point, the
+//                           table's header, the required functions, the describe() document and
+//                           its identity.
 //                           Before the library loads, library.load resolves the services the
 //                           manifest declares on the runtime's provider search paths and loads
 //                           and starts their providers, as a run does: a required service that

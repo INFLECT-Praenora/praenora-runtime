@@ -13,6 +13,7 @@
 #include "module_fixtures.hpp"
 #include "test_gate.h"
 
+#include <praenora/runtime/error.hpp>
 #include <praenora/runtime/options.hpp>
 
 #include <nlohmann/json.hpp>
@@ -23,6 +24,7 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 namespace praenora::test {
@@ -64,6 +66,25 @@ private:
 
 inline std::shared_ptr<detail::LoadedModule> load_fixture_module(std::string_view name) {
     return detail::LoadedModule::load(detail::load_manifest(fixture_manifest(name)));
+}
+
+// Waits (up to 10 s) until fixture module `name` loads, that is until no call that was abandoned
+// is left running in its library, and reports whether it does. Tests that abandon a call wait
+// for it before they end, so that the next test in the process finds the library usable.
+inline bool wait_until_loadable(std::string_view name) {
+    const detail::ModuleManifest manifest = detail::load_manifest(fixture_manifest(name));
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    for (;;) {
+        try {
+            static_cast<void>(detail::LoadedModule::load(manifest));
+            return true;
+        } catch (const Error&) {
+            if (std::chrono::steady_clock::now() >= deadline) {
+                return false;
+            }
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
 }
 
 // Options of an instance for step `step` that logs to `logs` through the logger module.<step>.
@@ -138,17 +159,21 @@ public:
 
     const praenora_test_gate_v0* table() const noexcept { return &table_; }
     void open() noexcept { open_.store(true); }
-    // Closes the gate again and forgets who saw it open. Only safe once no module polls it.
+    // Closes the gate again and forgets who asked. Only safe once no module polls it.
     void close() noexcept {
         open_.store(false);
         seen_open_.store(0);
+        polled_.store(0);
     }
     // How many times a module has asked and found the gate open.
     int seen_open() const noexcept { return seen_open_.load(); }
+    // How many times a module has asked, open or not: nonzero once fx-hang waits at the gate.
+    int polled() const noexcept { return polled_.load(); }
 
 private:
     static std::int32_t PRAENORA_CALL is_open(void* context) {
         auto* self = static_cast<TestGate*>(context);
+        self->polled_.fetch_add(1);
         if (!self->open_.load()) {
             return 0;
         }
@@ -159,6 +184,7 @@ private:
     praenora_test_gate_v0 table_{};
     std::atomic<bool> open_{false};
     std::atomic<int> seen_open_{0};
+    std::atomic<int> polled_{0};
 };
 
 } // namespace praenora::test

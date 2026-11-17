@@ -15,6 +15,7 @@
 #include "engine/result_check.hpp"
 #include "instance/module_instance.hpp"
 #include "loader/library_file.hpp"
+#include "loader/library_gate.hpp"
 #include "loader/loaded_module.hpp"
 #include "observability/logging.hpp"
 #include "provider/provider_loader.hpp"
@@ -111,6 +112,11 @@ std::string call_problem(const char* call, const CallResult& result,
     case CallOutcome::unresponsive:
         return name + " did not return within its deadline of " + shown(timeout) +
                " and the cancellation grace of " + shown(grace) + "; the module is unresponsive";
+    case CallOutcome::refused:
+        return name + " was refused: " +
+               (result.refused_by ? refusal_reason(*result.refused_by)
+                                  : std::string("an abandoned call may still be running in the "
+                                                "library"));
     }
     return name + " did not succeed";
 }
@@ -351,9 +357,10 @@ private:
         for (const auto& step : steps) {
             if (!results_.skip_unless(step.id, prerequisite)) {
                 if (failure && step.check == reached) {
-                    // A service's error names its code, which the check's status cannot carry.
+                    // A service's error names its code, which the check's status cannot carry;
+                    // so does a library refused while an abandoned call may still run in it.
                     std::string message = text_of(*failure);
-                    if (services_failed) {
+                    if (services_failed || failure->code() == ErrorCode::MODULE_UNRESPONSIVE) {
                         message =
                             std::string(error_code_info(failure->code()).name) + ": " + message;
                     }
@@ -478,6 +485,7 @@ private:
     std::unique_ptr<ModuleInstance> new_instance(const std::string& fingerprint) const {
         InstanceOptions options;
         options.step = kCheckStep;
+        options.caller = "the contract checks";
         options.lifecycle_timeout = deadlines_.lifecycle;
         options.invoke_timeout = deadlines_.invoke;
         options.cancel_grace = deadlines_.cancel_grace;
@@ -497,7 +505,11 @@ private:
         }
         problem = (what.empty() ? std::string() : what + ": ") +
                   call_problem(call, result, timeout, deadlines_.cancel_grace);
-        if (result.outcome == CallOutcome::unresponsive && !unresponsive_) {
+        // A refused call names an abandoned call, of this session or another run, that may still
+        // be running in the library: nothing more can be called in it either.
+        if ((result.outcome == CallOutcome::unresponsive ||
+             result.outcome == CallOutcome::refused) &&
+            !unresponsive_) {
             unresponsive_ = problem;
         }
         return false;
@@ -509,12 +521,30 @@ private:
                 std::optional<std::string>& problem) {
         if (instance.state() == StepState::ready) {
             std::string text;
-            if (!succeeded(what, "finalize", instance.finalize(), deadlines_.lifecycle, text) &&
-                !problem) {
+            const CallResult result = instance.finalize();
+            if (!succeeded(what, "finalize", result, deadlines_.lifecycle, text) && !problem) {
+                problem = text;
+            }
+            if (result.outcome == CallOutcome::refused) {
+                return; // never destroyed unfinalized: its destructor keeps it, or finishes it
+            }
+        }
+        if (instance.destroy() == CallOutcome::refused) {
+            // The instance is kept, never destroyed (ModuleInstance's destructor), and nothing
+            // more can be called in the library.
+            CallResult refused;
+            refused.outcome = CallOutcome::refused;
+            refused.refused_by = instance.last_refusal();
+            const std::string text =
+                (what.empty() ? std::string() : what + ": ") +
+                call_problem("destroy", refused, deadlines_.lifecycle, deadlines_.cancel_grace);
+            if (!unresponsive_) {
+                unresponsive_ = text;
+            }
+            if (!problem) {
                 problem = text;
             }
         }
-        instance.destroy();
         if (instance.state() == StepState::unresponsive) {
             const std::string text = (what.empty() ? std::string() : what + ": ") +
                                      "the module is unresponsive (a call did not return within "

@@ -5,13 +5,16 @@
 // block, and finalize and destroy return at once. Lifecycle and engine tests use it to make an
 // instance unresponsive and then release its thread. Its manifest declares diagnostics (the
 // adapter's default, {}), so tests can check that nobody asks an unresponsive instance for them,
-// and the default concurrency "module".
+// and the default concurrency "module", which it checks: an invoke or finalize that starts while
+// another invoke, finalize or destroy of the library is running fails with FAILED ("entered while
+// another call into the library was running"), so tests see calls that overlap.
 #include <praenora/sdk/module.hpp>
 
 #include "test_gate.h"
 
 #include <nlohmann/json.hpp>
 
+#include <atomic>
 #include <chrono>
 #include <cstddef>
 #include <string>
@@ -22,6 +25,31 @@ namespace {
 
 namespace sdk = praenora::sdk;
 
+// The calls into the library running now, across all its instances.
+std::atomic<int> g_running{0};
+
+// Counts a call as running for as long as it lasts, and tells whether another one was running
+// when it started.
+class Running {
+public:
+    Running() noexcept : overlapped_(g_running.fetch_add(1) != 0) {}
+    ~Running() { g_running.fetch_sub(1); }
+    Running(const Running&) = delete;
+    Running& operator=(const Running&) = delete;
+
+    // Fails the call when it overlapped another one.
+    void check(const char* call) const {
+        if (overlapped_) {
+            throw sdk::Error(PRAENORA_STATUS_FAILED,
+                             std::string("fx-hang: ") + call +
+                                 " entered while another call into the library was running");
+        }
+    }
+
+private:
+    bool overlapped_;
+};
+
 class HangModule final : public sdk::Module {
 public:
     explicit HangModule(const sdk::CreateContext& context) : host_(context.host) {
@@ -29,12 +57,15 @@ public:
     }
 
     ~HangModule() override {
+        const Running running;
         if (hang_ == "destroy") {
             static_cast<void>(wait_for_gate());
         }
     }
 
     std::string invoke(std::string_view) override {
+        const Running running;
+        running.check("invoke");
         if (hang_ == "invoke" && !wait_for_gate()) {
             throw sdk::Error(PRAENORA_STATUS_UNSUPPORTED,
                              "fx-hang: the host offers no test.gate service (major 0)");
@@ -43,6 +74,8 @@ public:
     }
 
     void finalize() override {
+        const Running running;
+        running.check("finalize");
         if (hang_ == "finalize") {
             static_cast<void>(wait_for_gate());
         }
