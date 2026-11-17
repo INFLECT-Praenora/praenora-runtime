@@ -14,6 +14,7 @@
 #include <iostream>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace praenora::cli {
@@ -38,7 +39,7 @@ constexpr std::string_view kUsage =
     "         provider directory), and their providers loaded and started. --vectors F runs the\n"
     "         test vectors in F instead of the ones the manifest names (tests.vectors)\n";
 
-std::string usage_text() { return std::string(kUsage) + "\n" + std::string(kGlobalOptionsUsage); }
+std::string usage_text() { return std::string(kUsage) + "\n" + global_options_usage(); }
 
 int list(const std::vector<std::string>& args) {
     return run_command(

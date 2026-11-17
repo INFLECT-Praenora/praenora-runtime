@@ -1,5 +1,6 @@
-// What the two front ends share (src/frontend/frontend.hpp): names taken in any letter case, folded
-// the same way whatever the process's locale, and the JSON of a service provider.
+// What the two front ends share (src/frontend/frontend.hpp): the tables of the names they take,
+// with the lookups and the lists of names derived from them; names taken in any letter case,
+// folded the same way whatever the process's locale; and the JSON of a service provider.
 #include <frontend.hpp>
 
 #include <praenora/runtime/options.hpp>
@@ -39,6 +40,53 @@ private:
 };
 
 } // namespace
+
+// Each table gives its names, in its order, to the lists that messages give ("a, b or c") and to
+// the synopses of the praenora tool's usage texts ("a|b|c").
+TEST(Frontend, NameListsComeFromTheTables) {
+    EXPECT_EQ(frontend::names_of(frontend::kCatalogKinds), "workflows, capabilities or messages");
+    EXPECT_EQ(frontend::names_of(frontend::kCatalogKinds, "|", "|"),
+              "workflows|capabilities|messages");
+    EXPECT_EQ(frontend::names_of(frontend::kGraphFormats), "text, json, dot or asyncapi");
+    EXPECT_EQ(frontend::names_of(frontend::kGraphFormats, "|", "|"), "text|json|dot|asyncapi");
+    EXPECT_EQ(frontend::names_of(frontend::kLogLevels),
+              "trace, debug, info, warn, error, critical or off");
+    EXPECT_EQ(frontend::names_of(frontend::kLogFormats), "text or json");
+    EXPECT_EQ(frontend::names_of(frontend::kLogFormats, "|", "|"), "text|json");
+
+    constexpr frontend::Named<int> kOne[] = {{"one", 1}};
+    EXPECT_EQ(frontend::names_of(kOne), "one");
+}
+
+// The lookups take every name of their table, and only those, for the value it stands for.
+TEST(Frontend, LookupsTakeTheNamesOfTheirTables) {
+    EXPECT_EQ(frontend::catalog_kind("workflows"), "workflow-definition");
+    EXPECT_EQ(frontend::catalog_kind("capabilities"), "capability-definition");
+    EXPECT_EQ(frontend::catalog_kind("messages"), "message-type");
+    EXPECT_EQ(frontend::catalog_kind("workflow"), std::nullopt);
+    EXPECT_EQ(frontend::catalog_kind("Workflows"), std::nullopt);
+
+    EXPECT_EQ(frontend::graph_format("text"), praenora::GraphFormat::text);
+    EXPECT_EQ(frontend::graph_format("json"), praenora::GraphFormat::json);
+    EXPECT_EQ(frontend::graph_format("dot"), praenora::GraphFormat::dot);
+    EXPECT_EQ(frontend::graph_format("asyncapi"), praenora::GraphFormat::asyncapi);
+    EXPECT_EQ(frontend::graph_format("svg"), std::nullopt);
+    EXPECT_EQ(frontend::graph_format("JSON"), std::nullopt);
+
+    for (const auto& level : frontend::kLogLevels) {
+        EXPECT_EQ(frontend::log_level_name(level.value), level.name);
+        EXPECT_EQ(frontend::log_level_from_name(level.name), level.value) << level.name;
+    }
+    EXPECT_EQ(frontend::log_level_from_name(""), std::nullopt);
+    // A value that the table does not hold has the name of the default.
+    EXPECT_EQ(frontend::log_level_name(static_cast<praenora::LogLevel>(99)), "info");
+    for (const auto& format : frontend::kLogFormats) {
+        EXPECT_EQ(frontend::log_format_name(format.value), format.name);
+        EXPECT_EQ(frontend::log_format_from_name(format.name), format.value) << format.name;
+    }
+    EXPECT_EQ(frontend::log_format_from_name("xml"), std::nullopt);
+    EXPECT_EQ(frontend::log_format_name(static_cast<praenora::LogFormat>(99)), "text");
+}
 
 TEST(Frontend, NamesFoldOnlyAsciiLetters) {
     EXPECT_EQ(frontend::lower("InFo-JSON_0"), "info-json_0");

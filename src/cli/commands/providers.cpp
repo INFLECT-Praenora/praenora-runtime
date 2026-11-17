@@ -10,6 +10,7 @@
 #include <nlohmann/json.hpp>
 
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace praenora::cli {
@@ -28,7 +29,7 @@ constexpr std::string_view kUsage =
     "      never used: it is listed unusable, naming the manifest that shadows it. Nothing is\n"
     "      loaded.\n";
 
-std::string usage_text() { return std::string(kUsage) + "\n" + std::string(kGlobalOptionsUsage); }
+std::string usage_text() { return std::string(kUsage) + "\n" + global_options_usage(); }
 
 int list(const std::vector<std::string>& args) {
     return run_command(

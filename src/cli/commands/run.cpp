@@ -22,9 +22,13 @@ namespace {
 
 using nlohmann::json;
 
-constexpr std::string_view kUsage =
+// The names of the log formats come from the table that the tool shares with the Python extension
+// (src/frontend).
+const std::string kUsage =
     "usage: praenora run <config.yaml> [--ticks N] [--seed S] [--output-dir D] [--overwrite]\n"
-    "                    [--trace] [--status-file F] [--log-level L] [--log-format text|json]\n"
+    "                    [--trace] [--status-file F] [--log-level L] [--log-format " +
+    frontend::names_of(frontend::kLogFormats, "|", "|") +
+    "]\n"
     "                    [--log-file F]\n"
     "\n"
     "Validates the configuration and runs the workflow until its ticks are complete, its replay\n"
@@ -80,7 +84,7 @@ private:
 } // namespace
 
 int command_run(const std::vector<std::string>& args) {
-    const std::string usage = std::string(kUsage) + "\n" + std::string(kGlobalOptionsUsage);
+    const std::string usage = kUsage + "\n" + global_options_usage();
     return run_command(
         args, usage, kFlags,
         [](const Arguments& arguments, const GlobalOptions& globals, const Output& output) {

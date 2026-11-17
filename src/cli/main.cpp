@@ -5,6 +5,8 @@
 #include "commands/commands.hpp"
 #include "output.hpp"
 
+#include <frontend.hpp>
+
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
@@ -33,8 +35,11 @@
 namespace {
 
 using namespace praenora::cli;
+namespace frontend = praenora::frontend;
 
-constexpr std::string_view kUsage =
+// The names of the graph formats come from the table that the tool shares with the Python
+// extension (src/frontend).
+const std::string kUsage =
     "usage: praenora <command> [arguments] [options]\n"
     "\n"
     "commands:\n"
@@ -48,7 +53,9 @@ constexpr std::string_view kUsage =
     "                         the contract checks of a module\n"
     "  providers list         the service providers on the provider search paths\n"
     "  graph <config.yaml> | --workflow <name>@<version>\n"
-    "                         a workflow definition's graph: text, json, dot or asyncapi\n"
+    "                         a workflow definition's graph: " +
+    frontend::names_of(frontend::kGraphFormats) +
+    "\n"
     "  run <config.yaml>      run a workflow\n"
     "  status <status.json>   print the status file of a run\n"
     "  catalog list | catalog show <id>@<version>\n"
@@ -60,7 +67,7 @@ constexpr std::string_view kUsage =
     "Exit codes: 0 ok, 1 execution failed, 2 usage, 3 validation, 4 load, 5 timeout,\n"
     "70 internal, 74 I/O, 130 interrupted or stopped.\n";
 
-std::string usage_text() { return std::string(kUsage) + "\n" + std::string(kGlobalOptionsUsage); }
+std::string usage_text() { return kUsage + "\n" + global_options_usage(); }
 
 struct Command {
     std::string_view name;

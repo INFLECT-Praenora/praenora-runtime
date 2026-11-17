@@ -400,11 +400,41 @@ praenora_add_cli_test(cli.usage.command_help
 praenora_add_cli_test(cli.usage.invalid_log_format
     CMD catalog list --log-format xml
     EXPECT_EXIT 2
-    EXPECT_STDERR_REGEX "--log-format 'xml' is not a log format")
+    EXPECT_STDERR_REGEX "--log-format 'xml' is not a log format: text or json\n")
 praenora_add_cli_test(cli.usage.invalid_log_level
     CMD catalog list --log-level loud
     EXPECT_EXIT 2
-    EXPECT_STDERR_REGEX "--log-level")
+    EXPECT_STDERR_REGEX
+        "--log-level 'loud' is not a log level: trace, debug, info, warn, error, critical or off\n")
+
+# The usage texts and the messages list the names that the tool takes from the tables that it
+# shares with the Python extension (src/frontend), in the tables' order.
+praenora_add_cli_test(cli.usage.tool_help_lists_graph_formats
+    CMD --help
+    EXPECT_STDOUT_REGEX "\n +a workflow definition's graph: text, json, dot or asyncapi\n")
+praenora_add_cli_test(cli.usage.global_options_list_log_names
+    CMD status --help
+    EXPECT_STDOUT_REGEX
+        "L +trace, debug, info, warn, error, critical or off\n  --log-format F +text or json\n")
+praenora_add_cli_test(cli.catalog.help_lists_kinds
+    CMD catalog --help
+    EXPECT_STDOUT_REGEX
+        "^usage: praenora catalog list \\[--kind workflows\\|capabilities\\|messages\\]\n")
+praenora_add_cli_test(cli.catalog.unknown_kind
+    CMD catalog list --kind workflow
+    EXPECT_EXIT 2
+    EXPECT_STDERR_REGEX "--kind 'workflow' is not workflows, capabilities or messages\n")
+praenora_add_cli_test(cli.graph.help_lists_formats
+    CMD graph --help
+    EXPECT_STDOUT_REGEX
+        "\\[--format text\\|json\\|dot\\|asyncapi\\].*  --format F +text, json, dot or asyncapi\n")
+praenora_add_cli_test(cli.graph.unknown_format
+    CMD graph --workflow example.estimate-predict@0.1.0 --format svg
+    EXPECT_EXIT 2
+    EXPECT_STDERR_REGEX "--format 'svg' is not text, json, dot or asyncapi\n")
+praenora_add_cli_test(cli.run.help_lists_log_formats
+    CMD run --help
+    EXPECT_STDOUT_REGEX " \\[--log-format text\\|json\\]\n")
 
 # --help with --json: the usage is the result of the usual success document.
 praenora_add_cli_test(cli.json.help

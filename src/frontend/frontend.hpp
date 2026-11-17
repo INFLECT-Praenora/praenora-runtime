@@ -1,9 +1,10 @@
 // What the two front ends of the runtime, the praenora tool (src/cli) and the Python extension
 // (src/python), share so that they report the same documents and failures: the JSON of a module,
 // of a service provider, of a catalog entry and of a run's summary, the failure of a validation
-// and of the contract checks, the catalog kinds and graph formats by the names that they take, the
-// names of the log levels and formats, and the limit of seeds and tick counts. Header-only and
-// internal: the target praenora_frontend is neither installed nor exported.
+// and of the contract checks, the tables of the names that they take (catalog kinds, graph
+// formats, log levels and log formats), from which their lookups, the lists of names in messages
+// and the praenora tool's usage texts come, and the limit of seeds and tick counts. Header-only
+// and internal: the target praenora_frontend is neither installed nor exported.
 #ifndef PRAENORA_FRONTEND_FRONTEND_HPP
 #define PRAENORA_FRONTEND_FRONTEND_HPP
 
@@ -144,73 +145,99 @@ inline Error check_failure(const ModuleCheckReport& report) {
 // The largest integer a JSON number holds exactly: seeds and tick counts go no higher.
 inline constexpr std::uint64_t kMaxCount = 9007199254740991ULL;
 
-// The kinds of catalog entries by the names that `praenora catalog list --kind` and
-// list_catalog() take: workflows, capabilities and messages.
-inline constexpr std::string_view kCatalogKindNames = "workflows, capabilities or messages";
+// A name that the front ends take and the value that it stands for. Each table below holds every
+// name of one kind once, in the order that lists of them give; its lookup, the list of its names
+// that messages give and the praenora tool's usage texts all come from it.
+template <typename Value> struct Named {
+    std::string_view name;
+    Value value;
+};
 
-// The entry kind ("workflow-definition", "capability-definition" or "message-type") that `name`
-// stands for, or nullopt.
+// The names of `table`, in its order, joined by `separator` and the last two by `last`: by default
+// as a message lists them ("a", "a or b", "a, b or c"), with "|" for both as a usage synopsis
+// does ("a|b|c").
+template <typename Value, std::size_t N>
+std::string names_of(const Named<Value> (&table)[N], std::string_view separator = ", ",
+                     std::string_view last = " or ") {
+    std::string text;
+    for (std::size_t i = 0; i < N; ++i) {
+        if (i > 0) {
+            text += i + 1 < N ? separator : last;
+        }
+        text += table[i].name;
+    }
+    return text;
+}
+
+// The value that `name`, exactly as written, stands for in `table`, or nullopt.
+template <typename Value, std::size_t N>
+std::optional<Value> value_named(const Named<Value> (&table)[N], std::string_view name) {
+    for (const Named<Value>& entry : table) {
+        if (entry.name == name) {
+            return entry.value;
+        }
+    }
+    return std::nullopt;
+}
+
+// The name of `value` in `table`, or `fallback` when the table does not hold it.
+template <typename Value, std::size_t N>
+std::string_view name_of(const Named<Value> (&table)[N], Value value, std::string_view fallback) {
+    for (const Named<Value>& entry : table) {
+        if (entry.value == value) {
+            return entry.name;
+        }
+    }
+    return fallback;
+}
+
+// The kinds of catalog entries by the names that `praenora catalog list --kind` and
+// list_catalog() take, each with the entry kind that it stands for.
+inline constexpr Named<std::string_view> kCatalogKinds[] = {
+    {"workflows", "workflow-definition"},
+    {"capabilities", "capability-definition"},
+    {"messages", "message-type"},
+};
+
+// The entry kind that `name` stands for, or nullopt.
 inline std::optional<std::string> catalog_kind(std::string_view name) {
-    if (name == "workflows") {
-        return "workflow-definition";
-    }
-    if (name == "capabilities") {
-        return "capability-definition";
-    }
-    if (name == "messages") {
-        return "message-type";
+    if (const std::optional<std::string_view> kind = value_named(kCatalogKinds, name)) {
+        return std::string(*kind);
     }
     return std::nullopt;
 }
 
 // The graph formats by the names that `praenora graph --format` and graph() take.
-inline constexpr std::string_view kGraphFormatNames = "text, json, dot or asyncapi";
+inline constexpr Named<GraphFormat> kGraphFormats[] = {
+    {"text", GraphFormat::text},
+    {"json", GraphFormat::json},
+    {"dot", GraphFormat::dot},
+    {"asyncapi", GraphFormat::asyncapi},
+};
 
-// The graph format that `name` stands for (text, json, dot or asyncapi), or nullopt.
+// The graph format that `name` stands for, or nullopt.
 inline std::optional<GraphFormat> graph_format(std::string_view name) {
-    if (name == "text") {
-        return GraphFormat::text;
-    }
-    if (name == "json") {
-        return GraphFormat::json;
-    }
-    if (name == "dot") {
-        return GraphFormat::dot;
-    }
-    if (name == "asyncapi") {
-        return GraphFormat::asyncapi;
-    }
-    return std::nullopt;
+    return value_named(kGraphFormats, name);
 }
 
-// The names of the log levels and formats, as messages list them.
-inline constexpr std::string_view kLogLevelNames =
-    "trace, debug, info, warn, error, critical or off";
-inline constexpr std::string_view kLogFormatNames = "text or json";
+// The log levels and formats by their canonical names, which the front ends take in any case.
+inline constexpr Named<LogLevel> kLogLevels[] = {
+    {"trace", LogLevel::trace}, {"debug", LogLevel::debug}, {"info", LogLevel::info},
+    {"warn", LogLevel::warn},   {"error", LogLevel::error}, {"critical", LogLevel::critical},
+    {"off", LogLevel::off},
+};
+inline constexpr Named<LogFormat> kLogFormats[] = {
+    {"text", LogFormat::text},
+    {"json", LogFormat::json},
+};
 
-// The canonical names: trace, debug, info, warn, error, critical and off; text and json.
+// The canonical name of a level or format.
 inline std::string_view log_level_name(LogLevel level) {
-    switch (level) {
-    case LogLevel::trace:
-        return "trace";
-    case LogLevel::debug:
-        return "debug";
-    case LogLevel::info:
-        return "info";
-    case LogLevel::warn:
-        return "warn";
-    case LogLevel::error:
-        return "error";
-    case LogLevel::critical:
-        return "critical";
-    case LogLevel::off:
-        return "off";
-    }
-    return "info";
+    return name_of(kLogLevels, level, "info");
 }
 
 inline std::string_view log_format_name(LogFormat format) {
-    return format == LogFormat::json ? "json" : "text";
+    return name_of(kLogFormats, format, "text");
 }
 
 // `text` with the ASCII letters A-Z in lower case and every other byte as it is, whatever the
@@ -228,26 +255,13 @@ inline std::string lower(std::string_view text) {
 
 // The level or format that `name` names, in any case, or nullopt.
 inline std::optional<LogLevel> log_level_from_name(std::string_view name) {
-    constexpr LogLevel kLevels[] = {LogLevel::trace, LogLevel::debug, LogLevel::info,
-                                    LogLevel::warn,  LogLevel::error, LogLevel::critical,
-                                    LogLevel::off};
     const std::string wanted = lower(name);
-    for (const LogLevel level : kLevels) {
-        if (wanted == log_level_name(level)) {
-            return level;
-        }
-    }
-    return std::nullopt;
+    return value_named(kLogLevels, wanted);
 }
 
 inline std::optional<LogFormat> log_format_from_name(std::string_view name) {
     const std::string wanted = lower(name);
-    for (const LogFormat format : {LogFormat::text, LogFormat::json}) {
-        if (wanted == log_format_name(format)) {
-            return format;
-        }
-    }
-    return std::nullopt;
+    return value_named(kLogFormats, wanted);
 }
 
 } // namespace praenora::frontend

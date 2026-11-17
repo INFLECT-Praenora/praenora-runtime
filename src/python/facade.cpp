@@ -126,7 +126,7 @@ LogLevel log_level_option(const json& value) {
         }
     }
     throw argument_error("log_level " + shown(value) +
-                         " is not a log level: " + std::string(frontend::kLogLevelNames));
+                         " is not a log level: " + frontend::names_of(frontend::kLogLevels));
 }
 
 LogFormat log_format_option(const json& value) {
@@ -136,7 +136,7 @@ LogFormat log_format_option(const json& value) {
         }
     }
     throw argument_error("log_format " + shown(value) +
-                         " is not a log format: " + std::string(frontend::kLogFormatNames));
+                         " is not a log format: " + frontend::names_of(frontend::kLogFormats));
 }
 
 struct HandleOptions {
@@ -280,7 +280,7 @@ std::string graph(const std::string& config, const std::string& workflow, const 
         const std::optional<GraphFormat> graph_format = frontend::graph_format(format);
         if (!graph_format) {
             throw argument_error("format '" + format + "' is not " +
-                                 std::string(frontend::kGraphFormatNames));
+                                 frontend::names_of(frontend::kGraphFormats));
         }
         GraphRequest request;
         request.config_path = given(config);
@@ -299,7 +299,7 @@ std::string list_catalog_json(const std::string& kind,
             wanted = frontend::catalog_kind(kind);
             if (!wanted) {
                 throw argument_error("kind '" + kind + "' is not " +
-                                     std::string(frontend::kCatalogKindNames));
+                                     frontend::names_of(frontend::kCatalogKinds));
             }
         }
         const Runtime runtime(runtime_options({}, catalog_paths));

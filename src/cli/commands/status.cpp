@@ -8,6 +8,7 @@
 #include <nlohmann/json.hpp>
 
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace praenora::cli {
@@ -76,7 +77,7 @@ std::string status_text(const json& snapshot) {
 } // namespace
 
 int command_status(const std::vector<std::string>& args) {
-    const std::string usage = std::string(kUsage) + "\n" + std::string(kGlobalOptionsUsage);
+    const std::string usage = std::string(kUsage) + "\n" + global_options_usage();
     return run_command(args, usage, {},
                        [](const Arguments& arguments, const GlobalOptions&, const Output& output) {
                            if (arguments.positionals().size() != 1) {

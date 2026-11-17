@@ -14,6 +14,7 @@
 #include <iostream>
 #include <optional>
 #include <string>
+#include <string_view>
 
 namespace praenora::cli {
 
@@ -61,7 +62,7 @@ int report_result(const Output& output, const ValidationReport& report, const st
 } // namespace
 
 int command_validate(const std::vector<std::string>& args) {
-    const std::string usage = std::string(kUsage) + "\n" + std::string(kGlobalOptionsUsage);
+    const std::string usage = std::string(kUsage) + "\n" + global_options_usage();
     return run_command(
         args, usage, kFlags,
         [](const Arguments& arguments, const GlobalOptions& globals, const Output& output) {

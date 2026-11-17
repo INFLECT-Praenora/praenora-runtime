@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <string>
+#include <string_view>
 
 namespace praenora::cli {
 
@@ -40,7 +41,7 @@ std::string version_text(const VersionInfo& info) {
 } // namespace
 
 int command_version(const std::vector<std::string>& args) {
-    const std::string usage = std::string(kUsage) + "\n" + std::string(kGlobalOptionsUsage);
+    const std::string usage = std::string(kUsage) + "\n" + global_options_usage();
     return run_command(args, usage, {},
                        [](const Arguments& arguments, const GlobalOptions&, const Output& output) {
                            if (!arguments.positionals().empty()) {

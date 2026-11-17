@@ -3,8 +3,9 @@
 #ifndef PRAENORA_CLI_COMMANDS_COMMANDS_HPP
 #define PRAENORA_CLI_COMMANDS_COMMANDS_HPP
 
+#include <frontend.hpp>
+
 #include <string>
-#include <string_view>
 #include <vector>
 
 namespace praenora::cli {
@@ -19,19 +20,25 @@ int command_status(const std::vector<std::string>& args);
 int command_catalog(const std::vector<std::string>& args);
 int command_schema(const std::vector<std::string>& args);
 
-// The options every command accepts, for the usage texts.
-inline constexpr std::string_view kGlobalOptionsUsage =
-    "options of every command:\n"
-    "  --json                 print exactly one JSON document on standard output:\n"
-    "                         {\"ok\": true, \"result\": ...} or\n"
-    "                         {\"ok\": false, \"error\": ..., \"diagnostics\": [...]}\n"
-    "  --module-path P        search P for modules first (repeatable)\n"
-    "  --provider-path P      search P for service providers first (repeatable)\n"
-    "  --catalog-path P       add the catalog entries in P (repeatable)\n"
-    "  --log-level L          trace, debug, info, warn, error, critical or off\n"
-    "  --log-format F         text or json\n"
-    "  --log-file F           also log to file F\n"
-    "  -h, --help             print the usage\n";
+// The options every command accepts, for the usage texts; the names of the log levels and formats
+// come from the tables that the tool shares with the Python extension (src/frontend).
+inline std::string global_options_usage() {
+    return "options of every command:\n"
+           "  --json                 print exactly one JSON document on standard output:\n"
+           "                         {\"ok\": true, \"result\": ...} or\n"
+           "                         {\"ok\": false, \"error\": ..., \"diagnostics\": [...]}\n"
+           "  --module-path P        search P for modules first (repeatable)\n"
+           "  --provider-path P      search P for service providers first (repeatable)\n"
+           "  --catalog-path P       add the catalog entries in P (repeatable)\n"
+           "  --log-level L          " +
+           frontend::names_of(frontend::kLogLevels) +
+           "\n"
+           "  --log-format F         " +
+           frontend::names_of(frontend::kLogFormats) +
+           "\n"
+           "  --log-file F           also log to file F\n"
+           "  -h, --help             print the usage\n";
+}
 
 } // namespace praenora::cli
 

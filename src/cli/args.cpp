@@ -150,14 +150,14 @@ GlobalOptions global_options(const Arguments& arguments) {
         options.log_level = frontend::log_level_from_name(*value);
         if (!options.log_level) {
             throw UsageError("--log-level '" + *value +
-                             "' is not a log level: " + std::string(frontend::kLogLevelNames));
+                             "' is not a log level: " + frontend::names_of(frontend::kLogLevels));
         }
     }
     if (const auto value = arguments.value("--log-format")) {
         options.log_format = frontend::log_format_from_name(*value);
         if (!options.log_format) {
             throw UsageError("--log-format '" + *value +
-                             "' is not a log format: " + std::string(frontend::kLogFormatNames));
+                             "' is not a log format: " + frontend::names_of(frontend::kLogFormats));
         }
     }
     options.log_file = arguments.value("--log-file");

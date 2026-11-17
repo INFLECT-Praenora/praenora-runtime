@@ -20,15 +20,19 @@ namespace {
 
 using nlohmann::json;
 
-constexpr std::string_view kUsage =
-    "usage: praenora catalog list [--kind workflows|capabilities|messages]\n"
+// The names of the kinds come from the table that the tool shares with the Python extension
+// (src/frontend).
+const std::string kUsage =
+    "usage: praenora catalog list [--kind " +
+    frontend::names_of(frontend::kCatalogKinds, "|", "|") +
+    "]\n"
     "       praenora catalog show <id>@<version>\n"
     "\n"
     "list  every entry of the protocol catalog (the built-in entries and those of the catalog\n"
     "      paths): its kind, id, version, status and summary\n"
     "show  the document of one entry\n";
 
-std::string usage_text() { return std::string(kUsage) + "\n" + std::string(kGlobalOptionsUsage); }
+std::string usage_text() { return kUsage + "\n" + global_options_usage(); }
 
 int list(const std::vector<std::string>& args) {
     return run_command(
@@ -42,7 +46,7 @@ int list(const std::vector<std::string>& args) {
                 const std::optional<std::string> entry_kind = frontend::catalog_kind(*value);
                 if (!entry_kind) {
                     throw UsageError("--kind '" + *value + "' is not " +
-                                     std::string(frontend::kCatalogKindNames));
+                                     frontend::names_of(frontend::kCatalogKinds));
                 }
                 kind = *entry_kind;
             }

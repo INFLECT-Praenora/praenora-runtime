@@ -9,6 +9,7 @@
 #include <nlohmann/json.hpp>
 
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace praenora::cli {
@@ -25,7 +26,7 @@ constexpr std::string_view kUsage =
     "show  the schema of documents of one kind, for format version V (major.minor or a whole\n"
     "      version; the highest one by default)\n";
 
-std::string usage_text() { return std::string(kUsage) + "\n" + std::string(kGlobalOptionsUsage); }
+std::string usage_text() { return std::string(kUsage) + "\n" + global_options_usage(); }
 
 int list(const std::vector<std::string>& args) {
     return run_command(

@@ -16,23 +16,29 @@ namespace praenora::cli {
 
 namespace {
 
-constexpr std::string_view kUsage =
+// The names of the formats come from the table that the tool shares with the Python extension
+// (src/frontend); the paragraph that describes each format names them itself, and changes with
+// that table.
+const std::string kUsage =
     "usage: praenora graph (<config.yaml> | --workflow <name>@<version>)\n"
-    "                      [--format text|json|dot|asyncapi]\n"
+    "                      [--format " +
+    frontend::names_of(frontend::kGraphFormats, "|", "|") +
+    "]\n"
     "\n"
     "Prints the graph of a workflow definition of the catalog, or of the one a configuration\n"
     "pins: text (the schedule and the connections; the default), json, dot (Graphviz; delayed\n"
     "connections dashed) or asyncapi (an AsyncAPI 3.0.0 document of its messages).\n"
     "\n"
     "  --workflow <name>@<version>  the workflow definition\n"
-    "  --format F             text, json, dot or asyncapi\n";
+    "  --format F             " +
+    frontend::names_of(frontend::kGraphFormats) + "\n";
 
 const std::vector<Flag> kFlags = {{"--workflow", true}, {"--format", true}};
 
 } // namespace
 
 int command_graph(const std::vector<std::string>& args) {
-    const std::string usage = std::string(kUsage) + "\n" + std::string(kGlobalOptionsUsage);
+    const std::string usage = kUsage + "\n" + global_options_usage();
     return run_command(
         args, usage, kFlags,
         [](const Arguments& arguments, const GlobalOptions& globals, const Output& output) {
@@ -50,7 +56,7 @@ int command_graph(const std::vector<std::string>& args) {
             const std::optional<GraphFormat> graph_format = frontend::graph_format(format);
             if (!graph_format) {
                 throw UsageError("--format '" + format + "' is not " +
-                                 std::string(frontend::kGraphFormatNames));
+                                 frontend::names_of(frontend::kGraphFormats));
             }
             request.format = *graph_format;
             const Runtime runtime(runtime_options(globals));
