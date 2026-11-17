@@ -23,6 +23,7 @@
 #include <praenora/runtime/error.hpp>
 #include <praenora/runtime/options.hpp>
 #include <praenora/runtime/status.hpp>
+#include <praenora/runtime/version.hpp>
 
 #include <gtest/gtest.h>
 #include <nlohmann/json.hpp>
@@ -185,9 +186,14 @@ std::vector<json> json_lines(const fs::path& file) {
     return lines;
 }
 
+// The schema of `kind` at the format this runtime writes (the protocol's version for the pmp-*
+// documents).
 const praenora::detail::CompiledSchema& schema_of(const char* kind) {
+    const auto& formats = praenora::version_info().formats;
+    const auto format = formats.find(kind);
     return praenora::detail::SchemaRegistry::builtin().for_kind(
-        kind, praenora::detail::parse_semver("0.1.0"));
+        kind,
+        praenora::detail::parse_semver(format != formats.end() ? format->second : "0.1.0"));
 }
 
 // Waits (up to 10 s) until step `id` is busy in the metrics.
@@ -449,6 +455,16 @@ TEST(Engine, MissingRequiredOutputIsOutputInvalid) {
     EXPECT_TRUE(contains(error.what(), "required")) << error.what();
 }
 
+TEST(Engine, ModuleDefinedStatusIsNamedSo) {
+    EngineFixture fixture;
+    Engine& engine = fixture.open(single("fx-fail", "{ phase: invoke, status: 10001 }"));
+    engine.start();
+    const Error error = error_of([&] { engine.run_tick(); });
+    EXPECT_EQ(error.code(), ErrorCode::STEP_FAILED) << error.to_json();
+    EXPECT_TRUE(contains(error.what(), "with status 10001 (module-defined): ")) << error.what();
+    EXPECT_EQ(details_of(error).at("cause").at("code"), 10001);
+}
+
 TEST(Engine, ModuleFailureFailsFastAndCleansUp) {
     EngineFixture fixture;
     // test.chain: inputs.source -> a -> b -> outputs.result; a fails at its second invocation.
@@ -461,6 +477,8 @@ TEST(Engine, ModuleFailureFailsFastAndCleansUp) {
     const Error error = error_of([&] { engine.run_tick(); });
 
     EXPECT_EQ(error.code(), ErrorCode::STEP_FAILED) << error.to_json();
+    EXPECT_TRUE(contains(error.what(), "failed at tick 1 with status 11 (FAILED): "))
+        << error.what();
     const json details = details_of(error);
     EXPECT_EQ(details.at("step"), "a");
     EXPECT_EQ(details.at("tick"), 1);

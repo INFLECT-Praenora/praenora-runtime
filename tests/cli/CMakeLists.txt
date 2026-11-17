@@ -1,7 +1,8 @@
 # CLI tests: each runs the praenora tool through run_cli.cmake and checks its exit code and output.
-# CTest names cli.<command>.<case>, label cli. They use the fixture modules, the test catalog and
-# the configurations of tests/fixtures/configs/cli and, when the examples are built, the example
-# modules and workflow. Runs write their output directories below the build tree.
+# CTest names cli.<command>.<case>, label cli. They use the fixture modules, the fixture service
+# providers, the test catalog and the configurations of tests/fixtures/configs/cli and, when the
+# examples are built, the example modules and workflow. Runs write their output directories below
+# the build tree.
 
 set(_praenora_cli_driver "${CMAKE_CURRENT_SOURCE_DIR}/run_cli.cmake")
 set(_praenora_cli_tool "$<TARGET_FILE:praenora_cli>")
@@ -237,6 +238,120 @@ praenora_add_cli_test(cli.modules.check_missing_vectors
     EXPECT_EXIT 74
     EXPECT_STDERR_REGEX "cannot read the test vectors")
 
+# Service providers. fx-service requires test.echo@0, which the fixture provider test-echo serves
+# (configuration service/workflow.yaml). providers/old-runtime.provider.json is the manifest of a
+# provider built for runtime 0.0.1 and linux-x86_64, which no runtime of this repository can use,
+# and providers/shadowed/ holds another version of it, which the first shadows; their libraries do
+# not exist, as listing loads nothing. The tests that need no provider to be found set
+# PRAENORA_PROVIDER_PATH empty, which counts as unset.
+set(_praenora_echo_provider --provider-path "${PRAENORA_TEST_PROVIDERS_DIR}/test-echo")
+set(_praenora_service_config "${_praenora_cli_configs}/service/workflow.yaml")
+set(_praenora_service_manifest "${PRAENORA_TEST_MODULES_DIR}/fx-service/fx-service.pmm.json")
+set(_praenora_no_providers "PRAENORA_PROVIDER_PATH=")
+
+# The text table: name, version, platform, services, manifest, and "usable" or why not.
+set(_praenora_listed_echo "^test-echo +0\\.1\\.0 +[a-z]+-[a-z0-9_]+ +test\\.echo@0\\.0 +")
+string(APPEND _praenora_listed_echo "[^\n]*/test-echo\\.provider\\.json +usable\n")
+praenora_add_cli_test(cli.providers.list
+    CMD providers list ${_praenora_echo_provider}
+    EXPECT_STDOUT_REGEX "${_praenora_listed_echo}")
+praenora_add_cli_test(cli.providers.list_json
+    CMD providers list ${_praenora_echo_provider} --json
+    EXPECT_JSON_PATH ok result.0.name result.0.version result.0.platform.os result.0.manifest
+        result.0.library result.0.services.0.name result.0.services.0.major
+        result.0.services.0.minor result.0.engine.name result.0.usable
+    EXPECT_JSON_VALUE true test-echo 0.1.0 * * * test.echo 0 0 test-echo-engine true)
+# Without --provider-path, PRAENORA_PROVIDER_PATH names the provider search path.
+praenora_add_cli_test(cli.providers.list_environment
+    CMD providers list --json
+    ENVIRONMENT "PRAENORA_PROVIDER_PATH=${PRAENORA_TEST_PROVIDERS_DIR}/test-echo"
+    EXPECT_JSON_PATH result.0.name
+    EXPECT_JSON_VALUE test-echo)
+# An unusable provider is listed with the reason.
+praenora_add_cli_test(cli.providers.list_unusable
+    CMD providers list --provider-path "${_praenora_cli_configs}/providers" --json
+    EXPECT_JSON_PATH result.0.name result.0.usable result.0.problem
+    EXPECT_JSON_VALUE test-old-runtime false *)
+praenora_add_cli_test(cli.providers.list_unusable_text
+    CMD providers list --provider-path "${_praenora_cli_configs}/providers"
+    EXPECT_STDOUT_REGEX "^test-old-runtime +0\\.1\\.0 +[^\n]* unusable: built for ")
+# A manifest shadowed by an earlier one of its name and platform is listed, unusable, naming it.
+set(_praenora_listed_shadowed "\ntest-old-runtime +0\\.2\\.0 +[^\n]* unusable: shadowed by ")
+string(APPEND _praenora_listed_shadowed "'[^'\n]*/providers/old-runtime\\.provider\\.json'")
+praenora_add_cli_test(cli.providers.list_shadowed
+    CMD providers list --provider-path "${_praenora_cli_configs}/providers"
+    EXPECT_STDOUT_REGEX "${_praenora_listed_shadowed}")
+praenora_add_cli_test(cli.providers.list_shadowed_json
+    CMD providers list --provider-path "${_praenora_cli_configs}/providers" --json
+    EXPECT_JSON_PATH result.1.name result.1.version result.1.usable result.1.problem
+    EXPECT_JSON_VALUE test-old-runtime 0.2.0 false *
+    EXPECT_STDOUT_REGEX "\"problem\":\"shadowed by '[^']*/providers/old-runtime\\.provider\\.json'")
+# Nothing found: a note on standard error, an empty list and exit code 0. The build tree's
+# installation provider directory holds no provider, unless the build has the roadrunner provider
+# (PRAENORA_WITH_ROADRUNNER).
+if(NOT PRAENORA_WITH_ROADRUNNER)
+    praenora_add_cli_test(cli.providers.list_empty
+        CMD providers list --json
+        ENVIRONMENT "${_praenora_no_providers}"
+        EXPECT_STDOUT_REGEX "^\\{\"ok\":true,\"result\":\\[\\]\\}\n$"
+        EXPECT_STDERR_REGEX "no provider manifests on the provider search paths")
+endif()
+praenora_add_cli_test(cli.providers.list_takes_no_arguments
+    CMD providers list extra
+    EXPECT_EXIT 2
+    EXPECT_STDERR_REGEX "providers list takes no arguments")
+praenora_add_cli_test(cli.providers.help
+    CMD help providers
+    EXPECT_STDOUT_REGEX "^usage: praenora providers list\n")
+praenora_add_cli_test(cli.usage.tool_help_lists_providers
+    CMD --help
+    EXPECT_STDOUT_REGEX "\n  providers list +the service providers")
+praenora_add_cli_test(cli.usage.provider_path_option
+    CMD validate --help
+    EXPECT_STDOUT_REGEX "\n  --provider-path P +search P for service providers first")
+praenora_add_cli_test(cli.usage.provider_path_needs_value
+    CMD providers list --provider-path
+    EXPECT_EXIT 2
+    EXPECT_STDERR_REGEX "option --provider-path needs a value")
+
+# A service that no provider serves fails validation (exit code 3), and so a run; with --json,
+# each diagnostic carries its details.
+praenora_add_cli_test(cli.validate.service_unavailable
+    CMD validate "${_praenora_service_config}" ${_praenora_fixture_paths} --json
+    ENVIRONMENT "${_praenora_no_providers}"
+    EXPECT_EXIT 3
+    EXPECT_JSON_PATH ok error.name error.code diagnostics.0.name diagnostics.0.location.pointer
+        diagnostics.0.details.service diagnostics.0.details.major diagnostics.0.details.providers
+    EXPECT_JSON_VALUE false SERVICE_UNAVAILABLE 407 SERVICE_UNAVAILABLE /requires/services/0
+        test.echo 0 *)
+praenora_add_cli_test(cli.run.service_unavailable
+    CMD run "${_praenora_service_config}" ${_praenora_fixture_paths} --json
+    ENVIRONMENT "${_praenora_no_providers}"
+    EXPECT_EXIT 3
+    EXPECT_JSON_PATH ok error.name diagnostics.0.name diagnostics.0.details.service
+    EXPECT_JSON_VALUE false SERVICE_UNAVAILABLE SERVICE_UNAVAILABLE test.echo)
+praenora_add_cli_test(cli.validate.provider_path
+    CMD validate "${_praenora_service_config}" ${_praenora_fixture_paths} ${_praenora_echo_provider}
+        --load
+    ENVIRONMENT "${_praenora_no_providers}"
+    EXPECT_STDOUT_REGEX "service/workflow\\.yaml: valid")
+praenora_add_cli_test(cli.run.provider_path
+    CMD run "${_praenora_service_config}" ${_praenora_fixture_paths} ${_praenora_echo_provider}
+    ENVIRONMENT "${_praenora_no_providers}"
+    EXPECT_STDOUT_REGEX "state +completed")
+# The contract checks resolve the module's services on the provider search paths.
+praenora_add_cli_test(cli.modules.check_service
+    CMD modules check "${_praenora_service_manifest}" ${_praenora_fixture_paths}
+        ${_praenora_echo_provider}
+    ENVIRONMENT "${_praenora_no_providers}"
+    EXPECT_STDOUT_REGEX
+        "pass +library\\.load +[^\n]*test\\.echo@0 from provider test-echo@0\\.1\\.0")
+praenora_add_cli_test(cli.modules.check_service_unavailable
+    CMD modules check "${_praenora_service_manifest}" ${_praenora_fixture_paths}
+    ENVIRONMENT "${_praenora_no_providers}"
+    EXPECT_EXIT 1
+    EXPECT_STDOUT_REGEX "fail +library\\.load +SERVICE_UNAVAILABLE: ")
+
 praenora_add_cli_test(cli.catalog.list
     CMD catalog list
     EXPECT_STDOUT_REGEX "workflow-definition +example\\.estimate-predict +0\\.1\\.0")
@@ -248,10 +363,10 @@ praenora_add_cli_test(cli.catalog.show_example
 praenora_add_cli_test(cli.schema.list
     CMD schema list --json
     EXPECT_JSON_PATH result
-    EXPECT_JSON_LENGTH 16)
+    EXPECT_JSON_LENGTH 19)
 praenora_add_cli_test(cli.schema.show_manifest
     CMD schema show module-manifest
-    EXPECT_STDOUT_REGEX "\"\\$id\": \"urn:praenora:schema:module-manifest:0\\.1\"")
+    EXPECT_STDOUT_REGEX "\"\\$id\": \"urn:praenora:schema:module-manifest:0\\.2\"")
 
 praenora_add_cli_test(cli.usage.unknown_command
     CMD frobnicate

@@ -1,7 +1,9 @@
 // The schemas of the Praenora document kinds (spec/schemas), checked against fixture documents:
 // tests/fixtures/documents/valid/<kind>/* must pass; every document in
 // tests/fixtures/documents/invalid/<kind>/ must fail, with a problem at the JSON pointer named by
-// its sibling <name>.expect.json ({"code": "<ERROR NAME>", "pointer": "<json pointer>"}).
+// its sibling <name>.expect.json ({"code": "<ERROR NAME>", "pointer": "<json pointer>"}). Each
+// document is checked against the schema of its kind at its own format_version (0.1 for the
+// module ABI's documents).
 #include "core/semver.hpp"
 #include "document/schema.hpp"
 #include "document/schema_registry.hpp"
@@ -42,6 +44,7 @@ const std::vector<std::string> kKinds = {"capability-definition",
                                          "pmp-initialize",
                                          "pmp-invocation",
                                          "pmp-result",
+                                         "provider-manifest",
                                          "run-record",
                                          "status-snapshot",
                                          "workflow-config",
@@ -74,8 +77,19 @@ std::vector<std::pair<std::string, fs::path>> fixture_documents(const std::strin
     return documents;
 }
 
-const praenora::detail::CompiledSchema& schema_for(const std::string& kind) {
-    return SchemaRegistry::builtin().for_kind(kind, parse_semver("0.1.0"));
+// The schema of `kind` at the format_version of `document`, or at 0.1 when it has none (or one
+// that is not a version: the schema then reports it).
+const praenora::detail::CompiledSchema& schema_for(const std::string& kind, const json& document) {
+    praenora::detail::SemVer version = parse_semver("0.1.0");
+    if (document.is_object() && document.contains("format_version") &&
+        document.at("format_version").is_string()) {
+        try {
+            version = parse_semver(document.at("format_version").get<std::string>());
+        } catch (const praenora::Error&) {
+            // Checked against 0.1.
+        }
+    }
+    return SchemaRegistry::builtin().for_kind(kind, version);
 }
 
 std::string describe(const std::vector<SchemaIssue>& issues) {
@@ -91,13 +105,25 @@ std::string describe(const std::vector<SchemaIssue>& issues) {
 TEST(Schemas, AllBuiltinSchemasCompile) {
     const SchemaRegistry& registry = SchemaRegistry::builtin();
     std::vector<std::string> kinds;
+    std::map<std::string, std::vector<std::string>> versions;
     for (const auto& [kind, version] : registry.entries()) {
-        kinds.push_back(kind);
-        EXPECT_EQ(praenora::detail::to_string(version), "0.1.0") << kind;
+        if (kinds.empty() || kinds.back() != kind) {
+            kinds.push_back(kind);
+        }
+        versions[kind].push_back(praenora::detail::to_string(version));
         EXPECT_NO_THROW((void)registry.for_kind(kind, version)) << kind;
     }
-    EXPECT_EQ(kinds.size(), 16u);
+    EXPECT_EQ(registry.entries().size(), 19u);
     EXPECT_EQ(kinds, kKinds);
+    // Module manifests and run records have a format 0.2; the 0.1 schemas stay for the documents
+    // written before.
+    for (const auto& kind : kKinds) {
+        const std::vector<std::string> expected =
+            kind == "module-manifest" || kind == "run-record"
+                ? std::vector<std::string>{"0.1.0", "0.2.0"}
+                : std::vector<std::string>{"0.1.0"};
+        EXPECT_EQ(versions[kind], expected) << kind;
+    }
 }
 
 TEST(Schemas, EveryKindHasValidAndInvalidFixtures) {
@@ -121,7 +147,7 @@ TEST(Schemas, ValidFixturesPass) {
     for (const auto& [kind, path] : documents) {
         SCOPED_TRACE(path.string());
         const auto document = load_document_file(path);
-        const auto issues = schema_for(kind).validate(document.json);
+        const auto issues = schema_for(kind, document.json).validate(document.json);
         EXPECT_TRUE(issues.empty()) << describe(issues);
     }
 }
@@ -140,7 +166,7 @@ TEST(Schemas, InvalidFixturesFailAtExpectedPointer) {
         EXPECT_EQ(*code, praenora::ErrorCode::SCHEMA_VIOLATION);
 
         const auto document = load_document_file(path);
-        const auto issues = schema_for(kind).validate(document.json);
+        const auto issues = schema_for(kind, document.json).validate(document.json);
         const std::string pointer = expect.at("pointer").get<std::string>();
         const bool found = std::any_of(issues.begin(), issues.end(), [&](const SchemaIssue& issue) {
             return issue.pointer == pointer;
@@ -149,7 +175,8 @@ TEST(Schemas, InvalidFixturesFailAtExpectedPointer) {
     }
 }
 
-// The manifests praenora_add_module() generates for the fixture modules are valid manifests.
+// The manifests praenora_add_module() generates for the fixture modules are valid manifests, of
+// the format the SDK writes unless their template names another.
 TEST(Schemas, GeneratedFixtureManifestsAreValid) {
     int count = 0;
     for (const auto& module_dir :
@@ -163,9 +190,12 @@ TEST(Schemas, GeneratedFixtureManifestsAreValid) {
             }
             SCOPED_TRACE(file.path().string());
             ++count;
-            const auto issues =
-                schema_for("module-manifest").validate(load_document_file(file.path()).json);
+            const json manifest = load_document_file(file.path()).json;
+            const auto issues = schema_for("module-manifest", manifest).validate(manifest);
             EXPECT_TRUE(issues.empty()) << describe(issues);
+            if (file.path().filename() != "fx-service-format-0-1.pmm.json") {
+                EXPECT_EQ(manifest.at("format_version"), "0.2.0");
+            }
         }
     }
     EXPECT_GT(count, 0);

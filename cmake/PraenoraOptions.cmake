@@ -27,6 +27,11 @@ else()
     set(PRAENORA_INSTALL_RULES OFF)
 endif()
 option(PRAENORA_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
+# The libRoadRunner service provider (src/providers/roadrunner), which needs an installed
+# libRoadRunner 2.11 and the LLVM it was built with; they are never downloaded
+# (cmake/PraenoraRoadrunner.cmake, docs/platforms.md).
+option(PRAENORA_WITH_ROADRUNNER
+    "Build the roadrunner service provider (needs installed libRoadRunner 2.11 and LLVM)" OFF)
 set(PRAENORA_SANITIZERS "" CACHE STRING
     "Sanitizers for GCC and Clang builds, for example address;undefined or thread")
 set_property(CACHE PRAENORA_SANITIZERS PROPERTY STRINGS "" "address;undefined" "thread")

@@ -1,0 +1,155 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:praenora:schema:provider-manifest:0.1",
+  "title": "Praenora Provider Manifest",
+  "description": "Describes one service provider library: identity, the runtime and provider interface it was built for, platform, the services it offers and its engine. Discovered as *.provider.json files.",
+  "type": "object",
+  "required": [
+    "kind",
+    "format_version",
+    "provider",
+    "runtime_version",
+    "abi",
+    "library",
+    "platform",
+    "services",
+    "engine"
+  ],
+  "properties": {
+    "kind": {
+      "const": "provider-manifest"
+    },
+    "format_version": {
+      "$ref": "#/definitions/semver"
+    },
+    "provider": {
+      "type": "object",
+      "required": [
+        "name",
+        "version"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "$ref": "#/definitions/identifier"
+        },
+        "version": {
+          "$ref": "#/definitions/semver"
+        }
+      }
+    },
+    "runtime_version": {
+      "$ref": "#/definitions/semver",
+      "description": "The version of the runtime the provider was built with."
+    },
+    "abi": {
+      "type": "object",
+      "required": [
+        "major",
+        "minor"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "major": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "minor": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "library": {
+      "type": "object",
+      "required": [
+        "path"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Relative to the manifest's directory."
+        },
+        "sha256": {
+          "$ref": "#/definitions/sha256"
+        }
+      }
+    },
+    "platform": {
+      "type": "object",
+      "required": [
+        "os",
+        "arch"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "os": {
+          "enum": [
+            "linux",
+            "macos",
+            "windows"
+          ]
+        },
+        "arch": {
+          "enum": [
+            "x86_64",
+            "arm64"
+          ]
+        }
+      }
+    },
+    "services": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/definitions/service"
+      }
+    },
+    "engine": {
+      "type": "object",
+      "description": "Describes the engine behind the services; compared with the provider's describe() and recorded in the run fingerprint."
+    }
+  },
+  "patternProperties": {
+    "^x-": {}
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "identifier": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)*$"
+    },
+    "service": {
+      "type": "object",
+      "required": [
+        "name",
+        "major",
+        "minor"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "$ref": "#/definitions/identifier"
+        },
+        "major": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "minor": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "semver": {
+      "type": "string",
+      "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}

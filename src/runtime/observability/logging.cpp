@@ -4,6 +4,7 @@
 #include "core/time.hpp"
 
 #include <praenora/runtime/error.hpp>
+#include <praenora/sdk/abi.h>
 
 #include <spdlog/sinks/base_sink.h>
 #include <spdlog/sinks/stdout_sinks.h>
@@ -229,6 +230,18 @@ LogHub::LogHub(LogOptions options)
 }
 
 LogHub::~LogHub() {
+    std::vector<std::function<void()>> callbacks;
+    {
+        const std::lock_guard<std::mutex> lock(on_destroy_mutex_);
+        callbacks.swap(on_destroy_);
+    }
+    for (const auto& callback : callbacks) {
+        try {
+            callback();
+        } catch (...) {
+            // Destructors never throw.
+        }
+    }
     try {
         sinks_->flush();
     } catch (...) {
@@ -247,6 +260,11 @@ std::shared_ptr<spdlog::logger> LogHub::logger(const std::string& name) {
 void LogHub::add_sink(spdlog::sink_ptr sink) {
     sink->set_formatter(make_log_formatter(options_.format));
     sinks_->add_sink(std::move(sink));
+}
+
+void LogHub::on_destroy(std::function<void()> callback) {
+    const std::lock_guard<std::mutex> lock(on_destroy_mutex_);
+    on_destroy_.push_back(std::move(callback));
 }
 
 const LogOptions& LogHub::options() const { return options_; }
@@ -287,6 +305,29 @@ void log_event(spdlog::logger& logger, LogLevel level, std::string_view message,
 }
 
 void set_log_level(spdlog::logger& logger, LogLevel level) { logger.set_level(to_spdlog(level)); }
+
+LogLevel log_level_from_abi(std::int32_t level) noexcept {
+    switch (level) {
+    case PRAENORA_LOG_TRACE:
+        return LogLevel::trace;
+    case PRAENORA_LOG_DEBUG:
+        return LogLevel::debug;
+    case PRAENORA_LOG_INFO:
+        return LogLevel::info;
+    case PRAENORA_LOG_WARN:
+        return LogLevel::warn;
+    case PRAENORA_LOG_ERROR:
+        return LogLevel::error;
+    case PRAENORA_LOG_CRITICAL:
+        return LogLevel::critical;
+    default:
+        return level < PRAENORA_LOG_TRACE ? LogLevel::trace : LogLevel::critical;
+    }
+}
+
+bool log_enabled(const spdlog::logger& logger, LogLevel level) noexcept {
+    return level != LogLevel::off && logger.should_log(to_spdlog(level));
+}
 
 LogLevel parse_log_level(std::string_view name) {
     static constexpr std::pair<std::string_view, LogLevel> kLevels[] = {

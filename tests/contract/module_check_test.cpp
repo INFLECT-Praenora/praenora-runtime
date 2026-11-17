@@ -22,6 +22,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <map>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -428,4 +429,89 @@ TEST(ModuleCheck, MalformedManifestFailsTheSchemaCheck) {
     EXPECT_EQ(ids_of(report), kCheckIds);
     EXPECT_EQ(check_of(report, "manifest.schema").status, "fail") << shown(report);
     expect_skipped_from(report, "manifest.semantics", "manifest.schema");
+}
+
+// The services a module declares are resolved on the runtime's provider search paths, and their
+// providers loaded, as part of library.load; the module's instances are then served them as in a
+// run. fx-service's vectors require test.echo (require_echo) and expect it to echo the input.
+TEST(ModuleCheck, ServicesAreServedDuringTheChecks) {
+    ScratchDir dir;
+    const json vectors = {
+        {"kind", "module-test-vectors"},
+        {"format_version", "0.1.0"},
+        {"cases",
+         {{{"name", "echo"},
+           {"capability", {{"id", "test.echo"}, {"version", "0.1.0"}}},
+           {"parameters", {{"require_echo", true}}},
+           {"ticks",
+            {{{"inputs", {{"in", {{"value", 1}}}}},
+              {"expect",
+               {{"outputs",
+                 {{"out",
+                   {{"echo", {{"value", 1}}}, {"found", {{"test.echo@0", true}}}}}}}}}}}}}}}};
+    write_text_file(dir.path() / "vectors.json", vectors.dump());
+    const auto context = praenora::test::make_provider_context({"test-echo"});
+    const ModuleCheckReport report =
+        praenora::detail::check_module(fixture_manifest("fx-service"), dir.path() / "vectors.json",
+                                       *context, nullptr);
+    EXPECT_EQ(ids_of(report), kCheckIds);
+    EXPECT_TRUE(report.passed()) << shown(report);
+    for (const char* id : {"library.load", "lifecycle.full", "invoke.result_schema",
+                           "invoke.expected_outputs", "invoke.determinism"}) {
+        EXPECT_EQ(check_of(report, id).status, "pass") << id << "\n" << shown(report);
+    }
+    const std::string& load = check_of(report, "library.load").message;
+    EXPECT_TRUE(contains(load, "test.echo@0 from provider test-echo@0.1.0")) << load;
+    EXPECT_TRUE(contains(load, "test.other@1 not available (optional)")) << load;
+}
+
+TEST(ModuleCheck, UnavailableServiceFailsLibraryLoad) {
+    const auto context = praenora::test::make_provider_context({});
+    const ModuleCheckReport report = praenora::detail::check_module(
+        fixture_manifest("fx-service"), std::nullopt, *context, nullptr);
+    EXPECT_EQ(ids_of(report), kCheckIds);
+    EXPECT_FALSE(report.passed());
+    EXPECT_EQ(check_of(report, "library.digest").status, "pass") << shown(report);
+    const CheckResult& load = check_of(report, "library.load");
+    EXPECT_EQ(load.status, "fail");
+    EXPECT_EQ(load.message.rfind("SERVICE_UNAVAILABLE: ", 0), 0u) << load.message;
+    EXPECT_TRUE(contains(load.message, "test.echo@0.0")) << load.message;
+    expect_skipped_from(report, "library.entry_point", "library.load");
+}
+
+TEST(ModuleCheck, ProviderThatDoesNotLoadFailsLibraryLoad) {
+    const auto context = praenora::test::make_provider_context({"test-start-fails"});
+    const ModuleCheckReport report = praenora::detail::check_module(
+        fixture_manifest("fx-service"), std::nullopt, *context, nullptr);
+    const CheckResult& load = check_of(report, "library.load");
+    EXPECT_EQ(load.status, "fail") << shown(report);
+    EXPECT_EQ(load.message.rfind("LIBRARY_LOAD_FAILED: ", 0), 0u) << load.message;
+    EXPECT_TRUE(contains(load.message, "the engine cannot start")) << load.message;
+    expect_skipped_from(report, "library.entry_point", "library.load");
+}
+
+TEST(ModuleCheck, SimulatingModulePassesWithTheSimulationService) {
+    // simulating-module's own test vectors run plans, a kernel and a numerical failure through
+    // the simulation service of the fixture provider test-simulation.
+    const auto context = praenora::test::make_provider_context({"test-simulation"});
+    const ModuleCheckReport report = praenora::detail::check_module(
+        fixture_manifest("simulating-module"), std::nullopt, *context, nullptr);
+    EXPECT_EQ(ids_of(report), kCheckIds);
+    EXPECT_TRUE(report.passed()) << shown(report);
+    for (const char* id : {"library.load", "lifecycle.full", "invoke.result_schema",
+                           "invoke.expected_outputs", "invoke.determinism"}) {
+        EXPECT_EQ(check_of(report, id).status, "pass") << id << "\n" << shown(report);
+    }
+    EXPECT_EQ(check_of(report, "unload").status, expected_unload_status()) << shown(report);
+    const std::string& load = check_of(report, "library.load").message;
+    EXPECT_TRUE(contains(load, "praenora.simulation@0 from provider test-simulation@0.1.0"))
+        << load;
+
+    // Without the provider, the module cannot be checked.
+    const auto without = praenora::test::make_provider_context({});
+    const ModuleCheckReport refused = praenora::detail::check_module(
+        fixture_manifest("simulating-module"), std::nullopt, *without, nullptr);
+    EXPECT_EQ(check_of(refused, "library.load").status, "fail") << shown(refused);
+    EXPECT_EQ(check_of(refused, "library.load").message.rfind("SERVICE_UNAVAILABLE: ", 0), 0u)
+        << shown(refused);
 }

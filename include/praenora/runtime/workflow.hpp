@@ -41,9 +41,10 @@ public:
     Workflow(const Workflow&) = delete;
     Workflow& operator=(const Workflow&) = delete;
 
-    // Loads the modules, then creates and initializes an instance for each step, in schedule
-    // order: the state becomes `ready` (`completed` for a run of no ticks, `stopped` when a stop
-    // came first). INVALID_STATE unless the state is `created`, and once closed.
+    // Loads and starts the service providers of the run's services, then loads the modules, and
+    // creates and initializes an instance for each step, in schedule order: the state becomes
+    // `ready` (`completed` for a run of no ticks, `stopped` when a stop came first). INVALID_STATE
+    // unless the state is `created`, and once closed.
     void start();
 
     // Runs the next tick and returns its number, its logical time, the workflow outputs it

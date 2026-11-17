@@ -46,6 +46,7 @@ constexpr std::string_view kUsage =
     "                         one module, as discovery resolves it\n"
     "  modules check <manifest.pmm.json>\n"
     "                         the contract checks of a module\n"
+    "  providers list         the service providers on the provider search paths\n"
     "  graph <config.yaml> | --workflow <name>@<version>\n"
     "                         a workflow definition's graph: text, json, dot or asyncapi\n"
     "  run <config.yaml>      run a workflow\n"
@@ -67,9 +68,15 @@ struct Command {
 };
 
 const Command kCommands[] = {
-    {"version", &command_version}, {"validate", &command_validate}, {"modules", &command_modules},
-    {"graph", &command_graph},     {"run", &command_run},           {"status", &command_status},
-    {"catalog", &command_catalog}, {"schema", &command_schema},
+    {"version", &command_version},
+    {"validate", &command_validate},
+    {"modules", &command_modules},
+    {"providers", &command_providers},
+    {"graph", &command_graph},
+    {"run", &command_run},
+    {"status", &command_status},
+    {"catalog", &command_catalog},
+    {"schema", &command_schema},
 };
 
 const Command* find_command(std::string_view name) {

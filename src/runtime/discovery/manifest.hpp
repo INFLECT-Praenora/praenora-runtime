@@ -5,6 +5,7 @@
 
 #include "core/semver.hpp"
 #include "document/schema.hpp"
+#include "instance/services.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -21,6 +22,13 @@ namespace praenora::detail {
 struct CapabilityRef {
     std::string id;
     SemVer version;
+};
+
+// A runtime service that a module requires, or can use when it is `optional`: an entry of the
+// manifest's requires.services (format 0.2). The service's minor is the lowest one it accepts.
+struct ServiceRequirement {
+    ServiceVersion service;
+    bool optional = false;
 };
 
 // The manifest's `features`, with the defaults of the module-manifest schema.
@@ -41,6 +49,9 @@ struct ModuleManifest {
     std::vector<std::filesystem::path> dependency_paths;
     std::string os, arch; // platform vocabulary: linux|macos|windows, x86_64|arm64
     std::vector<CapabilityRef> capabilities;
+    // requires.services in manifest order, unique by name and major, with the schema's defaults
+    // (minor 0, optional false); empty for a manifest of format 0.1, which declares none.
+    std::vector<ServiceRequirement> service_requirements;
     // The parameter schema as written ({"type": "object"} when the manifest has none) and its
     // compiled form, shared by every copy of the manifest.
     nlohmann::json parameters_schema;
@@ -56,9 +67,10 @@ struct ModuleManifest {
 // - PARSE_ERROR when the file is not JSON (or exceeds the document limits);
 // - FORMAT_VERSION_UNSUPPORTED when no module-manifest schema exists for its format_version;
 // - MANIFEST_INVALID when its kind is not "module-manifest", it violates the module-manifest
-//   schema (unknown top-level fields are allowed only with an "x-" prefix), library.path,
-//   a dependency path or tests.vectors is absolute (in POSIX or Windows notation), a capability
-//   is listed twice, or parameters_schema is not a valid draft-07 schema;
+//   schema of its format_version (unknown top-level fields are allowed only with an "x-" prefix),
+//   library.path, a dependency path or tests.vectors is absolute (in POSIX or Windows notation),
+//   a capability is listed twice, a required service's major or minor does not fit in 32 bits or
+//   its name and major are listed twice, or parameters_schema is not a valid draft-07 schema;
 // - IO_ERROR when the file cannot be read.
 // The library itself is not looked at.
 ModuleManifest load_manifest(const std::filesystem::path& file);

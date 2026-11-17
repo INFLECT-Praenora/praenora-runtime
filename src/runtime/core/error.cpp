@@ -91,15 +91,16 @@ constexpr std::array kTable = {
     row(E::INPUT_BINDING_INVALID, "INPUT_BINDING_INVALID", C::validation, "user", no_retry,
         "A workflow input is not bound to a valid data source."),
     row(E::MANIFEST_INVALID, "MANIFEST_INVALID", C::validation, "module", no_retry,
-        "A module manifest is malformed or inconsistent."),
+        "A module or provider manifest is malformed or inconsistent."),
     row(E::MODULE_NOT_FOUND, "MODULE_NOT_FOUND", C::validation, "user/environment", no_retry,
         "No manifest for the requested module name and version is on the search paths."),
     row(E::MODULE_IDENTITY_MISMATCH, "MODULE_IDENTITY_MISMATCH", C::load, "module", no_retry,
         "The loaded module's describe output disagrees with its manifest."),
     row(E::LIBRARY_DIGEST_MISMATCH, "LIBRARY_DIGEST_MISMATCH", C::load, "environment/module",
-        no_retry, "The module library's SHA-256 differs from the digest in its manifest."),
+        no_retry,
+        "A module or provider library's SHA-256 differs from the digest in its manifest."),
     row(E::LIBRARY_NOT_FOUND, "LIBRARY_NOT_FOUND", C::validation, "module/environment", no_retry,
-        "The module library named by the manifest does not exist."),
+        "The module or provider library named by the manifest does not exist."),
     row(E::ABI_INCOMPATIBLE, "ABI_INCOMPATIBLE", C::validation, "module", no_retry,
         "The module was built for a different ABI major version."),
     row(E::PROTOCOL_INCOMPATIBLE, "PROTOCOL_INCOMPATIBLE", C::validation, "module", no_retry,
@@ -114,12 +115,15 @@ constexpr std::array kTable = {
         "A referenced message type, capability or workflow definition is not in the catalog."),
     row(E::CATALOG_ENTRY_DUPLICATE, "CATALOG_ENTRY_DUPLICATE", C::compatibility, "protocol",
         no_retry, "Two catalog entries have the same id and version."),
+    row(E::SERVICE_UNAVAILABLE, "SERVICE_UNAVAILABLE", C::compatibility, "environment", no_retry,
+        "No usable service provider offers a runtime service that a module requires."),
     row(E::LIBRARY_LOAD_FAILED, "LIBRARY_LOAD_FAILED", C::load, "environment/module", no_retry,
-        "The operating system could not load the module library."),
+        "A module or provider library could not be loaded, or a provider failed its load checks."),
     row(E::ENTRY_POINT_MISSING, "ENTRY_POINT_MISSING", C::load, "module", no_retry,
-        "The module library does not export praenora_module_get_api."),
+        "The library does not export its entry point (praenora_module_get_api or "
+        "praenora_provider_get_api)."),
     row(E::API_TABLE_INVALID, "API_TABLE_INVALID", C::load, "module", no_retry,
-        "The module's function table is missing, malformed or incomplete."),
+        "The function table of a module or provider is missing, malformed or incomplete."),
     row(E::GRAPH_INVALID, "GRAPH_INVALID", C::validation, "protocol", no_retry,
         "The workflow graph breaks a structural rule, such as fan-in or a delayed connection "
         "into a required input."),
@@ -325,6 +329,14 @@ std::string ValidationReport::to_json() const {
         }
         if (!d.module.empty()) {
             item["module"] = d.module;
+        }
+        if (!d.details_json.empty()) {
+            auto details = nlohmann::ordered_json::parse(d.details_json, nullptr, false);
+            if (details.is_discarded()) {
+                item["details"] = d.details_json;
+            } else {
+                item["details"] = std::move(details);
+            }
         }
         list.push_back(std::move(item));
     }

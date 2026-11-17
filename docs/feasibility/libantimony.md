@@ -31,7 +31,8 @@ and how would it be built and packaged?
   contains an `import` statement, and refuse SBML text that contains a document type declaration or
   requires a Level 3 package. Load text only, through the loader for the declared format, and never
   through a function that takes a file name or guesses the format.
-- When both services are built, link one libSBML for both.
+- When both services are built, each has its own libSBML: the simulation service's is inside its
+  provider, so a process holds two copies unless both services come from one provider.
 - The service can be part of a WebAssembly build of the runtime: libAntimony has been compiled with
   Emscripten ([webassembly.md](webassembly.md)).
 
@@ -49,8 +50,9 @@ and how would it be built and packaged?
 
 ### Where the service plugs in
 
-Exactly as for the simulation service ([libroadrunner.md](libroadrunner.md)): the runtime registers
-one static table in its [`ServiceRegistry`](../../src/runtime/instance/services.hpp) as
+As the simulation service was first planned, before service providers took it out of the runtime
+library ([ADR-0026](../adr/ADR-0026-runtime-service-providers.md)): the runtime registers one
+static table in its [`ServiceRegistry`](../../src/runtime/instance/services.hpp) as
 `praenora.model-conversion` at major 0 before instances use the registry; a module looks it up with
 `get_service(context, "praenora.model-conversion", 25, 0)` and gets NULL from a runtime built
 without the option. Lookups are logged as `service.lookup`
@@ -168,13 +170,16 @@ pointer [A4].
   5.21.2), is distributed under the LGPL 2.1, and can use Xerces, Expat or libxml2 [A10][A11]. The
   parsers "behave slightly differently when reading files" [A12], so the service is built with one,
   expat, as the Emscripten build of libAntimony is [A8].
-- libRoadRunner finds a static libSBML of at least 5.20.5 [A16]. When both services are built, the
-  runtime links one libSBML that satisfies both; two static copies in one binary would collide at
-  link time.
+- libRoadRunner finds a static libSBML of at least 5.20.5 [A16]. The simulation service's libSBML
+  is linked into the provider `roadrunner`, a separate library that exports only its entry point
+  ([ADR-0026](../adr/ADR-0026-runtime-service-providers.md)), and that provider also calls libSBML
+  itself. A libSBML linked into the runtime for this service would be a second, separate copy with
+  its own process-wide state, so the two neither collide at link time nor share state (unverified
+  with both built); they would share one copy only if both services came from one provider.
 - libSBML keeps a process-wide singleton, the package extension registry [A11]. Neither the
   registry's page nor the list of known pitfalls says anything about thread safety [A11][A12]; the
-  service's lock covers its own libSBML use, and the simulation service uses libSBML only through
-  libRoadRunner, whose behavior here is unverified.
+  service's lock covers its own libSBML use. The simulation service's provider uses its own copy,
+  with its own registry, so this lock need not cover it (unverified with both built).
 - Linking LGPL-2.1 code statically into a distributed binary brings the conditions of section 6 of
   that license, such as means to relink with a modified library [A15]. This needs the same legal
   review as for the simulation service.
@@ -205,10 +210,14 @@ pointer [A4].
   nothing else enters it, because each call starts and ends with `clearPreviousLoads()`. That two
   identical calls give byte-identical text, in one process and across processes, is expected and
   checked by the spike (unverified).
-- The report carries the libAntimony and libSBML versions, and the run's reproducibility section
-  gains an entry for each registered production service, as for the simulation service
-  ([reproducibility.md](../specs/reproducibility.md#run-fingerprint)); that is a run record format
-  change with its own ADR.
+- The report carries the libAntimony and libSBML versions. Offered by a service provider, the
+  service would enter the run's reproducibility section as the simulation service does (its
+  `services` entry: provider identity, digests and the manifest's `engine` object,
+  [reproducibility.md](../specs/reproducibility.md#run-fingerprint)), with no change to the run
+  record format. Registered in the runtime library, as under
+  [Where the service plugs in](#where-the-service-plugs-in), it would not be recorded (the section
+  holds only services that providers serve), and recording it would be a run record format change
+  with its own ADR.
 - Main module: `ode-uq-spec` 0.0.0 defines an Antimony source's meaning as the flattened SBML of
   its main module: the module marked `*`, else `__main` when the file has top-level statements, else
   the last module defined (`specification.md`, Model specification). The service uses
@@ -302,7 +311,7 @@ runtime code would parse model sources, so it applies `ode-uq-spec`'s rules itse
 |---|---|---|
 | An `import`, or a reference to another document, slips past the checks | libAntimony or libSBML opens a file chosen by the source | The validator's conservative check, `clearDirectories()`, no file names, SBML package and document type checks; spike tests in every comment and string form; later, option C4. |
 | Another copy of libAntimony in the process shares global state | Races between the service and a module | Static, hidden linking of the runtime's copy; module authors told to use the service rather than their own copy. |
-| One libSBML cannot satisfy both services | Link failure or duplicate symbols when both options are ON | Pick a libSBML version that both accept (libRoadRunner needs at least 5.20.5) and test both options together. |
+| Two libSBML copies in one process (the runtime's and the provider's) | Unexpected interaction | Test both options together. |
 | Function definitions removed on SBML load | An SBML to Antimony translation differs in form, or in meaning, from its source | Warning in the report; spike checks what the default does to models with function definitions. |
 | The main module chosen by libAntimony differs from the `ode-uq-spec` rule | Translations of multi-module files differ from other consumers | Spike checks the three cases of the rule. |
 | License discrepancy (BSD-3-Clause or MIT) and LGPL-2.1 libSBML | Distribution blocked | Ask upstream; legal review together with the simulation service (OQ-1, OQ-13). |
@@ -335,7 +344,7 @@ Each step has an exit criterion; the spike stops at the first that fails and rec
    with neither. *Exit:* `getMainModuleName()` agrees with the `ode-uq-spec` rule in all three, or
    the service implements the rule itself.
 8. **Both services.** Build with `PRAENORA_WITH_ANTIMONY` and `PRAENORA_WITH_ROADRUNNER` together.
-   *Exit:* one libSBML, no duplicate symbols, and both services' tests pass.
+   *Exit:* both services' tests pass in one process, with the runtime's libSBML and the provider's.
 9. **WebAssembly.** Build the service with Emscripten using the flags of `libantimonyjs`. *Exit:*
    steps 2 and 3 pass under Node.
 

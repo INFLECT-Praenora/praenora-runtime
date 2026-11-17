@@ -14,7 +14,10 @@
 #include "engine/envelope.hpp"
 #include "engine/result_check.hpp"
 #include "instance/module_instance.hpp"
+#include "loader/library_file.hpp"
 #include "loader/loaded_module.hpp"
+#include "observability/logging.hpp"
+#include "provider/provider_loader.hpp"
 
 #include <praenora/runtime/error.hpp>
 #include <praenora/sdk/abi.h>
@@ -68,10 +71,6 @@ std::string quoted(const std::string& text) { return "'" + text + "'"; }
 std::string shown(std::chrono::nanoseconds duration) {
     const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(duration).count();
     return ms % 1000 == 0 ? std::to_string(ms / 1000) + " s" : std::to_string(ms) + " ms";
-}
-
-std::string status_text(praenora_status status) {
-    return std::to_string(status) + " (" + praenora_status_name(status) + ")";
 }
 
 using module_check_text::first_issue;
@@ -187,10 +186,10 @@ class Checker {
 public:
     Checker(fs::path manifest_path, std::optional<fs::path> vectors_path,
             const RuntimeContext& context, std::shared_ptr<spdlog::logger> logger,
-            const CheckDeadlines& deadlines)
+            const CheckDeadlines& deadlines, LogHub* logs)
         : manifest_path_(std::move(manifest_path)), vectors_path_(std::move(vectors_path)),
           context_(context), catalog_(context.catalog), logger_(std::move(logger)),
-          deadlines_(deadlines) {}
+          deadlines_(deadlines), logs_(logs) {}
 
     ModuleCheckReport run() {
         check_manifest_schema();
@@ -333,8 +332,16 @@ private:
         };
         Check reached = Check::library_file;
         std::optional<Error> failure;
+        bool services_failed = false;
         if (manifest_) {
             try {
+                // The library file first (library.digest), then the services, which belong to
+                // library.load: as in a run, no module code runs before they are there.
+                static_cast<void>(check_library_file(*manifest_));
+                reached = Check::library_open;
+                services_failed = true;
+                load_services();
+                services_failed = false;
                 loaded_ = LoadedModule::load(*manifest_, &reached);
             } catch (const Error& error) {
                 failure = error;
@@ -344,7 +351,13 @@ private:
         for (const auto& step : steps) {
             if (!results_.skip_unless(step.id, prerequisite)) {
                 if (failure && step.check == reached) {
-                    results_.fail(step.id, text_of(*failure));
+                    // A service's error names its code, which the check's status cannot carry.
+                    std::string message = text_of(*failure);
+                    if (services_failed) {
+                        message =
+                            std::string(error_code_info(failure->code()).name) + ": " + message;
+                    }
+                    results_.fail(step.id, std::move(message));
                 } else {
                     results_.pass(step.id, loading_passed(step.check));
                 }
@@ -368,7 +381,8 @@ private:
                        ? "the library file exists and has the SHA-256 the manifest requires"
                        : "the library file exists (the manifest pins no SHA-256)";
         case Check::library_open:
-            return "the library " + path_to_utf8(manifest.library_path) + " loads";
+            return "the library " + path_to_utf8(manifest.library_path) + " loads" +
+                   (services_note_.empty() ? std::string() : "; services: " + services_note_);
         case Check::entry_point:
             return std::string("the library exports ") + PRAENORA_MODULE_ENTRY_POINT;
         case Check::table:
@@ -406,6 +420,38 @@ private:
         return "passed";
     }
 
+    // The services the module declares, resolved on the runtime's provider search paths as for a
+    // run, and their providers loaded and started, so that the module's instances are served
+    // them as in a run. Throws SERVICE_UNAVAILABLE for a required service that does not resolve,
+    // and the errors of the provider loader.
+    void load_services() {
+        const ModuleManifest& manifest = *manifest_;
+        for (std::size_t i = 0; i < manifest.service_requirements.size(); ++i) {
+            const ServiceRequirement& requirement = manifest.service_requirements[i];
+            const std::string key = service_key(requirement.service);
+            const ServiceResolution resolution = context_.providers.resolve(requirement.service);
+            if (resolution.provider == nullptr) {
+                if (requirement.optional) {
+                    services_note_ += (services_note_.empty() ? "" : ", ") + key +
+                                      " not available (optional)";
+                    continue;
+                }
+                const Diagnostic unavailable =
+                    service_unavailable(manifest, i, context_.providers, resolution);
+                throw Error(unavailable.code, unavailable.message, unavailable.location,
+                            unavailable.details_json);
+            }
+            const ServiceVersion offered{requirement.service.name, requirement.service.major,
+                                         resolution.offered_minor};
+            const LoadedProvider& provider =
+                load_provider(*resolution.provider, {offered}, std::nullopt, logs_);
+            provider_services_.add(offered.name, offered.major,
+                                   provider.service(offered.name, offered.major));
+            services_note_ += (services_note_.empty() ? "" : ", ") + key + " from provider " +
+                              identity(resolution.provider->name, resolution.provider->version);
+        }
+    }
+
     // -- The cases: the test vectors, and the case of the lifecycle checks.
 
     void prepare_cases() {
@@ -437,6 +483,7 @@ private:
         options.cancel_grace = deadlines_.cancel_grace;
         options.logger = logger_;
         options.services = &context_.services;
+        options.provider_services = provider_services_;
         options.run_fingerprint = fingerprint;
         return std::make_unique<ModuleInstance>(loaded_, std::move(options));
     }
@@ -811,7 +858,10 @@ private:
     const Catalog& catalog_;
     std::shared_ptr<spdlog::logger> logger_;
     CheckDeadlines deadlines_;
+    LogHub* logs_; // where the providers' records go, or none
     Results results_;
+    ServiceRegistry provider_services_; // the module's provider services, once loaded
+    std::string services_note_;         // what became of each service, for library.load
 
     std::optional<ModuleManifest> manifest_;  // once manifest.semantics passed
     std::shared_ptr<LoadedModule> loaded_;    // once describe.identity passed
@@ -830,8 +880,8 @@ private:
 ModuleCheckReport check_module(const fs::path& manifest, const std::optional<fs::path>& vectors,
                                const RuntimeContext& context,
                                std::shared_ptr<spdlog::logger> logger,
-                               const CheckDeadlines& deadlines) {
-    return Checker(manifest, vectors, context, std::move(logger), deadlines).run();
+                               const CheckDeadlines& deadlines, LogHub* logs) {
+    return Checker(manifest, vectors, context, std::move(logger), deadlines, logs).run();
 }
 
 } // namespace praenora::detail

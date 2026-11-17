@@ -1,16 +1,18 @@
 """Praenora runtime for Python.
 
 The functions validate workflow configurations and documents, list, inspect and check modules,
-and show workflow graphs, the protocol catalog and the document schemas; Workflow runs a
-workflow. These are the features of the praenora command-line tool, with the same results.
+list service providers, and show workflow graphs, the protocol catalog and the document schemas;
+Workflow runs a workflow. These are the features of the praenora command-line tool, with the same
+results.
 
 - Results are decoded JSON (dicts, lists, strings and numbers) with the keys of the tool's --json
   output.
 - Failures raise PraenoraError, which carries the runtime's error code, name and category, a
   message, details and the location of the problem.
-- Paths are str or os.PathLike objects. module_paths and catalog_paths are lists of paths,
-  searched before PRAENORA_MODULE_PATH and PRAENORA_CATALOG_PATH from the environment (and, for
-  modules, before the installation's module directory); None adds no paths of its own.
+- Paths are str or os.PathLike objects. module_paths, provider_paths and catalog_paths are lists
+  of paths, searched before PRAENORA_MODULE_PATH, PRAENORA_PROVIDER_PATH and PRAENORA_CATALOG_PATH
+  from the environment (and, for modules and service providers, before the installation's module
+  and provider directories); None adds no paths of its own.
 - Calls into the runtime release the GIL: while one thread runs a workflow, another may call its
   status(), metrics() or request_stop().
 
@@ -32,6 +34,7 @@ __all__ = [
     "inspect_module",
     "list_catalog",
     "list_modules",
+    "list_providers",
     "list_schemas",
     "read_status",
     "schema",
@@ -55,8 +58,9 @@ class PraenoraError(Exception):
         category: its category, for example "validation".
         message: what went wrong.
         details: details that depend on the code (dict). A validation failure holds the whole
-            report, {"ok": False, "diagnostics": [...]}; a failed contract check the check
-            report.
+            report, {"ok": False, "diagnostics": [...]}, each diagnostic with its own "details"
+            when it has any (for SERVICE_UNAVAILABLE, the service and the providers considered);
+            a failed contract check the check report.
         location: where the problem is (dict with any of "file", "line", "column" and
             "pointer").
     """
@@ -154,17 +158,18 @@ def version():
     return _decoded(_bindings.version_json)
 
 
-def validate(config, module_paths=None, catalog_paths=None, load=False):
+def validate(config, module_paths=None, catalog_paths=None, load=False, *, provider_paths=None):
     """Validates the workflow configuration `config`: everything a run checks before its first
-    tick, without running anything; with `load`, the module libraries are loaded and their
-    identities checked too.
+    tick, without running anything; with `load`, the service providers of the workflow's services
+    are started, and the module libraries loaded and their identities checked, too.
+    `provider_paths` are searched for service providers first.
 
     Returns the report, {"ok": True, "diagnostics": [...]}, whose diagnostics are warnings and
     notes. When the report holds an error, raises PraenoraError with the first error's code and
     location, the message "<config>: validation failed: N error(s)" and the report in `details`.
     """
     return _decoded(_bindings.validate_json, _path(config), _paths(module_paths),
-                    _paths(catalog_paths), bool(load))
+                    _paths(catalog_paths), _paths(provider_paths), bool(load))
 
 
 def validate_document(path):
@@ -179,27 +184,38 @@ def list_modules(module_paths=None):
     return _decoded(_bindings.list_modules_json, _paths(module_paths))
 
 
+def list_providers(provider_paths=None):
+    """Every service provider manifest on the provider search paths, in search order, other
+    platforms' and other runtime versions' too: [{"name", "version", "manifest", "library",
+    "platform": {"os", "arch"}, "services": [{"name", "major", "minor"}], "engine", "usable"}],
+    with "problem", why this runtime cannot use it, for a provider that is not usable. A manifest
+    shadowed by an earlier one of the same name and platform is never used: it is listed unusable,
+    its problem naming the manifest that shadows it. Nothing is loaded."""
+    return _decoded(_bindings.list_providers_json, _paths(provider_paths))
+
+
 def inspect_module(name, version=None, load=False, module_paths=None):
     """The module `name` at `version` (by default its highest version for this platform) as
     discovery resolves it, an entry like those of list_modules(). With `load`, its library is
     loaded (and released again) and the entry also holds "describe", what the module's
-    describe() reports, and "library_sha256"."""
+    describe() reports, and "library_sha256". Inspecting a module loads no service provider."""
     return _decoded(_bindings.inspect_module_json, name, "" if version is None else version,
                     bool(load), _paths(module_paths))
 
 
-def check_module(manifest, vectors=None, *, catalog_paths=None):
+def check_module(manifest, vectors=None, *, catalog_paths=None, provider_paths=None):
     """Runs the contract checks of the module whose manifest is `manifest`, with the test vectors
     in `vectors` (by default the ones the manifest names); `catalog_paths` adds catalog entries,
     such as the capabilities and message types the module uses that the runtime does not have
-    built in.
+    built in. The services the manifest declares are resolved on the provider search paths,
+    `provider_paths` first, and their providers started for the checks.
 
     Returns the module-check-report document ({"kind", "format_version", "passed", "checks"})
     when no check failed. When one failed, raises PraenoraError FAILED, with the report in
     `details`.
     """
     return _decoded(_bindings.check_module_json, _path(manifest), _optional_path(vectors),
-                    _paths(catalog_paths))
+                    _paths(catalog_paths), _paths(provider_paths))
 
 
 def graph(config=None, workflow=None, format="json", *, module_paths=None, catalog_paths=None):
@@ -252,7 +268,8 @@ class Workflow:
 
     Arguments:
         config: the workflow configuration file.
-        module_paths, catalog_paths: lists of paths searched first (see the package).
+        module_paths, provider_paths, catalog_paths: lists of paths searched first (see the
+            package).
         output_dir: where the run record, the outputs and the trace go, instead of the
             configuration's outputs.directory.
         seed, ticks: the run seed and the number of ticks, whole numbers from 0 to 2**53 - 1.
@@ -271,9 +288,10 @@ class Workflow:
 
     def __init__(self, config, module_paths=None, output_dir=None, seed=None, log_level=None, *,
                  ticks=None, overwrite=False, trace_messages=None, status_file=None,
-                 log_format=None, log_file=None, catalog_paths=None):
+                 log_format=None, log_file=None, catalog_paths=None, provider_paths=None):
         options = {
             "module_paths": None if module_paths is None else _paths(module_paths),
+            "provider_paths": None if provider_paths is None else _paths(provider_paths),
             "catalog_paths": None if catalog_paths is None else _paths(catalog_paths),
             "output_dir": None if output_dir is None else _path(output_dir),
             "seed": seed,
@@ -297,8 +315,9 @@ class Workflow:
         self.close()
 
     def start(self):
-        """Loads the modules, then creates and initializes an instance for each step: the state
-        becomes "ready" ("completed" for a run of no ticks)."""
+        """Loads and starts the service providers of the run's services, loads the modules, then
+        creates and initializes an instance for each step: the state becomes "ready"
+        ("completed" for a run of no ticks)."""
         _call(self._handle.start)
 
     def tick(self):

@@ -7,6 +7,7 @@
 #include "api/validation.hpp"
 #include "catalog/catalog.hpp"
 #include "discovery/module_index.hpp"
+#include "provider/provider_index.hpp"
 
 #include "module_fixtures.hpp"
 #include "test_support.hpp"
@@ -25,20 +26,35 @@
 namespace praenora::test {
 
 // A runtime context whose catalog is the built-in one plus tests/fixtures/catalog (and
-// `extra_catalogs`), and whose module search path is `module_paths` (by default the fixture
-// modules), without the environment.
+// `extra_catalogs`), whose module search path is `module_paths` (by default the fixture modules)
+// and whose provider search path is `provider_paths` (UTF-8; by default none), without the
+// environment. The installation's directories are searched last, as always.
 inline std::unique_ptr<detail::RuntimeContext>
 make_test_context(std::vector<std::string> module_paths = {PRAENORA_TEST_MODULES_DIR},
-                  std::vector<std::filesystem::path> extra_catalogs = {}) {
+                  std::vector<std::filesystem::path> extra_catalogs = {},
+                  const std::vector<std::string>& provider_paths = {}) {
     std::vector<std::filesystem::path> catalogs = {utf8_path(PRAENORA_TEST_CATALOG_DIR)};
     catalogs.insert(catalogs.end(), extra_catalogs.begin(), extra_catalogs.end());
     auto context = std::make_unique<detail::RuntimeContext>();
     context->catalog = detail::Catalog::load(catalogs);
     context->modules =
         detail::ModuleIndex::scan(detail::module_search_paths(module_paths, {}, false));
+    context->providers =
+        detail::ProviderIndex::scan(detail::provider_search_paths(provider_paths, false));
     context->module_paths = std::move(module_paths);
     context->use_environment = false;
     return context;
+}
+
+// A runtime context over the fixture modules whose provider search path is the directories of
+// the fixture providers `providers` (provider_fixtures.hpp), in that order.
+inline std::unique_ptr<detail::RuntimeContext>
+make_provider_context(const std::vector<std::string>& providers) {
+    std::vector<std::string> paths;
+    for (const std::string& name : providers) {
+        paths.push_back(std::string(PRAENORA_TEST_PROVIDERS_DIR) + "/" + name);
+    }
+    return make_test_context({PRAENORA_TEST_MODULES_DIR}, {}, paths);
 }
 
 // The shared context over the fixture modules.

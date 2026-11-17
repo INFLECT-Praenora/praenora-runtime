@@ -4,7 +4,7 @@
 cmake_minimum_required(VERSION 3.24)
 project(praenora_consumer_module VERSION 0.1.0 LANGUAGES CXX)
 
-find_package(Praenora 0.1 REQUIRED COMPONENTS ModuleSDK)
+find_package(Praenora 0.2 REQUIRED COMPONENTS ModuleSDK)
 # The ModuleSDK component loads only the SDK: it looks for no other package and defines no
 # runtime target.
 get_property(found_packages GLOBAL PROPERTY PACKAGES_FOUND)

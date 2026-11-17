@@ -16,7 +16,8 @@ SharedLibrary::SharedLibrary(void* handle, std::filesystem::path path) noexcept
     : handle_(handle), path_(std::move(path)) {}
 
 SharedLibrary SharedLibrary::open(const std::filesystem::path& absolute_path,
-                                  const std::vector<std::filesystem::path>& dependency_dirs) {
+                                  const std::vector<std::filesystem::path>& dependency_dirs,
+                                  std::string_view what) {
     static_cast<void>(dependency_dirs); // run paths ($ORIGIN, @loader_path) do this on POSIX
     // dlerror() reports the last error of the calling thread; clear any earlier one first.
     static_cast<void>(dlerror());
@@ -24,7 +25,8 @@ SharedLibrary SharedLibrary::open(const std::filesystem::path& absolute_path,
     if (handle == nullptr) {
         const char* reason = dlerror();
         throw Error(ErrorCode::LIBRARY_LOAD_FAILED,
-                    "cannot load module library '" + path_to_utf8(absolute_path) + "': " +
+                    "cannot load " + std::string(what) + " '" + path_to_utf8(absolute_path) +
+                        "': " +
                         (reason != nullptr ? std::string(reason) : std::string("unknown error")));
     }
     return SharedLibrary(handle, absolute_path);

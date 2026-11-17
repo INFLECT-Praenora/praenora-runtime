@@ -1,6 +1,7 @@
 // The run fingerprint: the SHA-256 of the canonical reproducibility section, which covers what
 // determines a run's results (versions, catalog entries, the semantic configuration, modules,
-// input data and seeds) and nothing else (output and observability settings, paths).
+// the runtime services of providers and their engines, input data and seeds) and nothing else
+// (output and observability settings, paths).
 #include "api/validation.hpp"
 #include "core/paths.hpp"
 #include "core/seed.hpp"
@@ -8,8 +9,10 @@
 #include "core/sha256.hpp"
 #include "document/json_util.hpp"
 #include "document/schema_registry.hpp"
+#include "provider/provider_manifest.hpp"
 
 #include "module_fixtures.hpp"
+#include "provider_fixtures.hpp"
 #include "test_support.hpp"
 #include "validation_fixtures.hpp"
 
@@ -20,7 +23,10 @@
 #include <nlohmann/json.hpp>
 
 #include <filesystem>
+#include <stdexcept>
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace fs = std::filesystem;
 using nlohmann::json;
@@ -166,7 +172,7 @@ TEST(Fingerprint, ReproducibilitySectionMatchesTheRunRecordSchema) {
     // The section is embedded in the run record; it must satisfy that schema.
     const json record = {
         {"kind", "run-record"},
-        {"format_version", "0.1.0"},
+        {"format_version", "0.2.0"},
         {"fingerprint", workflow.fingerprint},
         {"reproducibility", section},
         {"execution",
@@ -177,7 +183,7 @@ TEST(Fingerprint, ReproducibilitySectionMatchesTheRunRecordSchema) {
           {"overrides", json::object()},
           {"validation", "strict"}}}};
     const auto& schema = praenora::detail::SchemaRegistry::builtin().for_kind(
-        "run-record", praenora::detail::parse_semver("0.1.0"));
+        "run-record", praenora::detail::parse_semver("0.2.0"));
     const auto issues = schema.validate(record);
     for (const auto& issue : issues) {
         ADD_FAILURE() << issue.pointer << ": " << issue.message;
@@ -215,9 +221,155 @@ TEST(Fingerprint, ReproducibilitySectionMatchesTheRunRecordSchema) {
                     {"version", "0.1.0"},
                     {"manifest_sha256", manifest.manifest_sha256},
                     {"library_sha256", praenora::detail::sha256_file_hex(manifest.library_path)},
-                    {"sdk_version", "0.1.0"}}));
+                    {"sdk_version", "0.2.0"}}));
     EXPECT_EQ(a.at("parameters"), json::object());
     EXPECT_EQ(a.at("seed"), praenora::detail::derive_step_seed(7, "a"));
     EXPECT_EQ(a.at("timeouts"),
               json::parse(R"({"invoke":"300s","lifecycle":"60s","cancel_grace":"5s"})"));
+    // No module declares a service: the services are there, and empty.
+    EXPECT_EQ(section.at("services"), json::object());
+    EXPECT_EQ(a.at("services"), json::array());
+    EXPECT_EQ(section.at("steps").at("b").at("services"), json::array());
+}
+
+namespace {
+
+// test.chain with step a bound to `a` and step b to `b` (fixture modules on `module_paths`),
+// validated in a fresh directory against the providers on `provider_paths` (UTF-8).
+praenora::detail::ValidatedWorkflow
+validated_with_providers(const std::string& a, const std::string& b,
+                         const std::vector<std::string>& provider_paths,
+                         std::vector<std::string> module_paths = {PRAENORA_TEST_MODULES_DIR}) {
+    const auto context =
+        praenora::test::make_test_context(std::move(module_paths), {}, provider_paths);
+    ScratchDir dir;
+    write_text_file(dir.path() / "obs.csv", praenora::test::observations_csv());
+    const std::string yaml = "kind: workflow-config\n"
+                             "format_version: \"0.1.0\"\n"
+                             "workflow: { name: test.chain, version: \"0.1.0\" }\n"
+                             "run: { seed: 7 }\n"
+                             "inputs:\n"
+                             "  source: { source: observation-csv, path: obs.csv }\n"
+                             "steps:\n"
+                             "  a: { module: { name: " +
+                             a +
+                             ", version: \"0.1.0\" } }\n"
+                             "  b: { module: { name: " +
+                             b + ", version: \"0.1.0\" } }\n";
+    auto result = validate_text(dir.path(), yaml, {}, *context);
+    if (!result.workflow) {
+        ADD_FAILURE() << result.report.to_text();
+        throw std::runtime_error("validation failed");
+    }
+    return std::move(*result.workflow);
+}
+
+std::string utf8(const fs::path& path) { return path_to_utf8(path); }
+
+} // namespace
+
+// Every service the run resolved, with its provider's identity and engine; each step lists the
+// services its module may use.
+TEST(Fingerprint, RecordsTheServicesOfTheRunAndTheirProviders) {
+    const auto workflow = validated_with_providers("fx-service", "fx-echo",
+                                                   {PRAENORA_TEST_PROVIDERS_DIR "/test-echo"});
+    const fs::path manifest = praenora::test::fixture_provider_manifest("test-echo");
+    const auto provider = praenora::detail::load_provider_manifest(manifest);
+    const json& section = workflow.reproducibility;
+    EXPECT_EQ(section.at("services"),
+              (json{{"test.echo@0",
+                     {{"minor", 0},
+                      {"provider",
+                       {{"name", "test-echo"},
+                        {"version", "0.1.0"},
+                        {"manifest_sha256", praenora::detail::sha256_file_hex(manifest)},
+                        {"library_sha256",
+                         praenora::detail::sha256_file_hex(provider.library_path)}}},
+                      {"engine", {{"name", "test-echo-engine"}, {"version", "1.0.0"}}}}}}));
+    EXPECT_EQ(section.at("steps").at("a").at("services"), json({"test.echo@0"}));
+    EXPECT_EQ(section.at("steps").at("b").at("services"), json::array());
+    EXPECT_EQ(workflow.steps.at(0).services, std::vector<std::string>{"test.echo@0"});
+    ASSERT_EQ(workflow.services.size(), 1u);
+    EXPECT_EQ(praenora::detail::to_string(workflow.services.at("test.echo@0").service),
+              "test.echo@0.0");
+
+    // As written in a run record, the section satisfies the run-record schema.
+    const json record = {
+        {"kind", "run-record"},
+        {"format_version", "0.2.0"},
+        {"fingerprint", workflow.fingerprint},
+        {"reproducibility", section},
+        {"execution",
+         {{"status", "running"},
+          {"ticks_completed", 0},
+          {"platform",
+           {{"os", "macos"}, {"arch", "arm64"}, {"compiler", "c"}, {"build_type", "Debug"}}},
+          {"overrides", json::object()},
+          {"validation", "strict"}}}};
+    const auto& schema = praenora::detail::SchemaRegistry::builtin().for_kind(
+        "run-record", praenora::detail::parse_semver("0.2.0"));
+    for (const auto& issue : schema.validate(record)) {
+        ADD_FAILURE() << issue.pointer << ": " << issue.message;
+    }
+}
+
+// The fingerprint changes when the provider's library changes, and when its engine does.
+TEST(Fingerprint, ChangesWithTheProviderLibraryAndItsEngine) {
+    ScratchDir dir;
+    const fs::path manifest =
+        praenora::test::copy_fixture_provider("test-echo", dir.path() / "providers");
+    const std::vector<std::string> paths = {utf8(dir.path() / "providers")};
+    const auto before = validated_with_providers("fx-service", "fx-echo", paths);
+
+    praenora::test::append_to_file(
+        praenora::detail::load_provider_manifest(manifest).library_path, "another build");
+    const auto rebuilt = validated_with_providers("fx-service", "fx-echo", paths);
+    EXPECT_NE(rebuilt.fingerprint, before.fingerprint);
+    EXPECT_NE(rebuilt.reproducibility.at("services").at("test.echo@0").at("provider").at(
+                  "library_sha256"),
+              before.reproducibility.at("services").at("test.echo@0").at("provider").at(
+                  "library_sha256"));
+
+    praenora::test::copy_fixture_provider("test-echo", dir.path() / "providers", [](json& m) {
+        m["engine"]["version"] = "1.0.1";
+    });
+    praenora::test::append_to_file(
+        praenora::detail::load_provider_manifest(manifest).library_path, "another build");
+    const auto other_engine = validated_with_providers("fx-service", "fx-echo", paths);
+    EXPECT_NE(other_engine.fingerprint, rebuilt.fingerprint);
+    EXPECT_EQ(other_engine.reproducibility.at("services").at("test.echo@0").at("engine").at(
+                  "version"),
+              "1.0.1");
+    // The library is the same as in `rebuilt`: only the manifest and its engine differ.
+    EXPECT_EQ(other_engine.reproducibility.at("services").at("test.echo@0").at("provider").at(
+                  "library_sha256"),
+              rebuilt.reproducibility.at("services").at("test.echo@0").at("provider").at(
+                  "library_sha256"));
+}
+
+// Steps that declare one service name and major at different minors share one provider: the one
+// that the highest minor resolved to.
+TEST(Fingerprint, OneProviderServesEachServiceOfTheRun) {
+    ScratchDir dir;
+    // test-echo offers test.echo@0.0 and comes first; test-echo-newer offers test.echo@0.7.
+    praenora::test::copy_fixture_provider("test-echo", dir.path() / "providers" / "a-older");
+    praenora::test::copy_fixture_provider(
+        "test-echo", dir.path() / "providers" / "b-newer", [](json& m) {
+            m["provider"]["name"] = "test-echo-newer";
+            m["services"] = json::array({{{"name", "test.echo"}, {"major", 0}, {"minor", 7}}});
+        });
+    const std::vector<std::string> paths = {utf8(dir.path() / "providers")};
+
+    // Alone, fx-service (test.echo@0.0) gets the first provider.
+    const auto alone = validated_with_providers("fx-service", "fx-echo", paths);
+    EXPECT_EQ(alone.reproducibility.at("services").at("test.echo@0").at("provider").at("name"),
+              "test-echo");
+
+    // With fx-service-minor (test.echo@0.7), both get test-echo-newer, which offers both.
+    const auto both = validated_with_providers("fx-service", "fx-service-minor", paths);
+    const json& service = both.reproducibility.at("services").at("test.echo@0");
+    EXPECT_EQ(service.at("provider").at("name"), "test-echo-newer");
+    EXPECT_EQ(service.at("minor"), 7);
+    EXPECT_EQ(both.reproducibility.at("steps").at("a").at("services"), json({"test.echo@0"}));
+    EXPECT_EQ(both.reproducibility.at("steps").at("b").at("services"), json({"test.echo@0"}));
 }

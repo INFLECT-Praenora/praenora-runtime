@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- decay.xml in SBML Level 3 Version 1: dx/dt = -k_x * x and dy/dt = -k_y * y (amounts), in a
+     compartment of size 2. -->
+<sbml xmlns="http://www.sbml.org/sbml/level3/version1/core" level="3" version="1">
+  <model id="decay_l3v1">
+    <listOfCompartments>
+      <compartment id="cell" spatialDimensions="3" size="2" constant="true"/>
+    </listOfCompartments>
+    <listOfSpecies>
+      <species id="x" compartment="cell" initialAmount="10" hasOnlySubstanceUnits="true"
+               boundaryCondition="false" constant="false"/>
+      <species id="y" compartment="cell" initialAmount="4" hasOnlySubstanceUnits="true"
+               boundaryCondition="false" constant="false"/>
+    </listOfSpecies>
+    <listOfParameters>
+      <parameter id="k_x" value="0.5" constant="true"/>
+      <parameter id="k_y" value="1.5" constant="true"/>
+    </listOfParameters>
+    <listOfReactions>
+      <reaction id="rx" reversible="false" fast="false">
+        <listOfReactants>
+          <speciesReference species="x" stoichiometry="1" constant="true"/>
+        </listOfReactants>
+        <kineticLaw>
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply><times/><ci>k_x</ci><ci>x</ci></apply>
+          </math>
+        </kineticLaw>
+      </reaction>
+      <reaction id="ry" reversible="false" fast="false">
+        <listOfReactants>
+          <speciesReference species="y" stoichiometry="1" constant="true"/>
+        </listOfReactants>
+        <kineticLaw>
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply><times/><ci>k_y</ci><ci>y</ci></apply>
+          </math>
+        </kineticLaw>
+      </reaction>
+    </listOfReactions>
+  </model>
+</sbml>

@@ -8,10 +8,12 @@
 #include "document/json_util.hpp"
 #include "loader/loaded_module.hpp"
 #include "platform/platform.hpp"
+#include "provider/provider_loader.hpp"
 
 #include <praenora/runtime/version.hpp>
 
 #include <algorithm>
+#include <iterator>
 #include <set>
 #include <system_error>
 #include <tuple>
@@ -48,6 +50,15 @@ struct ResolvedModule {
     std::string library_sha256;
 };
 
+// A service that a step's module declares and that resolved (step 6), before one provider is
+// chosen for each name and major.
+struct StepService {
+    std::string step, module;
+    ServiceVersion requirement;       // as the manifest declares it
+    const ProviderManifest* provider; // in the context's provider index
+    std::uint32_t offered_minor = 0;
+};
+
 class Validator {
 public:
     Validator(const RuntimeContext& context, ValidationReport& report)
@@ -74,8 +85,12 @@ public:
         who_ = "workflow " + identity(definition_->name, definition_->version) + ": ";
         // Step 4, which needs every entry the definition uses.
         if (check_catalog_references()) {
-            for (Diagnostic diagnostic : validate_graph(*definition_, catalog_).diagnostics) {
-                report_.add(std::move(diagnostic));
+            const ValidationReport graph = validate_graph(*definition_, catalog_);
+            for (const Diagnostic& diagnostic : graph.diagnostics) {
+                report_.add(diagnostic);
+            }
+            if (graph.ok()) {
+                schedule_ = build_graph(*definition_, catalog_).schedule;
             }
         }
         check_bindings();   // step 5
@@ -301,6 +316,9 @@ private:
         for (const Diagnostic& diagnostic : index->diagnostics()) {
             report_.add(diagnostic);
         }
+        for (const Diagnostic& diagnostic : context_.providers.diagnostics()) {
+            report_.add(diagnostic);
+        }
 
         std::map<fs::path, std::string> digests; // library digests, by manifest
         for (const auto& [id, step] : definition_->steps) {
@@ -334,6 +352,7 @@ private:
                 report_.add(std::move(*problem));
                 continue;
             }
+            resolve_services(id, module, *manifest);
             auto digest = digests.find(manifest->manifest_path);
             if (digest == digests.end()) {
                 try {
@@ -345,6 +364,101 @@ private:
                 }
             }
             modules_[id] = ResolvedModule{manifest, digest->second};
+        }
+        choose_providers();
+    }
+
+    // Resolves each service that step `id`'s module (`module`, name@version) declares on the
+    // provider search paths: SERVICE_UNAVAILABLE for a required one that does not resolve.
+    void resolve_services(const std::string& id, const std::string& module,
+                          const ModuleManifest& manifest) {
+        const ProviderIndex& providers = context_.providers;
+        for (std::size_t i = 0; i < manifest.service_requirements.size(); ++i) {
+            const ServiceRequirement& requirement = manifest.service_requirements[i];
+            const ServiceResolution resolution = providers.resolve(requirement.service);
+            if (resolution.provider != nullptr) {
+                step_services_.push_back({id, module, requirement.service, resolution.provider,
+                                          resolution.offered_minor});
+                continue;
+            }
+            if (requirement.optional) {
+                continue; // not used
+            }
+            Diagnostic diagnostic = service_unavailable(manifest, i, providers, resolution);
+            diagnostic.step = id;
+            report_.add(std::move(diagnostic));
+        }
+    }
+
+    // The position of step `id` in the schedule, or, when the graph is invalid and there is no
+    // schedule, in the definition's (step-id) order.
+    std::size_t schedule_position(const std::string& id) const {
+        const auto scheduled = std::find(schedule_.begin(), schedule_.end(), id);
+        if (scheduled != schedule_.end()) {
+            return static_cast<std::size_t>(scheduled - schedule_.begin());
+        }
+        const auto& steps = definition_->steps;
+        return schedule_.size() +
+               static_cast<std::size_t>(std::distance(steps.begin(), steps.find(id)));
+    }
+
+    // One provider for each service name and major of the run: the one that the highest minor
+    // any step asks for resolved to (first found on a tie), which offers what every other step
+    // asks for too. Then the library file of each provider the run uses, whose problem is reported
+    // for the first step, in schedule order, that uses the provider.
+    void choose_providers() {
+        std::map<std::string, const StepService*> chosen; // by key
+        for (const StepService& service : step_services_) {
+            const auto [entry, added] = chosen.emplace(service_key(service.requirement), &service);
+            if (!added && entry->second->requirement.minor < service.requirement.minor) {
+                entry->second = &service;
+            }
+        }
+        // The first user of each provider, in schedule order.
+        std::map<fs::path, const StepService*> first_users; // by provider manifest
+        for (const StepService& service : step_services_) {
+            const fs::path& provider =
+                chosen.at(service_key(service.requirement))->provider->manifest_path;
+            const auto [entry, added] = first_users.emplace(provider, &service);
+            if (!added &&
+                schedule_position(service.step) < schedule_position(entry->second->step)) {
+                entry->second = &service;
+            }
+        }
+        std::map<fs::path, std::optional<std::string>> digests; // by provider manifest
+        std::map<fs::path, std::shared_ptr<const ProviderManifest>> copies;
+        for (const auto& [key, service] : chosen) {
+            const ProviderManifest& provider = *service->provider;
+            auto digest = digests.find(provider.manifest_path);
+            if (digest == digests.end()) {
+                std::optional<std::string> checked;
+                try {
+                    checked = check_provider_library_file(provider);
+                } catch (const Error& e) {
+                    const StepService& user = *first_users.at(provider.manifest_path);
+                    add(e.code(), e.location(), e.what(), user.step, user.module);
+                }
+                digest = digests.emplace(provider.manifest_path, std::move(checked)).first;
+            }
+            if (!digest->second) {
+                continue;
+            }
+            auto& copy = copies[provider.manifest_path];
+            if (!copy) {
+                copy = std::make_shared<const ProviderManifest>(provider);
+            }
+            ResolvedService resolved;
+            resolved.service = {service->requirement.name, service->requirement.major,
+                                service->offered_minor};
+            resolved.provider = copy;
+            resolved.library_sha256 = *digest->second;
+            services_.emplace(key, std::move(resolved));
+        }
+        for (const StepService& service : step_services_) {
+            const std::string key = service_key(service.requirement);
+            if (services_.count(key) != 0) {
+                step_service_keys_[service.step].insert(key);
+            }
         }
     }
 
@@ -425,8 +539,12 @@ private:
             step.timeouts = binding.timeouts;
             step.log_level = binding.log_level;
             step.library_sha256 = module.library_sha256;
+            if (const auto keys = step_service_keys_.find(id); keys != step_service_keys_.end()) {
+                step.services.assign(keys->second.begin(), keys->second.end());
+            }
             result.steps.push_back(std::move(step));
         }
+        result.services = services_;
         result.sources = std::move(sources_);
         result.message_types = message_types();
         result.reproducibility = reproducibility(result);
@@ -465,6 +583,19 @@ private:
         }
         section["inputs"] = std::move(inputs);
 
+        json services = json::object();
+        for (const auto& [key, service] : workflow.services) {
+            const ProviderManifest& provider = *service.provider;
+            services[key] = {{"minor", service.service.minor},
+                             {"provider",
+                              {{"name", provider.name},
+                               {"version", to_string(provider.version)},
+                               {"manifest_sha256", provider.manifest_sha256},
+                               {"library_sha256", service.library_sha256}}},
+                             {"engine", provider.engine}};
+        }
+        section["services"] = std::move(services);
+
         json steps = json::object();
         for (const ResolvedStep& step : workflow.steps) {
             const ModuleManifest& manifest = *step.manifest;
@@ -479,7 +610,8 @@ private:
                   {"sdk_version", to_string(manifest.sdk_version)}}},
                 {"parameters", step.parameters},
                 {"seed", step.seed},
-                {"timeouts", timeouts_json(step.timeouts)}};
+                {"timeouts", timeouts_json(step.timeouts)},
+                {"services", step.services}};
         }
         section["steps"] = std::move(steps);
         return section;
@@ -564,6 +696,10 @@ private:
     std::string who_;
     std::optional<ModuleIndex> local_index_;
     std::map<std::string, ResolvedModule> modules_;
+    std::vector<std::string> schedule_; // once the graph is valid (step 4)
+    std::vector<StepService> step_services_;                         // in the order resolved
+    std::map<std::string, ResolvedService> services_;                // by key
+    std::map<std::string, std::set<std::string>> step_service_keys_; // by step
     std::map<std::string, json> parameters_;
     std::map<std::string, std::unique_ptr<InputSource>> sources_;
 };
@@ -607,6 +743,8 @@ RuntimeContext make_runtime_context(const RuntimeOptions& options) {
     context.catalog = Catalog::load(catalog_dirs);
     context.modules =
         ModuleIndex::scan(module_search_paths(options.module_paths, {}, options.use_environment));
+    context.providers = ProviderIndex::scan(
+        provider_search_paths(options.provider_paths, options.use_environment));
     context.module_paths = options.module_paths;
     context.use_environment = options.use_environment;
     return context;
@@ -617,6 +755,55 @@ std::optional<ValidatedWorkflow> validate_workflow(const fs::path& config,
                                                    const WorkflowOptions& options,
                                                    ValidationReport& report) {
     return Validator(context, report).run(config, options);
+}
+
+Diagnostic service_unavailable(const ModuleManifest& manifest, std::size_t index,
+                               const ProviderIndex& providers,
+                               const ServiceResolution& resolution) {
+    const ServiceVersion& service = manifest.service_requirements.at(index).service;
+    std::string why;
+    for (const auto& rejected : resolution.rejected) {
+        why += (why.empty() ? "" : "; ") + std::string("provider ") +
+               identity(rejected.provider->name, rejected.provider->version) + ": " +
+               rejected.reason;
+    }
+    if (why.empty()) {
+        std::string paths;
+        for (const fs::path& path : providers.search_paths()) {
+            paths += (paths.empty() ? "" : ", ") + path_to_utf8(path);
+        }
+        why = "no provider on the provider search paths (" +
+              (paths.empty() ? std::string("none") : paths) + ") offers " + service.name;
+    }
+    Diagnostic diagnostic;
+    diagnostic.severity = Severity::error;
+    diagnostic.code = ErrorCode::SERVICE_UNAVAILABLE;
+    diagnostic.module = identity(manifest.name, manifest.version);
+    diagnostic.message = "module " + diagnostic.module + ": requires service " +
+                         to_string(service) + ", which no provider can serve: " + why;
+    diagnostic.location.file = path_to_utf8(manifest.manifest_path);
+    diagnostic.location.pointer = "/requires/services/" + std::to_string(index);
+    diagnostic.details_json = providers.unresolved_details(service, resolution);
+    return diagnostic;
+}
+
+std::vector<ProviderLoad> provider_loads(const ValidatedWorkflow& workflow) {
+    std::vector<ProviderLoad> loads;
+    std::map<fs::path, std::size_t> by_manifest;
+    for (const auto& [key, service] : workflow.services) {
+        const auto [entry, added] =
+            by_manifest.emplace(service.provider->manifest_path, loads.size());
+        if (added) {
+            ProviderLoad load;
+            load.provider = service.provider;
+            load.library_sha256 = service.library_sha256;
+            loads.push_back(std::move(load));
+        }
+        ProviderLoad& load = loads[entry->second];
+        load.services.push_back(service.service);
+        load.keys.push_back(key);
+    }
+    return loads;
 }
 
 } // namespace praenora::detail

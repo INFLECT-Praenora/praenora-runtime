@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SBML Level 2: S turns into P with a stoichiometry given by stoichiometryMath from the parameter
+     n; k is the rate constant. -->
+<sbml xmlns="http://www.sbml.org/sbml/level2/version4" level="2" version="4">
+  <model id="stoichiometry_math">
+    <listOfCompartments>
+      <compartment id="cell" size="1"/>
+    </listOfCompartments>
+    <listOfSpecies>
+      <species id="S" compartment="cell" initialAmount="10" hasOnlySubstanceUnits="true"/>
+      <species id="P" compartment="cell" initialAmount="0" hasOnlySubstanceUnits="true"/>
+    </listOfSpecies>
+    <listOfParameters>
+      <parameter id="k" value="0.5"/>
+      <parameter id="n" value="2"/>
+    </listOfParameters>
+    <listOfReactions>
+      <reaction id="conversion" reversible="false">
+        <listOfReactants>
+          <speciesReference species="S"/>
+        </listOfReactants>
+        <listOfProducts>
+          <speciesReference species="P">
+            <stoichiometryMath>
+              <math xmlns="http://www.w3.org/1998/Math/MathML"><ci> n </ci></math>
+            </stoichiometryMath>
+          </speciesReference>
+        </listOfProducts>
+        <kineticLaw>
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply><times/><ci>k</ci><ci>S</ci></apply>
+          </math>
+        </kineticLaw>
+      </reaction>
+    </listOfReactions>
+  </model>
+</sbml>

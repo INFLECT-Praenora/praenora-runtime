@@ -11,8 +11,11 @@
 #include <praenora/sdk/abi.h>
 #include <praenora/sdk/version.h>
 
+#include "json_compare.hpp"
 #include "module_fixtures.hpp"
+#include "provider_fixtures.hpp"
 #include "temp_dir.hpp"
+#include "scoped_environment.hpp"
 #include "test_support.hpp"
 
 #include <gtest/gtest.h>
@@ -22,7 +25,6 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
-#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <map>
@@ -31,8 +33,10 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <tuple>
+#include <utility>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -53,6 +57,7 @@ using praenora::ValidationReport;
 using praenora::Workflow;
 using praenora::WorkflowOptions;
 using praenora::WorkflowState;
+using praenora::test::ScopedEnvironment;
 using praenora::test::ScratchDir;
 using praenora::test::write_text_file;
 using Clock = std::chrono::steady_clock;
@@ -140,39 +145,6 @@ const praenora::StepStatus& step_status(const StatusSnapshot& status, const std:
     throw std::runtime_error("no step " + id + " in the status");
 }
 
-// Sets (or, with nullopt, removes) an environment variable for the object's lifetime.
-class ScopedEnvironment {
-public:
-    ScopedEnvironment(const char* name, const std::optional<std::string>& value) : name_(name) {
-#ifdef _MSC_VER
-#pragma warning(suppress : 4996) // getenv is fine here: the tests change it one at a time
-#endif
-        if (const char* previous = std::getenv(name)) {
-            previous_ = previous;
-        }
-        set(value);
-    }
-    ~ScopedEnvironment() { set(previous_); }
-    ScopedEnvironment(const ScopedEnvironment&) = delete;
-    ScopedEnvironment& operator=(const ScopedEnvironment&) = delete;
-
-private:
-    void set(const std::optional<std::string>& value) const {
-#ifdef _WIN32
-        _putenv_s(name_, value ? value->c_str() : "");
-#else
-        if (value) {
-            setenv(name_, value->c_str(), 1);
-        } else {
-            unsetenv(name_);
-        }
-#endif
-    }
-
-    const char* name_;
-    std::optional<std::string> previous_;
-};
-
 std::string read_text(const fs::path& file) {
     std::ifstream in(file, std::ios::binary);
     std::ostringstream text;
@@ -227,10 +199,19 @@ TEST(Api, VersionInfoMatchesBuild) {
     EXPECT_EQ(info.platform, PRAENORA_TEST_PLATFORM);
     EXPECT_EQ(info.build_type, PRAENORA_TEST_BUILD_TYPE);
     EXPECT_FALSE(info.compiler.empty());
-    EXPECT_EQ(info.formats.size(), 9u);
-    for (const auto& [kind, version] : info.formats) {
-        EXPECT_EQ(version, PRAENORA_TEST_FORMAT_VERSION) << kind;
+    // PRAENORA_TEST_FORMAT_VERSIONS lists the build's "<kind>=<version>" pairs, separated by ','.
+    std::map<std::string, std::string> formats;
+    std::string_view list = PRAENORA_TEST_FORMAT_VERSIONS;
+    while (!list.empty()) {
+        const std::string_view entry = list.substr(0, list.find(','));
+        list.remove_prefix(std::min(list.size(), entry.size() + 1));
+        const auto equals = entry.find('=');
+        ASSERT_NE(equals, std::string_view::npos) << entry;
+        formats.emplace(entry.substr(0, equals), entry.substr(equals + 1));
     }
+    EXPECT_EQ(info.formats.size(), 10u);
+    EXPECT_EQ(info.formats, formats);
+    EXPECT_EQ(info.formats.at("provider-manifest"), "0.1.0");
 
     // The JSON form says the same.
     const json document = json::parse(praenora::version_info_json());
@@ -450,22 +431,27 @@ TEST(Api, CatalogAccessors) {
 TEST(Api, SchemaAccessors) {
     const Runtime runtime(fixture_options());
     const std::vector<std::string> schemas = runtime.list_schemas();
-    EXPECT_EQ(schemas.size(), 16u);
+    EXPECT_EQ(schemas.size(), 19u);
     EXPECT_TRUE(std::is_sorted(schemas.begin(), schemas.end()));
-    for (const char* expected : {"module-manifest@0.1", "pmp-envelope@0.1", "workflow-config@0.1",
-                                 "status-snapshot@0.1"}) {
+    for (const char* expected :
+         {"module-manifest@0.1", "module-manifest@0.2", "pmp-envelope@0.1", "workflow-config@0.1",
+          "status-snapshot@0.1", "provider-manifest@0.1", "run-record@0.1", "run-record@0.2"}) {
         EXPECT_NE(std::find(schemas.begin(), schemas.end(), expected), schemas.end()) << expected;
     }
 
     // The embedded text, the same for the highest version, major.minor and a full version.
-    const std::string file = read_text(praenora::test::utf8_path(PRAENORA_TEST_SOURCE_DIR) /
-                                       "spec/schemas/module-manifest.0.1.schema.json");
+    const fs::path schemas_dir =
+        praenora::test::utf8_path(PRAENORA_TEST_SOURCE_DIR) / "spec" / "schemas";
+    const std::string file = read_text(schemas_dir / "module-manifest.0.2.schema.json");
     EXPECT_EQ(runtime.schema("module-manifest"), file);
-    EXPECT_EQ(runtime.schema("module-manifest", std::string("0.1")), file);
-    EXPECT_EQ(runtime.schema("module-manifest", std::string("0.1.0")), file);
-    EXPECT_EQ(runtime.schema("module-manifest", std::string("0.1.7")), file);
+    EXPECT_EQ(runtime.schema("module-manifest", std::string("0.2")), file);
+    EXPECT_EQ(runtime.schema("module-manifest", std::string("0.2.0")), file);
+    EXPECT_EQ(runtime.schema("module-manifest", std::string("0.2.7")), file);
+    // The earlier format's schema stays.
+    EXPECT_EQ(runtime.schema("module-manifest", std::string("0.1")),
+              read_text(schemas_dir / "module-manifest.0.1.schema.json"));
 
-    EXPECT_EQ(error_of([&] { runtime.schema("module-manifest", std::string("0.2")); }).code(),
+    EXPECT_EQ(error_of([&] { runtime.schema("module-manifest", std::string("0.3")); }).code(),
               ErrorCode::FORMAT_VERSION_UNSUPPORTED);
     EXPECT_EQ(error_of([&] { runtime.schema("no-such-kind"); }).code(),
               ErrorCode::FORMAT_VERSION_UNSUPPORTED);
@@ -1035,6 +1021,7 @@ TEST(Api, LoggingResolvesEachSettingOnItsOwn) {
     own.logging.level = LogLevel::info;
     own.logging.format = LogFormat::text;
     own.logging.file = utf8(dir.path() / "runtime.log");
+    own.provider_paths = {utf8(dir.path() / "providers")};
     {
         const ScopedEnvironment debug("PRAENORA_LOG_LEVEL", std::string("debug"));
         const ScopedEnvironment json_lines("PRAENORA_LOG_FORMAT", std::string("json"));
@@ -1045,6 +1032,17 @@ TEST(Api, LoggingResolvesEachSettingOnItsOwn) {
     EXPECT_EQ(ready.at("severity_text"), "DEBUG") << runtime_log;
     EXPECT_EQ(ready.at("body"), "runtime ready") << runtime_log;
     EXPECT_EQ(ready.at("attributes").at("logger"), "praenora.runtime") << runtime_log;
+    // It names the search paths, the caller's first, and counts what the indexes hold.
+    const json& attributes = ready.at("attributes");
+    EXPECT_EQ(attributes.at("module_search_paths").at(0),
+              utf8(praenora::test::utf8_path(PRAENORA_TEST_MODULES_DIR)))
+        << runtime_log;
+    EXPECT_EQ(attributes.at("provider_search_paths").at(0),
+              utf8((dir.path() / "providers").lexically_normal()))
+        << runtime_log;
+    EXPECT_TRUE(attributes.at("modules").is_number_unsigned()) << runtime_log;
+    EXPECT_TRUE(attributes.at("providers").is_number_unsigned()) << runtime_log;
+    EXPECT_TRUE(attributes.at("catalog_entries").is_number_unsigned()) << runtime_log;
     {
         const ScopedEnvironment debug("PRAENORA_LOG_LEVEL", std::string("debug"));
         own.use_environment = false;
@@ -1060,4 +1058,379 @@ TEST(Api, LoggingResolvesEachSettingOnItsOwn) {
     EXPECT_TRUE(contains(error.what(), "PRAENORA_LOG_LEVEL")) << error.what();
     options.use_environment = false;
     EXPECT_EQ(run(Runtime(options), {}), fingerprint);
+}
+
+// Runtime services of providers, through the public API. These tests name the runtime's provider
+// search path with PRAENORA_PROVIDER_PATH; the other variables the runtime reads are unset, so only
+// the options name modules and catalogs. The tests after them use RuntimeOptions::provider_paths.
+namespace {
+
+struct ProviderEnvironment {
+    explicit ProviderEnvironment(const std::string& providers)
+        : providers_("PRAENORA_PROVIDER_PATH", providers),
+          modules_("PRAENORA_MODULE_PATH", std::nullopt),
+          catalogs_("PRAENORA_CATALOG_PATH", std::nullopt),
+          level_("PRAENORA_LOG_LEVEL", std::nullopt),
+          format_("PRAENORA_LOG_FORMAT", std::nullopt) {}
+
+private:
+    ScopedEnvironment providers_, modules_, catalogs_, level_, format_;
+};
+
+RuntimeOptions provider_options() {
+    RuntimeOptions options = fixture_options();
+    options.use_environment = true;
+    return options;
+}
+
+bool is_sha256(const json& value) {
+    return value.is_string() && value.get<std::string>().size() == 64 &&
+           value.get<std::string>().find_first_not_of("0123456789abcdef") == std::string::npos;
+}
+
+} // namespace
+
+TEST(Api, RunUsesAProviderServiceEndToEnd) {
+    ScratchDir dir;
+    const ProviderEnvironment environment(PRAENORA_TEST_PROVIDERS_DIR "/test-echo");
+    const Runtime runtime(provider_options());
+    const std::string file =
+        write_config(dir.path(), "test.single", "run: { ticks: 2, seed: 7 }\n",
+                     step("a", "fx-service", "{ require_echo: true }"),
+                     "outputs: { directory: out }\n");
+    const auto workflow = runtime.open(file);
+    const RunSummary summary = workflow->run();
+    EXPECT_EQ(summary.final_state, WorkflowState::completed);
+    EXPECT_EQ(summary.ticks_completed, 2u);
+    // fx-service echoed the input through test-echo's test.echo@0.
+    EXPECT_EQ(json::parse(workflow->latest_outputs_json()).at("result").at("data"),
+              json({{"echo", {{"value", 42}}}, {"found", {{"test.echo@0", true}}}}));
+
+    // The run record names the service, its provider and its engine; on disk too.
+    const json record = json::parse(workflow->run_record_json());
+    EXPECT_EQ(record, json::parse(read_text(dir.path() / "out" / "run-record.json")));
+    EXPECT_EQ(record.at("format_version"), "0.2.0");
+    const json& service = record.at("reproducibility").at("services").at("test.echo@0");
+    EXPECT_EQ(service.at("minor"), 0);
+    EXPECT_EQ(service.at("provider").at("name"), "test-echo");
+    EXPECT_EQ(service.at("provider").at("version"), "0.1.0");
+    EXPECT_TRUE(is_sha256(service.at("provider").at("manifest_sha256"))) << service.dump();
+    EXPECT_TRUE(is_sha256(service.at("provider").at("library_sha256"))) << service.dump();
+    EXPECT_EQ(service.at("engine"), json({{"name", "test-echo-engine"}, {"version", "1.0.0"}}));
+    EXPECT_EQ(record.at("reproducibility").at("steps").at("a").at("services"),
+              json({"test.echo@0"}));
+    EXPECT_EQ(record.at("fingerprint"), workflow->fingerprint());
+}
+
+TEST(Api, FingerprintChangesWithTheProviderLibrary) {
+    ScratchDir dir;
+    const fs::path manifest =
+        praenora::test::copy_fixture_provider("test-echo", dir.path() / "providers");
+    const ProviderEnvironment environment(utf8(dir.path() / "providers"));
+    const Runtime runtime(provider_options());
+    const std::string file = write_config(dir.path(), "test.single", "run: { ticks: 1 }\n",
+                                          step("a", "fx-service"));
+    const std::string before = runtime.open(file)->fingerprint();
+    EXPECT_EQ(runtime.open(file)->fingerprint(), before);
+
+    const json document = json::parse(read_text(manifest));
+    praenora::test::append_to_file(
+        manifest.parent_path() / document.at("library").at("path").get<std::string>(), "rebuilt");
+    EXPECT_NE(runtime.open(file)->fingerprint(), before);
+}
+
+TEST(Api, ValidateWithLoadStartsTheProviders) {
+    ScratchDir dir;
+    const ProviderEnvironment environment(PRAENORA_TEST_PROVIDERS_DIR "/test-start-fails");
+    const Runtime runtime(provider_options());
+    const std::string file = write_config(dir.path(), "test.single", "run: { ticks: 1 }\n",
+                                          step("a", "fx-service"));
+    // Validation alone loads nothing.
+    const ValidationReport plain = runtime.validate(file);
+    EXPECT_TRUE(plain.ok()) << plain.to_text();
+
+    praenora::ValidateOptions load;
+    load.load = true;
+    const ValidationReport loaded = runtime.validate(file, load);
+    const auto errors = errors_of(loaded);
+    ASSERT_EQ(errors.size(), 1u) << loaded.to_text();
+    EXPECT_EQ(errors[0].code, ErrorCode::LIBRARY_LOAD_FAILED);
+    EXPECT_EQ(errors[0].step, "a");
+    EXPECT_EQ(errors[0].module, "fx-service@0.1.0");
+    EXPECT_TRUE(contains(errors[0].location.file, "test-start-fails.provider.json"))
+        << errors[0].location.file;
+    EXPECT_TRUE(contains(errors[0].message, "the engine cannot start")) << errors[0].message;
+}
+
+TEST(Api, UnavailableServiceFailsValidationWithItsDetails) {
+    ScratchDir dir;
+    const ProviderEnvironment environment(utf8(dir.path() / "no-providers"));
+    const Runtime runtime(provider_options());
+    const std::string file = write_config(dir.path(), "test.single", "run: { ticks: 1 }\n",
+                                          step("a", "fx-service"));
+    const ValidationReport report = runtime.validate(file);
+    ASSERT_TRUE(has_code(report, ErrorCode::SERVICE_UNAVAILABLE)) << report.to_text();
+    const praenora::Diagnostic& error = *report.first_error();
+    EXPECT_EQ(error.location.pointer, "/requires/services/0");
+    const json details = json::parse(error.details_json);
+    EXPECT_EQ(details.at("service"), "test.echo");
+    EXPECT_EQ(details.at("major"), 0);
+    EXPECT_EQ(details.at("minor"), 0);
+    EXPECT_TRUE(details.at("search_paths").is_array());
+    EXPECT_EQ(details.at("providers"), json::array());
+
+    // Opening the configuration fails the same way; the report, details included, is the error's
+    // details.
+    const Error opened = error_of([&] { runtime.open(file); });
+    EXPECT_EQ(opened.code(), ErrorCode::SERVICE_UNAVAILABLE);
+    EXPECT_EQ(json::parse(opened.details_json()).at("diagnostics").at(0).at("details"), details);
+    EXPECT_EQ(praenora::error_code_info(ErrorCode::SERVICE_UNAVAILABLE).exit_code, 3);
+}
+
+// The caller's provider paths (RuntimeOptions::provider_paths), the providers listed on them, and
+// validation, runs and the contract checks that use them, without the environment.
+namespace {
+
+// The fixture modules and the test catalog, and `provider_paths` as the provider paths.
+RuntimeOptions provider_path_options(std::vector<std::string> provider_paths) {
+    RuntimeOptions options = fixture_options();
+    options.provider_paths = std::move(provider_paths);
+    return options;
+}
+
+// A platform other than this host's, as {os, arch}.
+std::pair<std::string, std::string> other_platform() {
+    for (const auto& [os, arch] : std::vector<std::pair<std::string, std::string>>{
+             {"linux", "x86_64"}, {"macos", "arm64"}, {"windows", "x86_64"}}) {
+        if (os + "-" + arch != PRAENORA_TEST_PLATFORM) {
+            return {os, arch};
+        }
+    }
+    return {"linux", "arm64"};
+}
+
+} // namespace
+
+#ifdef PRAENORA_TEST_WITH_ROADRUNNER
+// The roadrunner provider (PRAENORA_WITH_ROADRUNNER) is where the build tree's runtime looks for
+// the providers of its installation, so it is listed, and usable, without a provider path.
+TEST(Api, TheBuildTreeRuntimeFindsTheRoadrunnerProvider) {
+    RuntimeOptions options = provider_path_options({});
+    options.use_environment = false;
+    const std::vector<praenora::ProviderInfo> providers = Runtime(options).list_providers();
+    const auto roadrunner =
+        std::find_if(providers.begin(), providers.end(),
+                     [](const praenora::ProviderInfo& p) { return p.name == "roadrunner"; });
+    ASSERT_NE(roadrunner, providers.end());
+    EXPECT_TRUE(roadrunner->usable) << roadrunner->problem;
+    EXPECT_EQ(roadrunner->services, std::vector<std::string>{"praenora.simulation@0.0"});
+    const json engine = json::parse(roadrunner->engine_json);
+    EXPECT_EQ(engine.at("name"), "libroadrunner");
+    EXPECT_EQ(engine.at("jit"), "mcjit");
+}
+#endif
+
+TEST(Api, ListProvidersDescribesEachProvider) {
+    const Runtime runtime(provider_path_options({PRAENORA_TEST_PROVIDERS_DIR "/test-echo"}));
+    const std::vector<praenora::ProviderInfo> providers = runtime.list_providers();
+    ASSERT_FALSE(providers.empty());
+    const praenora::ProviderInfo& echo = providers.front();
+    EXPECT_EQ(echo.name, "test-echo");
+    EXPECT_EQ(echo.version, "0.1.0");
+    EXPECT_EQ(fs::path(echo.manifest_path), praenora::test::fixture_provider_manifest("test-echo"));
+    const fs::path library = praenora::test::utf8_path(echo.library_path);
+    EXPECT_TRUE(fs::is_regular_file(library)) << echo.library_path;
+    EXPECT_EQ(library.parent_path(), praenora::test::fixture_provider_dir("test-echo"));
+    EXPECT_EQ(echo.os + "-" + echo.arch, PRAENORA_TEST_PLATFORM);
+    EXPECT_EQ(echo.services, std::vector<std::string>{"test.echo@0.0"});
+    EXPECT_EQ(json::parse(echo.engine_json),
+              json({{"name", "test-echo-engine"}, {"version", "1.0.0"}}));
+    EXPECT_TRUE(echo.usable);
+    EXPECT_EQ(echo.problem, "");
+}
+
+// In search order: the caller's paths, then PRAENORA_PROVIDER_PATH. Every manifest is listed: one
+// shadowed by an earlier one of the same name and platform, one for another platform and one for
+// another runtime version are unusable, with the reason.
+TEST(Api, ListProvidersInSearchOrderWithShadowedManifests) {
+    ScratchDir dir;
+    const fs::path first = dir.path() / "first", second = dir.path() / "second";
+    const fs::path first_echo = praenora::test::copy_fixture_provider("test-echo", first);
+    praenora::test::copy_fixture_provider("test-echo", second / "echo"); // shadowed
+    praenora::test::copy_fixture_provider("test-conflict", second / "old", [](json& manifest) {
+        manifest["runtime_version"] = "0.0.1";
+    });
+    praenora::test::copy_fixture_provider("test-order", second / "order");
+    const auto platform = other_platform();
+    const std::string os = platform.first, arch = platform.second;
+    praenora::test::copy_fixture_provider("test-echo", second / "other", [&](json& manifest) {
+        manifest["platform"] = {{"os", os}, {"arch", arch}};
+    });
+    praenora::test::copy_fixture_provider("test-retry", dir.path() / "environment");
+    const ProviderEnvironment environment(utf8(dir.path() / "environment"));
+    RuntimeOptions options = provider_path_options({utf8(first), utf8(second)});
+    options.use_environment = true;
+
+    const std::vector<praenora::ProviderInfo> providers = Runtime(options).list_providers();
+    ASSERT_GE(providers.size(), 6u);
+    const std::vector<std::tuple<std::string, fs::path, bool>> expected = {
+        {"test-echo", first, true},
+        {"test-echo", second / "echo", false},
+        {"test-conflict", second / "old", false},
+        {"test-order", second / "order", true},
+        {"test-echo", second / "other", false},
+        {"test-retry", dir.path() / "environment", true}};
+    for (std::size_t i = 0; i < expected.size(); ++i) {
+        const auto& [name, directory, usable] = expected[i];
+        const praenora::ProviderInfo& provider = providers[i];
+        EXPECT_EQ(provider.name, name) << i;
+        EXPECT_EQ(fs::path(provider.manifest_path).parent_path(), directory.lexically_normal())
+            << provider.manifest_path;
+        EXPECT_EQ(provider.usable, usable) << provider.name << ": " << provider.problem;
+        EXPECT_EQ(provider.problem.empty(), usable) << provider.name << ": " << provider.problem;
+    }
+    // The shadowed manifest names the manifest that shadows it.
+    const std::string shadowed_by = "shadowed by '" + utf8(first_echo.lexically_normal()) + "'";
+    EXPECT_EQ(providers[1].problem.rfind(shadowed_by, 0), 0u) << providers[1].problem;
+    EXPECT_TRUE(contains(providers[2].problem, "built for runtime 0.0.1")) << providers[2].problem;
+    EXPECT_EQ(providers[4].os + "-" + providers[4].arch, os + "-" + arch);
+    EXPECT_TRUE(contains(providers[4].problem, "built for " + os + "-" + arch))
+        << providers[4].problem;
+    // Listing loads nothing: a provider that cannot start is listed as usable.
+    const Runtime failing(provider_path_options({PRAENORA_TEST_PROVIDERS_DIR "/test-start-fails"}));
+    ASSERT_FALSE(failing.list_providers().empty());
+    EXPECT_TRUE(failing.list_providers().front().usable);
+}
+
+// Shadowing goes by name and platform, whatever the first manifest's usability: a usable manifest
+// shadowed by an unusable one is never used, and the listing and SERVICE_UNAVAILABLE say so. A
+// shadowed manifest that is unusable for another reason too is reported as shadowed.
+TEST(Api, ListProvidersReportsShadowingBeforeOtherProblems) {
+    ScratchDir dir;
+    const auto old_runtime = [](json& manifest) { manifest["runtime_version"] = "0.0.1"; };
+    const fs::path first =
+        praenora::test::copy_fixture_provider("test-echo", dir.path() / "first", old_runtime);
+    const fs::path second =
+        praenora::test::copy_fixture_provider("test-echo", dir.path() / "second");
+    praenora::test::copy_fixture_provider("test-echo", dir.path() / "third", old_runtime);
+    const Runtime runtime(provider_path_options(
+        {utf8(dir.path() / "first"), utf8(dir.path() / "second"), utf8(dir.path() / "third")}));
+
+    const std::vector<praenora::ProviderInfo> providers = runtime.list_providers();
+    ASSERT_GE(providers.size(), 3u);
+    const std::string shadowed_by = "shadowed by '" + utf8(first.lexically_normal()) + "'";
+    EXPECT_TRUE(contains(providers[0].problem, "built for runtime 0.0.1")) << providers[0].problem;
+    for (const std::size_t i : {1u, 2u}) {
+        EXPECT_FALSE(providers[i].usable) << i;
+        EXPECT_EQ(providers[i].problem.rfind(shadowed_by, 0), 0u) << providers[i].problem;
+    }
+
+    // Validation reports both providers of test.echo, each with the listing's reason.
+    const std::string file = write_config(dir.path(), "test.single", "run: { ticks: 1 }\n",
+                                          step("a", "fx-service"));
+    const ValidationReport report = runtime.validate(file);
+    ASSERT_TRUE(has_code(report, ErrorCode::SERVICE_UNAVAILABLE)) << report.to_text();
+    const json rejected = json::parse(report.first_error()->details_json).at("providers");
+    ASSERT_GE(rejected.size(), 2u) << rejected.dump();
+    EXPECT_EQ(rejected[0].at("reason"), providers[0].problem);
+    EXPECT_EQ(praenora::test::utf8_path(rejected[1].at("manifest").get<std::string>()),
+              second.lexically_normal());
+    EXPECT_EQ(rejected[1].at("reason"), providers[1].problem);
+}
+
+TEST(Api, ProviderPathsServeValidationRunsAndChecks) {
+    ScratchDir dir;
+    const std::string file =
+        write_config(dir.path(), "test.single", "run: { ticks: 1 }\n",
+                     step("a", "fx-service", "{ require_echo: true }"));
+    const std::string manifest = utf8(praenora::test::fixture_manifest("fx-service"));
+
+    // Without a provider of test.echo, validation and the checks report the service missing; the
+    // caller's provider paths are the first searched.
+    const Runtime without(provider_path_options({utf8(dir.path() / "no-providers")}));
+    const ValidationReport missing = without.validate(file);
+    ASSERT_TRUE(has_code(missing, ErrorCode::SERVICE_UNAVAILABLE)) << missing.to_text();
+    const json details = json::parse(missing.first_error()->details_json);
+    ASSERT_FALSE(details.at("search_paths").empty());
+    EXPECT_EQ(praenora::test::utf8_path(details.at("search_paths").at(0).get<std::string>()),
+              (dir.path() / "no-providers").lexically_normal());
+    const praenora::ModuleCheckReport unserved = without.check_module(manifest);
+    EXPECT_FALSE(unserved.passed()) << unserved.to_json();
+    EXPECT_TRUE(contains(unserved.to_json(), "SERVICE_UNAVAILABLE")) << unserved.to_json();
+
+    // With test-echo's directory as a provider path, the same configuration validates and runs,
+    // and the module passes its checks, served test.echo by test-echo.
+    const Runtime runtime(provider_path_options({PRAENORA_TEST_PROVIDERS_DIR "/test-echo"}));
+    const ValidationReport report = runtime.validate(file);
+    EXPECT_TRUE(report.ok()) << report.to_text();
+    const auto workflow = runtime.open(file);
+    EXPECT_EQ(workflow->run().final_state, WorkflowState::completed);
+    EXPECT_EQ(json::parse(workflow->run_record_json())
+                  .at("reproducibility")
+                  .at("services")
+                  .at("test.echo@0")
+                  .at("provider")
+                  .at("name"),
+              "test-echo");
+    const praenora::ModuleCheckReport checks = runtime.check_module(manifest);
+    EXPECT_TRUE(checks.passed()) << checks.to_json();
+    EXPECT_TRUE(contains(checks.to_json(), "test.echo@0 from provider test-echo@0.1.0"))
+        << checks.to_json();
+}
+
+TEST(Api, RunSimulatesThroughTheSimulationService) {
+    // simulating-module requires praenora.simulation@0, which the fixture provider
+    // test-simulation offers: each tick it runs a plan with the values of its input, and its
+    // kernel's dy/dt at the start.
+    ScratchDir dir;
+    const std::string file =
+        write_config(dir.path(), "test.single", "run: { ticks: 2, seed: 7 }\n",
+                     step("a", "simulating-module", "{ kernel: true }"),
+                     "outputs: { directory: out }\n");
+    write_text_file(dir.path() / "source.json", R"({"values": [0.6931471805599453, 16]})");
+    const std::string manifest = utf8(praenora::test::fixture_manifest("simulating-module"));
+
+    const Runtime without(provider_path_options({utf8(dir.path() / "no-providers")}));
+    const ValidationReport missing = without.validate(file);
+#ifdef PRAENORA_TEST_WITH_ROADRUNNER
+    // The build tree's installation provider directory holds the roadrunner provider, which
+    // offers the service, so it resolves without a provider path.
+    EXPECT_FALSE(has_code(missing, ErrorCode::SERVICE_UNAVAILABLE)) << missing.to_text();
+#else
+    ASSERT_TRUE(has_code(missing, ErrorCode::SERVICE_UNAVAILABLE)) << missing.to_text();
+    EXPECT_EQ(json::parse(missing.first_error()->details_json).at("service"),
+              "praenora.simulation");
+#endif
+
+    const Runtime runtime(provider_path_options({PRAENORA_TEST_PROVIDERS_DIR "/test-simulation"}));
+    praenora::ValidateOptions load;
+    load.load = true;
+    const ValidationReport report = runtime.validate(file, load);
+    EXPECT_TRUE(report.ok()) << report.to_text();
+    const auto workflow = runtime.open(file);
+    const RunSummary summary = workflow->run();
+    ASSERT_EQ(summary.final_state, WorkflowState::completed);
+    EXPECT_EQ(summary.ticks_completed, 2u);
+    const json data = json::parse(workflow->latest_outputs_json()).at("result").at("data");
+    const json expected = {{"ok", true},
+                           {"columns", {"time", "x", "y", "total"}},
+                           {"rows", {{0, 16, 3, 19}, {1, 8, 3, 11}, {2, 4, 3, 7}}},
+                           {"rates", {-5.545177444479562, 0}}};
+    std::string where;
+    EXPECT_TRUE(praenora::test::json_near(data, expected, 1e-12, 0.0, &where))
+        << where << "\n" << data.dump();
+
+    // The run record names the service, its provider and its engine.
+    const json record = json::parse(workflow->run_record_json());
+    const json& service = record.at("reproducibility").at("services").at("praenora.simulation@0");
+    EXPECT_EQ(service.at("minor"), 0);
+    EXPECT_EQ(service.at("provider").at("name"), "test-simulation");
+    EXPECT_EQ(service.at("engine"),
+              json({{"name", "test-simulation-engine"}, {"version", "1.0.0"}}));
+    EXPECT_EQ(record.at("reproducibility").at("steps").at("a").at("services"),
+              json({"praenora.simulation@0"}));
+
+    // The module passes its contract checks, which run its test vectors through the service.
+    const praenora::ModuleCheckReport checks = runtime.check_module(manifest);
+    EXPECT_TRUE(checks.passed()) << checks.to_json();
 }

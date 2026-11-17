@@ -27,6 +27,12 @@ a manifest, that the runtime finds on module search paths and loads at run time.
 holds only the two example modules (`examples/modules/`) and the fixture modules of the tests
 (`tests/fixtures/modules/`).
 
+Service providers are the runtime's own: separately built libraries, shipped with the runtime, that
+bring heavy engines for runtime services, such as the simulation engine behind
+`praenora.simulation@0` ([Service providers](#service-providers)). The repository holds the
+optional provider `roadrunner` (`src/providers/roadrunner/`) and the fixture providers of the tests
+(`tests/fixtures/providers/`).
+
 ## Components
 
 ```mermaid
@@ -34,6 +40,7 @@ flowchart LR
     config["workflow configuration<br/>(YAML)"] --> validation
     catalog["protocol catalog<br/>(embedded, plus catalog paths)"] --> validation
     manifests["*.pmm.json on the<br/>module search paths"] --> discovery
+    providermanifests["*.provider.json on the<br/>provider search paths"] --> discovery
     discovery --> validation
     validation["validation sequence<br/>and run fingerprint"] --> loader
     loader["loader<br/>(dlopen / LoadLibraryExW)"] --> libraries["module libraries<br/>(ABI v0 function table)"]
@@ -43,6 +50,8 @@ flowchart LR
     engine --> workers["instance workers<br/>(one thread per instance)"]
     workers --> libraries
     libraries -.->|"host API: log, cancel, services"| workers
+    engine --> providers["service providers<br/>(loaded on demand, once per process)"]
+    libraries -->|"service tables from get_service"| providers
     engine --> files["outputs, message trace,<br/>run record"]
     engine --> observability["logs, metrics, status,<br/>health, status file"]
     observability --> surfaces["C++ API, praenora CLI,<br/>praenora.runtime (Python)"]
@@ -58,10 +67,11 @@ The runtime's internals live in `src/runtime/`, one directory per component, in 
 | `document/` | YAML and JSON loading with source positions, canonical JSON, the embedded resources and the JSON Schema registry. |
 | `catalog/` | Loading and indexing message types, capabilities and workflow definitions; catalog consistency. |
 | `config/` | The workflow configuration: schema, defaults, relative paths, overrides. |
-| `discovery/` | Module search paths, manifest loading and the module index. |
+| `discovery/` | Module search paths, manifest loading and the module index; what module and provider discovery share (search paths, reading a manifest). |
 | `compat/` | Compatibility of a manifest with the host: platform, ABI, protocol, capabilities. |
 | `loader/` | Opening libraries (`platform/posix/`, `platform/windows/`), function-table checks, the identity check, library digests. |
-| `instance/` | One module instance: its worker thread, lifecycle state, host API, deadlines and cancellation; the runtime-service registry. |
+| `provider/` | Service providers: provider manifests, the provider index and the resolution of services, the process-wide provider loader, and the internal provider interface `provider_abi.h`. |
+| `instance/` | One module instance: its worker thread, lifecycle state, host API, deadlines and cancellation; the services it sees and the registry of built-in services. |
 | `graph/` | Validating a workflow definition's graph and computing its schedule. |
 | `engine/` | Running ticks: routing messages, building envelopes, checking results, failure handling. |
 | `io/` | Input sources (observation CSV replay, JSON documents), output files, the message trace, the run record. |
@@ -74,8 +84,9 @@ Outside the runtime:
 | Directory | Contents |
 |---|---|
 | `include/praenora/runtime/` | The public C++ API. |
-| `include/praenora/sdk/` | The module SDK: `abi.h`, `status.h`, `module.hpp`, `testing.hpp`. |
+| `include/praenora/sdk/` | The module SDK: `abi.h`, `status.h`, `simulation.h` (the simulation service), `module.hpp`, `testing.hpp`. |
 | `src/sdk/` | The `Praenora::ModuleSDK` target and the generated `version.h`. |
+| `src/providers/` | Service providers built with the runtime: `roadrunner/`, only with `PRAENORA_WITH_ROADRUNNER`. |
 | `src/frontend/` | What the CLI and the Python extension share (header-only, internal). |
 | `src/cli/` | The `praenora` tool. |
 | `src/python/`, `python/praenora/runtime/` | The SWIG facade and the pure-Python package. |
@@ -93,6 +104,7 @@ flowchart TB
     frontend --> python
     sdk["Praenora::ModuleSDK<br/>(INTERFACE)"] --> modules["module libraries<br/>(MODULE, built with praenora_add_module)"]
     shared -.->|"loads at run time, never links"| modules
+    shared -.->|"loads on demand, never links"| providers["service providers<br/>(MODULE, built with praenora_add_provider)"]
 ```
 
 - The runtime compiles once, into an OBJECT library. The shared library exports only the public
@@ -105,19 +117,23 @@ flowchart TB
   `BUILD_SHARED_LIBS` is never read. The runtime never links against a module: it opens module
   libraries with `dlopen` (POSIX) or `LoadLibraryExW` (Windows) and calls them only through the
   function table that `praenora_module_get_api` returns
-  ([specs/module-abi.md](specs/module-abi.md)).
+  ([specs/module-abi.md](specs/module-abi.md)). Service providers are `MODULE` libraries too,
+  opened the same way and called only through the table of `praenora_provider_get_api`, the only
+  symbol they export; the roadrunner provider links its engine statically behind that export list.
 
 ## A run, from configuration to outputs
 
 1. **Validation.** `Runtime::open()` (or `praenora validate`, `praenora run`) parses the
    configuration with source positions, checks it against its schema, resolves the workflow
    definition and the catalog entries it uses, validates the graph, checks the bindings, discovers
-   and resolves the modules from their manifests (no module code runs), validates parameters and
-   fills in their defaults, reads and checks the input data, and computes the run fingerprint.
-   Every problem is collected in one report before anything runs.
-2. **Start.** The steps start one at a time, in schedule order: the step's module library is loaded
-   and checked (function table, `describe()` identity) unless an earlier step loaded it, then an
-   instance is created and initialized for the step.
+   and resolves the modules from their manifests (no module code runs), resolves the services they
+   declare to service providers (nothing is loaded), validates parameters and fills in their
+   defaults, reads and checks the input data, and computes the run fingerprint. Every problem is
+   collected in one report before anything runs.
+2. **Start.** First the providers of the run's services are loaded and started, each once per
+   process. Then the steps start one at a time, in schedule order: the step's module library is
+   loaded and checked (function table, `describe()` identity) unless an earlier step loaded it,
+   then an instance is created and initialized for the step.
 3. **Ticks.** In tick `t`, every workflow input first produces its message for the tick's
    logical-time window. Each step then runs once, in schedule order: it receives the messages of
    its delay-0 inputs from this tick and of its delay-1 inputs from the previous tick. The runtime
@@ -139,10 +155,14 @@ sequenceDiagram
     participant Workflow as Workflow and engine
     participant Worker as Instance worker (one per step)
     participant Module as Module library
+    participant Provider as Service provider
     Caller->>Runtime: open(config, options)
-    Runtime->>Runtime: validate, compute the fingerprint
+    Runtime->>Runtime: validate, resolve services, compute the fingerprint
     Runtime-->>Caller: Workflow
     Caller->>Workflow: start()
+    opt the run uses provider services
+        Workflow->>Provider: load and start each provider, once per process
+    end
     loop each step, in schedule order
         opt the step's library is not loaded yet
             Workflow->>Module: load library, praenora_module_get_api(0), describe()
@@ -156,6 +176,9 @@ sequenceDiagram
         loop each step, in schedule order
             Workflow->>Worker: invoke (deadline)
             Worker->>Module: invoke(invocation document)
+            opt the module uses a service
+                Module->>Provider: calls the service table it got from get_service
+            end
             Module-->>Worker: result document through a sink
             Worker-->>Workflow: result
             Workflow->>Workflow: check outputs, build envelopes, record outputs
@@ -262,6 +285,36 @@ progress; they read a copy of the state kept under a mutex and never wait for mo
 may call the host API (logging, cancellation, services) from any thread of their own while their
 instance exists ([specs/threading-and-ownership.md](specs/threading-and-ownership.md)).
 
+## Service providers
+
+A service provider is a separately built `MODULE` library, described by a `*.provider.json`
+manifest, that brings an engine for one or more runtime services
+([specs/runtime-services.md](specs/runtime-services.md),
+[ADR-0026](adr/ADR-0026-runtime-service-providers.md)).
+
+- **Where it sits.** Providers are found on provider search paths (the caller's,
+  `PRAENORA_PROVIDER_PATH`, then the installation's `<prefix>/lib/praenora/providers`) and indexed
+  from their manifests by `src/runtime/provider/`, without loading anything. Their interface,
+  `provider_abi.h`, is internal: providers are built in this repository with
+  `praenora_add_provider()`, and a provider is usable only with the runtime version it was built
+  with.
+- **Resolution.** Validation resolves each service that a step's module declares in its manifest
+  (PMM 0.2) to the first usable provider that offers it; a required service that no provider serves
+  fails validation with `SERVICE_UNAVAILABLE`.
+- **Loading and lifetime.** When a run starts, before any module library is loaded, the runtime
+  loads each provider of the run's services, checks its library's digest, its table and its
+  identity, and calls its `start()`. This happens once per process, whichever `Runtime` asks
+  first: a provider is never unloaded, so one engine, with its process-wide state, serves every run
+  of the process. `validate --load` and the contract checks load providers the same way.
+- **From a module to the engine.** A module asks its instance's host API for a service with
+  `get_service(name, major)`, usually in `create`. It gets the provider's table only when its
+  manifest declares the service and the service resolved for the run. From then on the module calls
+  the table's functions directly, from its worker thread or threads of its own; the runtime is not
+  in between. The simulation service's table hands out sessions, plans and kernels, which the
+  provider owns and the module closes ([specs/simulation-service.md](specs/simulation-service.md)).
+- **Records.** The run record names each service the run uses, with its provider's identity,
+  digests and engine, so the run fingerprint changes when the engine does.
+
 ## What is configured, and what is not
 
 - **Topology is catalog data.** Which steps a workflow has, which capability each step needs and how
@@ -274,11 +327,14 @@ instance exists ([specs/threading-and-ownership.md](specs/threading-and-ownershi
   sets run, output and logging options ([configuration.md](configuration.md)).
 - **Modules implement capabilities.** Any module whose manifest declares a step's capability can be
   bound to the step: modules of the same capability are interchangeable.
-- **Runtime services** reach modules through the host API's `get_service(name, major)`. The registry
-  works, but no production service is registered in this version; the planned simulation and model
-  conversion services are designs only
-  ([feasibility/libroadrunner.md](feasibility/libroadrunner.md),
-  [feasibility/libantimony.md](feasibility/libantimony.md)).
+- **Runtime services** reach modules through the host API's `get_service(name, major)`, and a
+  module sees a provider's service only when its manifest declares it
+  ([Service providers](#service-providers)). The simulation service `praenora.simulation@0`
+  ([specs/simulation-service.md](specs/simulation-service.md)) is offered by the optional provider
+  `roadrunner` and, in the tests, by the fixture provider `test-simulation`. Compiling module code
+  through libRoadRunner ([feasibility/libroadrunner.md](feasibility/libroadrunner.md)) and the
+  model conversion service ([feasibility/libantimony.md](feasibility/libantimony.md)) are designs
+  only.
 
 ## Security
 

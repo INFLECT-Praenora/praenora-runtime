@@ -2,9 +2,22 @@
 
 #include <praenora/runtime/error.hpp>
 
+#include <tuple>
 #include <utility>
 
 namespace praenora::detail {
+
+bool operator<(const ServiceVersion& a, const ServiceVersion& b) {
+    return std::tie(a.name, a.major, a.minor) < std::tie(b.name, b.major, b.minor);
+}
+
+std::string to_string(const ServiceVersion& service) {
+    return service_key(service) + "." + std::to_string(service.minor);
+}
+
+std::string service_key(const ServiceVersion& service) {
+    return service.name + "@" + std::to_string(service.major);
+}
 
 void ServiceRegistry::add(std::string name, std::uint32_t major, const void* table) {
     if (name.empty()) {

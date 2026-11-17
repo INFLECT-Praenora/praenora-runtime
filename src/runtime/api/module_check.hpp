@@ -12,7 +12,14 @@
 //   library.digest ... describe.identity
 //                           the checks of LoadedModule::load(), one id each: the library file and
 //                           its pinned SHA-256, loading it, the entry point, the table's header,
-//                           the required functions, the describe() document and its identity;
+//                           the required functions, the describe() document and its identity.
+//                           Before the library loads, library.load resolves the services the
+//                           manifest declares on the runtime's provider search paths and loads
+//                           and starts their providers, as a run does: a required service that
+//                           does not resolve fails it with SERVICE_UNAVAILABLE, a provider that
+//                           does not load with the provider loader's error (the message starts
+//                           with the error's name), and the module's instances are then served
+//                           the provider services that resolved, as in a run;
 //   lifecycle.create_destroy  an instance is created and destroyed;
 //   lifecycle.full          an instance is created, initialized, finalized and destroyed;
 //   invoke.result_schema    every case of the test vectors runs (create, initialize, one invoke
@@ -45,6 +52,7 @@
 #define PRAENORA_RUNTIME_API_MODULE_CHECK_HPP
 
 #include "api/validation.hpp"
+#include "observability/logging.hpp"
 
 #include <praenora/runtime/runtime.hpp>
 
@@ -66,8 +74,9 @@ struct CheckDeadlines {
 };
 
 // Runs the contract checks of the module whose manifest is `manifest`, with the test vectors in
-// `vectors` (by default the ones the manifest's tests.vectors names, if any), against the catalog
-// and the runtime services of `context`. `logger` receives the module's log messages (none when
+// `vectors` (by default the ones the manifest's tests.vectors names, if any), against the catalog,
+// the provider index and the runtime services of `context`. `logger` receives the module's log
+// messages (none when null), `logs` the records of the providers the checks load (none when
 // null). Problems of the module, its manifest or the vectors are reported as failed checks. Only a
 // manifest file that cannot be read (missing, for example) throws praenora::Error(IO_ERROR), and
 // a vectors file that cannot be read, which is opened only once the manifest checks have passed
@@ -76,7 +85,7 @@ ModuleCheckReport check_module(const std::filesystem::path& manifest,
                                const std::optional<std::filesystem::path>& vectors,
                                const RuntimeContext& context,
                                std::shared_ptr<spdlog::logger> logger,
-                               const CheckDeadlines& deadlines = {});
+                               const CheckDeadlines& deadlines = {}, LogHub* logs = nullptr);
 
 } // namespace praenora::detail
 

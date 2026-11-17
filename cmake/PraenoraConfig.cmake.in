@@ -11,7 +11,8 @@
 #              compiler.
 #   Runtime    the target Praenora::Runtime: the shared runtime library and its headers.
 # Any other component is not found. PRAENORA_SDK_VERSION, PRAENORA_PMP_VERSION,
-# PRAENORA_ABI_MAJOR and PRAENORA_ABI_MINOR give the versions this package was built with;
+# PRAENORA_ABI_MAJOR and PRAENORA_ABI_MINOR give the versions this package was built with, and
+# PRAENORA_MODULE_MANIFEST_FORMAT_VERSION the module manifest format it writes;
 # praenora_add_module() writes them into the manifests it generates. PraenoraConfigVersion.cmake
 # accepts requests for the same major and minor version.
 
@@ -19,6 +20,7 @@ set(PRAENORA_SDK_VERSION "@PRAENORA_SDK_VERSION@")
 set(PRAENORA_PMP_VERSION "@PRAENORA_PMP_VERSION@")
 set(PRAENORA_ABI_MAJOR "@PRAENORA_ABI_MAJOR@")
 set(PRAENORA_ABI_MINOR "@PRAENORA_ABI_MINOR@")
+set(PRAENORA_MODULE_MANIFEST_FORMAT_VERSION "@PRAENORA_MODULE_MANIFEST_FORMAT_VERSION@")
 
 if(Praenora_FIND_COMPONENTS)
     set(_praenora_components ${Praenora_FIND_COMPONENTS})

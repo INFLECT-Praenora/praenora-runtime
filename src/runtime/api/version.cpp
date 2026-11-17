@@ -12,11 +12,15 @@ namespace praenora {
 
 namespace {
 
-// Every document kind that carries a format_version.
-constexpr const char* kDocumentKinds[] = {
-    "capability-definition", "message-type",        "module-check-report",
-    "module-manifest",       "module-test-vectors", "run-record",
-    "status-snapshot",       "workflow-config",     "workflow-definition",
+struct FormatVersion {
+    const char* kind;
+    const char* version;
+};
+
+// Every document kind that carries a format_version, with the format version this runtime writes
+// and reads (cmake/PraenoraVersions.cmake, generated into format_versions.inc).
+constexpr FormatVersion kFormatVersions[] = {
+#include "format_versions.inc"
 };
 
 } // namespace
@@ -28,8 +32,8 @@ VersionInfo version_info() {
     info.pmp = PRAENORA_BUILD_PMP_VERSION;
     info.abi_major = PRAENORA_BUILD_ABI_MAJOR;
     info.abi_minor = PRAENORA_BUILD_ABI_MINOR;
-    for (const char* kind : kDocumentKinds) {
-        info.formats.emplace(kind, PRAENORA_BUILD_FORMAT_VERSION);
+    for (const auto& format : kFormatVersions) {
+        info.formats.emplace(format.kind, format.version);
     }
     info.platform = PRAENORA_BUILD_PLATFORM;
     info.compiler = PRAENORA_BUILD_COMPILER;

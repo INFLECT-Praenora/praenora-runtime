@@ -8,9 +8,10 @@
 //   and their failures, from praenora::frontend (src/frontend/frontend.hpp).
 // - Paths are UTF-8; relative ones are relative to the current directory. An empty string stands
 //   for an optional argument that is not given, where a parameter says so.
-// - Search paths. module_paths and catalog_paths come first; then, as with
-//   RuntimeOptions::use_environment, PRAENORA_MODULE_PATH, PRAENORA_CATALOG_PATH,
-//   PRAENORA_LOG_LEVEL and PRAENORA_LOG_FORMAT apply, and the installation's module directory.
+// - Search paths. module_paths, provider_paths and catalog_paths come first; then, as with
+//   RuntimeOptions::use_environment, PRAENORA_MODULE_PATH, PRAENORA_PROVIDER_PATH,
+//   PRAENORA_CATALOG_PATH, PRAENORA_LOG_LEVEL and PRAENORA_LOG_FORMAT apply, and the
+//   installation's module and provider directories.
 // - Errors. A praenora::Error is thrown as std::runtime_error("PRAENORA_ERROR_JSON:" +
 //   Error::to_json()); so is any other std::exception except std::bad_alloc, as an INTERNAL error
 //   ("internal error: <what>"), as the praenora tool reports it. A mistake in an argument is
@@ -32,12 +33,13 @@ namespace praenora::python {
 std::string version_json();
 
 // The validation report of a workflow configuration ({"ok", "diagnostics"}); with `load`, the
-// module libraries are loaded and their identities checked too. A report that holds an error is
-// thrown instead, as the praenora tool reports it: the first error's code and location, the
-// message "<config>: validation failed: N error(s)" and the report as the details. Warnings and
-// notes are returned.
+// service providers of the workflow's services are started, and the module libraries loaded and
+// their identities checked, too. A report that holds an error is thrown instead, as the praenora
+// tool reports it: the first error's code and location, the message "<config>: validation failed:
+// N error(s)" and the report as the details. Warnings and notes are returned.
 std::string validate_json(const std::string& config, const std::vector<std::string>& module_paths,
-                          const std::vector<std::string>& catalog_paths, bool load);
+                          const std::vector<std::string>& catalog_paths,
+                          const std::vector<std::string>& provider_paths, bool load);
 
 // The validation report of any Praenora document, returned or thrown as validate_json() does.
 std::string validate_document_json(const std::string& path);
@@ -46,19 +48,26 @@ std::string validate_document_json(const std::string& path);
 // "library_path", "os", "arch", "capabilities"}].
 std::string list_modules_json(const std::vector<std::string>& module_paths);
 
+// Every service provider manifest on the provider search paths, shadowed ones included:
+// [{"name", "version", "manifest", "library", "platform": {"os", "arch"}, "services": [{"name",
+// "major", "minor"}], "engine", "usable"}], with "problem" for one that is not usable.
+std::string list_providers_json(const std::vector<std::string>& provider_paths);
+
 // The module `name` at `version` (empty: its highest version for this platform), as one entry of
 // list_modules_json(); with `load`, also "describe" (its describe() document) and
-// "library_sha256".
+// "library_sha256". Inspecting a module loads no service provider.
 std::string inspect_module_json(const std::string& name, const std::string& version, bool load,
                                 const std::vector<std::string>& module_paths);
 
 // The contract checks of the module whose manifest is `manifest`, with the test vectors in
-// `vectors` (empty: the ones the manifest names) and the catalog's entries from `catalog_paths`
-// too: the module-check-report document. A report with a failed check is thrown instead, as the
-// praenora tool reports it: FAILED, the message "N of M contract checks failed: <ids>" and the
-// report as the details.
+// `vectors` (empty: the ones the manifest names), the catalog's entries from `catalog_paths` too
+// and the services the manifest declares resolved on `provider_paths` first: the
+// module-check-report document. A report with a failed check is thrown instead, as the praenora
+// tool reports it: FAILED, the message "N of M contract checks failed: <ids>" and the report as
+// the details.
 std::string check_module_json(const std::string& manifest, const std::string& vectors,
-                              const std::vector<std::string>& catalog_paths);
+                              const std::vector<std::string>& catalog_paths,
+                              const std::vector<std::string>& provider_paths);
 
 // The graph of the workflow definition `workflow` ("<name>@<version>") or of the one the
 // configuration `config` pins (give one; the other is empty), in `format`: text, json, dot or
@@ -89,13 +98,13 @@ std::string read_status_json(const std::string& path);
 class WorkflowHandle {
 public:
     // Validates the configuration and prepares its run (Runtime::open()). `options_json` is a
-    // JSON object with any of the keys module_paths and catalog_paths (arrays of paths), seed and
-    // ticks (whole numbers from 0 to 2^53 - 1), output_dir, status_file and log_file (paths; an
-    // empty log_file means none), overwrite and trace_messages (booleans), log_level (trace,
-    // debug, info, warn, error, critical or off) and log_format (text or json), level and format
-    // names in any case; null stands for a key that is not given. The logging settings apply to
-    // the runtime that opens the run too, as the praenora tool's --log-* flags do. An unknown key
-    // or a bad value is INVALID_ARGUMENT.
+    // JSON object with any of the keys module_paths, provider_paths and catalog_paths (arrays of
+    // paths), seed and ticks (whole numbers from 0 to 2^53 - 1), output_dir, status_file and
+    // log_file (paths; an empty log_file means none), overwrite and trace_messages (booleans),
+    // log_level (trace, debug, info, warn, error, critical or off) and log_format (text or json),
+    // level and format names in any case; null stands for a key that is not given. The logging
+    // settings apply to the runtime that opens the run too, as the praenora tool's --log-* flags
+    // do. An unknown key or a bad value is INVALID_ARGUMENT.
     WorkflowHandle(const std::string& config, const std::string& options_json);
     // Closes the run (Workflow::close()).
     ~WorkflowHandle();

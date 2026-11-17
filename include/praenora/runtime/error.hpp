@@ -55,6 +55,7 @@ enum class ErrorCode : std::int32_t {
     MESSAGE_TYPE_INCOMPATIBLE = 404,
     CATALOG_ENTRY_NOT_FOUND = 405,
     CATALOG_ENTRY_DUPLICATE = 406,
+    SERVICE_UNAVAILABLE = 407,
     LIBRARY_LOAD_FAILED = 500,
     ENTRY_POINT_MISSING = 501,
     API_TABLE_INVALID = 502,
@@ -160,12 +161,15 @@ private:
 enum class Severity { error, warning, note };
 
 // One finding of a validation. `step` and `module` are empty unless the finding concerns one.
+// `details_json` is the text of a JSON object with more about the finding (for example the
+// providers a SERVICE_UNAVAILABLE considered), or empty when it has none.
 struct Diagnostic {
     Severity severity = Severity::error;
     ErrorCode code = ErrorCode::UNKNOWN;
     std::string message;
     SourceLocation location;
     std::string step, module;
+    std::string details_json;
 };
 
 // Every finding of a validation, in the order found.
@@ -182,7 +186,7 @@ struct ValidationReport {
     PRAENORA_RUNTIME_API void add(Diagnostic diagnostic);
 
     // {"ok":bool,"diagnostics":[{"severity","code","name","category","message","location",
-    // "step","module"}]}; "step" and "module" appear only when set.
+    // "step","module","details"}]}; "step", "module" and "details" appear only when set.
     PRAENORA_RUNTIME_API std::string to_json() const;
 
     // One line per diagnostic, each ending in "\n", in the compiler-style format

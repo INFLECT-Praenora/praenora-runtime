@@ -245,21 +245,25 @@ format also from the environment; their sources and order are specified in
 up instead of replacing each other: the caller's module paths (`--module-path`,
 `RuntimeOptions::module_paths`), the configuration's and the environment's are all searched, in the
 [search order](specs/manifest.md#discovery), and extra catalog entries come from `--catalog-path`
-(`RuntimeOptions::catalog_paths`) and `PRAENORA_CATALOG_PATH`. The seed and tick overrides are
-listed in the run record's `execution.overrides`. In Python the same overrides are the arguments of
-`Workflow` ([python.md](python.md)).
+(`RuntimeOptions::catalog_paths`) and `PRAENORA_CATALOG_PATH`. Service providers are found on the
+caller's provider paths (`--provider-path`, `RuntimeOptions::provider_paths`), then
+`PRAENORA_PROVIDER_PATH`, then the installation's provider directory
+([search order](specs/runtime-services.md#discovery)); a configuration names none. The seed and
+tick overrides are listed in the run record's `execution.overrides`. In Python the same overrides
+are the arguments of `Workflow` ([python.md](python.md)).
 
 ## Environment variables
 
 | Variable | Read by | Effect |
 |---|---|---|
 | `PRAENORA_MODULE_PATH` | Discovery | More module search paths, `:`-separated (`;` on Windows), in their place in the [search order](specs/manifest.md#discovery). |
+| `PRAENORA_PROVIDER_PATH` | Provider discovery | More service provider search paths, separated the same way, after the caller's provider paths and before the installation's provider directory ([search order](specs/runtime-services.md#discovery)). |
 | `PRAENORA_CATALOG_PATH` | The catalog | More catalog directories, separated the same way; directories that do not exist are skipped. |
 | `PRAENORA_LOG_LEVEL` | Logging | The log level ([precedence](specs/observability.md#settings)). |
 | `PRAENORA_LOG_FORMAT` | Logging | The log format ([precedence](specs/observability.md#settings)). |
 | `PRAENORA_DEBUG_KEEP_LIBRARIES` | The loader | `1` keeps every module library loaded until the process ends ([developer-guide.md](developer-guide.md#keeping-module-libraries-loaded)). |
 
-The first four are read only when `RuntimeOptions::use_environment` is set (the default): when a
+The first five are read only when `RuntimeOptions::use_environment` is set (the default): when a
 `Runtime` is constructed, and `PRAENORA_MODULE_PATH` again when a configuration that lists
 `modules.search_paths` is validated. An empty variable counts as unset, and an invalid log level or
 format is `CONFIG_INVALID`, naming the variable. `PRAENORA_DEBUG_KEEP_LIBRARIES` is read whenever a
@@ -269,9 +273,11 @@ module library is loaded, whatever `use_environment` says.
 
 The fingerprint covers the semantic configuration: the workflow definition, the catalog entries it
 uses, the seed, the tick count, the time base, the timeouts, each step's module (manifest and
-library digests), resolved parameters and seed, and each input's source kind, column mapping and
-file digest. The `outputs` and `observability` sections, step log levels and every path are left
-out. The full list is in [specs/reproducibility.md](specs/reproducibility.md#run-fingerprint).
+library digests), resolved parameters, seed and the runtime services it may use, the service
+providers that serve those services (each provider's identity, manifest and library digests and
+engine), and each input's source kind, column mapping and file digest. The `outputs` and
+`observability` sections, step log levels and every path are left out. The full list is in
+[specs/reproducibility.md](specs/reproducibility.md#run-fingerprint).
 
 ## Validation
 

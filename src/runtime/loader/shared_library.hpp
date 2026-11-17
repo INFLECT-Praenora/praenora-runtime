@@ -1,4 +1,5 @@
-// A module library loaded into the process: dlopen() on POSIX, LoadLibraryExW() on Windows.
+// A module or provider library loaded into the process: dlopen() on POSIX, LoadLibraryExW() on
+// Windows.
 // Implemented in platform/posix/shared_library_posix.cpp and
 // platform/windows/shared_library_windows.cpp.
 #ifndef PRAENORA_RUNTIME_LOADER_SHARED_LIBRARY_HPP
@@ -6,6 +7,7 @@
 
 #include <atomic>
 #include <filesystem>
+#include <string_view>
 #include <vector>
 
 namespace praenora::detail {
@@ -13,7 +15,9 @@ namespace praenora::detail {
 class SharedLibrary {
 public:
     // Loads the library at `absolute_path`. Throws praenora::Error(LIBRARY_LOAD_FAILED) with the
-    // operating system's explanation (dlerror() or FormatMessageW() text) when it cannot.
+    // operating system's explanation (dlerror() or FormatMessageW() text) when it cannot; the
+    // message starts "cannot load <what> '<path>': ", where `what` names the library (for example
+    // "module library").
     // - POSIX: dlopen(RTLD_NOW | RTLD_LOCAL), so unresolved symbols fail here and modules cannot
     //   interpose on each other's symbols. `dependency_dirs` are ignored: POSIX modules find their
     //   own dependencies through $ORIGIN or @loader_path run paths.
@@ -21,7 +25,8 @@ public:
     //   load, then LoadLibraryExW() searches the library's own directory, the application
     //   directory, System32 and those directories, never the current directory or PATH.
     static SharedLibrary open(const std::filesystem::path& absolute_path,
-                              const std::vector<std::filesystem::path>& dependency_dirs);
+                              const std::vector<std::filesystem::path>& dependency_dirs,
+                              std::string_view what = "module library");
 
     SharedLibrary(SharedLibrary&& other) noexcept;
     SharedLibrary& operator=(SharedLibrary&& other) noexcept;

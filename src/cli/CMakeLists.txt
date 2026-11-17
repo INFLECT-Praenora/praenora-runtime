@@ -14,6 +14,7 @@ add_executable(praenora_cli
     commands/catalog.cpp
     commands/graph.cpp
     commands/modules.cpp
+    commands/providers.cpp
     commands/run.cpp
     commands/schema.cpp
     commands/status.cpp

@@ -1,6 +1,6 @@
 # Error taxonomy
 
-- **Version:** runtime 0.1.0; the general codes 0 to 12 belong to ABI 0.0
+- **Version:** runtime 0.2.0; the general codes 0 to 12 belong to ABI 0.0
   ([`status.h`](../../include/praenora/sdk/status.h))
 - **Status:** Normative, MVP. The code space and its names are stable; the table is Proposed
   ([ADR-0013](../adr/ADR-0013-error-taxonomy-and-status-codes.md)).
@@ -75,11 +75,11 @@ as `a/b` names both parties that commonly own the fix; `none` marks codes that r
 | 202 | `BINDING_INVALID` | validation | 3 | user | no | The step bindings do not match the steps of the workflow definition. |
 | 203 | `PARAMETERS_INVALID` | validation | 3 | user | no | Step parameters do not satisfy the module's parameter schema. |
 | 204 | `INPUT_BINDING_INVALID` | validation | 3 | user | no | A workflow input is not bound to a valid data source. |
-| 300 | `MANIFEST_INVALID` | validation | 3 | module | no | A module manifest is malformed or inconsistent. |
+| 300 | `MANIFEST_INVALID` | validation | 3 | module | no | A module or provider manifest is malformed or inconsistent. |
 | 301 | `MODULE_NOT_FOUND` | validation | 3 | user/environment | no | No manifest for the requested module name and version is on the search paths. |
 | 302 | `MODULE_IDENTITY_MISMATCH` | load | 4 | module | no | The loaded module's describe output disagrees with its manifest. |
-| 303 | `LIBRARY_DIGEST_MISMATCH` | load | 4 | environment/module | no | The module library's SHA-256 differs from the digest in its manifest. |
-| 304 | `LIBRARY_NOT_FOUND` | validation | 3 | module/environment | no | The module library named by the manifest does not exist. |
+| 303 | `LIBRARY_DIGEST_MISMATCH` | load | 4 | environment/module | no | A module or provider library's SHA-256 differs from the digest in its manifest. |
+| 304 | `LIBRARY_NOT_FOUND` | validation | 3 | module/environment | no | The module or provider library named by the manifest does not exist. |
 | 400 | `ABI_INCOMPATIBLE` | validation | 3 | module | no | The module was built for a different ABI major version. |
 | 401 | `PROTOCOL_INCOMPATIBLE` | validation | 3 | module | no | The module's protocol (PMP) version is incompatible with the runtime. |
 | 402 | `CAPABILITY_NOT_IMPLEMENTED` | validation | 3 | user/module | no | The module does not implement the capability the step requires. |
@@ -87,9 +87,10 @@ as `a/b` names both parties that commonly own the fix; `none` marks codes that r
 | 404 | `MESSAGE_TYPE_INCOMPATIBLE` | validation | 3 | protocol/module | no | A message type version differs from the one required. |
 | 405 | `CATALOG_ENTRY_NOT_FOUND` | validation | 3 | protocol | no | A referenced message type, capability or workflow definition is not in the catalog. |
 | 406 | `CATALOG_ENTRY_DUPLICATE` | compatibility | 3 | protocol | no | Two catalog entries have the same id and version. |
-| 500 | `LIBRARY_LOAD_FAILED` | load | 4 | environment/module | no | The operating system could not load the module library. |
-| 501 | `ENTRY_POINT_MISSING` | load | 4 | module | no | The module library does not export praenora_module_get_api. |
-| 502 | `API_TABLE_INVALID` | load | 4 | module | no | The module's function table is missing, malformed or incomplete. |
+| 407 | `SERVICE_UNAVAILABLE` | compatibility | 3 | environment | no | No usable service provider offers a runtime service that a module requires. |
+| 500 | `LIBRARY_LOAD_FAILED` | load | 4 | environment/module | no | A module or provider library could not be loaded, or a provider failed its load checks. |
+| 501 | `ENTRY_POINT_MISSING` | load | 4 | module | no | The library does not export its entry point (praenora_module_get_api or praenora_provider_get_api). |
+| 502 | `API_TABLE_INVALID` | load | 4 | module | no | The function table of a module or provider is missing, malformed or incomplete. |
 | 600 | `GRAPH_INVALID` | validation | 3 | protocol | no | The workflow graph breaks a structural rule, such as fan-in or a delayed connection into a required input. |
 | 601 | `GRAPH_CYCLE` | validation | 3 | protocol | no | The connections without delay form a cycle. |
 | 602 | `PORT_UNCONNECTED` | validation | 3 | protocol | no | A required step input or a workflow output has no incoming connection. |
@@ -116,6 +117,15 @@ Notes on the table:
   runtime version: connected ports of different message type versions are `PORT_TYPE_MISMATCH`,
   because v0 requires exact versions, and input data is read during validation, where a missing or
   unreadable data file is `TARGET_DATA_INVALID`.
+- `SERVICE_UNAVAILABLE` is raised by validation for a service that a module's manifest requires
+  and that no usable provider offers, located at `/requires/services/<i>` of the manifest, and by
+  the contract checks' `library.load` check for the same reason
+  ([runtime-services.md](runtime-services.md#resolution)).
+- Service providers ([runtime-services.md](runtime-services.md)) report problems with the codes of
+  modules: `MANIFEST_INVALID` for a provider manifest, `LIBRARY_NOT_FOUND`,
+  `LIBRARY_DIGEST_MISMATCH`, `ENTRY_POINT_MISSING` and `API_TABLE_INVALID` for its library, and
+  `LIBRARY_LOAD_FAILED` with `details.reason` `library`, `identity`, `start`, `service` or
+  `conflict` for the rest of its loading.
 - `TARGET_DATA_INVALID` exits with 1 when a run meets it and with 3 when validation finds it, like
   every error of a validation report.
 - Retryable means that retrying the same operation unchanged may succeed: `RESOURCE_EXHAUSTED`,
@@ -130,8 +140,9 @@ Notes on the table:
   location that are set.
 - **Validation.** Validation collects every problem in a `praenora::ValidationReport` instead of
   stopping at the first. Its JSON form is
-  `{"ok": bool, "diagnostics": [{"severity", "code", "name", "category", "message", "location", "step", "module"}]}`
-  (`step` and `module` only when set); its text form is one line per diagnostic in the
+  `{"ok": bool, "diagnostics": [{"severity", "code", "name", "category", "message", "location", "step", "module", "details"}]}`
+  (`step`, `module` and `details` only when set; `details` is the object a code's details hold,
+  for example those of `SERVICE_UNAVAILABLE`); its text form is one line per diagnostic in the
   compiler-style format `file:line:col: severity[NAME]: pointer: message`. Only diagnostics of
   severity `error` fail a validation; warnings and notes do not.
 - **CLI.** Human-readable messages go to standard error. With `--json`, standard output holds
@@ -141,7 +152,10 @@ Notes on the table:
   `execution.error` and the status snapshot's `last_error`. Its details name the `step`, the
   `module` (`name@version`), the `phase` (`load`, `create`, `initialize` or `invoke`), the `tick`
   during a tick, the module's error document as `cause`, and the instance's `diagnostics()` when the
-  manifest declares them ([module-abi.md](module-abi.md#status-codes-and-errors)).
+  manifest declares them ([module-abi.md](module-abi.md#status-codes-and-errors)). A service
+  provider that does not load when the run starts fails it with the provider loader's error and
+  details, located in the provider's manifest and naming no step
+  ([runtime-services.md](runtime-services.md#runs-and-checks)).
 - **Python.** The bindings raise `praenora.runtime.PraenoraError` with the same code, name,
   category, message, location and details.
 
@@ -170,7 +184,8 @@ from 10000 up, never appears as the error's code: it is `details.cause.code` of 
 | `ABI_INCOMPATIBLE`, `PROTOCOL_INCOMPATIBLE` | The manifest's `abi` or `pmp_version` against `praenora version`: rebuild the module against this SDK ([compatibility-policy.md](compatibility-policy.md)). |
 | `CAPABILITY_NOT_IMPLEMENTED` | The step's capability version against the manifest's `capabilities`: bind a module version that implements it. |
 | `LIBRARY_NOT_FOUND`, `LIBRARY_DIGEST_MISMATCH` | `library.path` and `library.sha256` in the manifest: the library is missing, or it changed after its manifest was written or after validation. |
-| `LIBRARY_LOAD_FAILED` | The operating system's message in the error: missing dependency libraries (run paths, `library.dependency_paths`), the wrong architecture, code signing. |
+| `LIBRARY_LOAD_FAILED` | The operating system's message in the error: missing dependency libraries (run paths, `library.dependency_paths`), the wrong architecture, code signing. For a service provider, `details.reason` too: `library` (the operating system could not load it; its text is in the message), `identity` (`details.differences`: a stale provider manifest), `start` (`details.cause`, the provider's own error), `service`, `conflict` (another library of the provider is already loaded in the process). |
+| `SERVICE_UNAVAILABLE` | `details.service`, `details.search_paths` and `details.providers`, each provider that offers the service's name but cannot serve it, with the reason; the provider search paths (`--provider-path`, `PRAENORA_PROVIDER_PATH` and the installation's provider directory, [runtime-services.md](runtime-services.md#discovery)); `praenora providers list` shows every provider found and why one is unusable. |
 | `ENTRY_POINT_MISSING`, `API_TABLE_INVALID`, `MODULE_IDENTITY_MISMATCH` | The module's build: `praenora modules check` names the failing check (`library.entry_point`, `api.header`, `api.required_functions`, `describe.identity`); for an identity mismatch, `details.differences` (often a stale manifest beside a rebuilt library). |
 | `CATALOG_ENTRY_NOT_FOUND`, `CATALOG_ENTRY_DUPLICATE` | The catalog entry and origins named in the message; `--catalog-path` and `PRAENORA_CATALOG_PATH`. |
 | `GRAPH_INVALID`, `GRAPH_CYCLE`, `PORT_UNCONNECTED`, `PORT_UNKNOWN`, `PORT_TYPE_MISMATCH` | The workflow definition at the pointer in the message ([workflow-definitions.md](workflow-definitions.md#graph-rules)); `praenora graph --workflow <name>@<version>`. |

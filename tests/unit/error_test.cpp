@@ -47,8 +47,9 @@ Diagnostic diagnostic(Severity severity, ErrorCode code, std::string message, So
 
 TEST(ErrorTaxonomy, EveryCodeHasUniqueNameAndInfo) {
     const auto& codes = all_error_codes();
-    // Every code of the taxonomy table plus 406 CATALOG_ENTRY_DUPLICATE.
-    EXPECT_EQ(codes.size(), 50u);
+    // Every code of the taxonomy table plus 406 CATALOG_ENTRY_DUPLICATE and 407
+    // SERVICE_UNAVAILABLE.
+    EXPECT_EQ(codes.size(), 51u);
     std::set<std::string> names;
     std::set<std::int32_t> values;
     std::int32_t previous = -1;
@@ -140,6 +141,16 @@ TEST(ErrorTaxonomy, CatalogDuplicateIs406) {
     EXPECT_EQ(info.category, ErrorCategory::compatibility);
     EXPECT_EQ(info.exit_code, 3);
     EXPECT_EQ(info.owner, "protocol");
+}
+
+TEST(ErrorTaxonomy, ServiceUnavailableIs407) {
+    EXPECT_EQ(static_cast<int>(ErrorCode::SERVICE_UNAVAILABLE), 407);
+    const auto& info = error_code_info(ErrorCode::SERVICE_UNAVAILABLE);
+    EXPECT_EQ(info.name, "SERVICE_UNAVAILABLE");
+    EXPECT_EQ(info.category, ErrorCategory::compatibility);
+    EXPECT_EQ(info.exit_code, 3);
+    EXPECT_FALSE(info.retryable);
+    EXPECT_EQ(error_code_from_name("SERVICE_UNAVAILABLE"), ErrorCode::SERVICE_UNAVAILABLE);
 }
 
 TEST(ErrorTaxonomy, SpotChecksAgainstTheTable) {
@@ -317,6 +328,27 @@ TEST(ValidationReport, JsonListsDiagnostics) {
     EXPECT_EQ(second.at("location"), nlohmann::json::object());
     EXPECT_FALSE(second.contains("step"));
     EXPECT_FALSE(second.contains("module"));
+}
+
+// A diagnostic's details: the JSON object they are, left out when empty, and text that is not
+// JSON as a string.
+TEST(ValidationReport, JsonCarriesDetailsWhenSet) {
+    ValidationReport report;
+    auto with = diagnostic(Severity::error, ErrorCode::SERVICE_UNAVAILABLE, "no provider", {});
+    with.details_json = R"({"service":"test.echo","major":0,"providers":[]})";
+    report.add(with);
+    report.add(diagnostic(Severity::warning, ErrorCode::MANIFEST_INVALID, "skipped", {}));
+    auto text = diagnostic(Severity::error, ErrorCode::INTERNAL, "odd", {});
+    text.details_json = "not JSON";
+    report.add(text);
+
+    const auto json = nlohmann::json::parse(report.to_json());
+    const auto& diagnostics = json.at("diagnostics");
+    ASSERT_EQ(diagnostics.size(), 3u);
+    EXPECT_EQ(diagnostics[0].at("details"),
+              nlohmann::json::parse(R"({"service":"test.echo","major":0,"providers":[]})"));
+    EXPECT_FALSE(diagnostics[1].contains("details"));
+    EXPECT_EQ(diagnostics[2].at("details"), "not JSON");
 }
 
 TEST(StatusNames, EveryStateHasItsName) {

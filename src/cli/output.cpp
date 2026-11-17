@@ -12,7 +12,8 @@ using nlohmann::json;
 
 namespace {
 
-// The diagnostic of one item of a validation report's JSON (ValidationReport::to_json()).
+// The diagnostic of one item of a validation report's JSON (ValidationReport::to_json()), its
+// details included.
 Diagnostic diagnostic_from(const json& item) {
     Diagnostic diagnostic;
     const std::string severity = item.value("severity", std::string("error"));
@@ -29,6 +30,9 @@ Diagnostic diagnostic_from(const json& item) {
     diagnostic.location.pointer = location.value("pointer", std::string());
     diagnostic.step = item.value("step", std::string());
     diagnostic.module = item.value("module", std::string());
+    if (const auto details = item.find("details"); details != item.end()) {
+        diagnostic.details_json = dump(*details);
+    }
     return diagnostic;
 }
 

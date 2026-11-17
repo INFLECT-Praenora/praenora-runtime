@@ -15,6 +15,7 @@
 #include "platform/platform.hpp"
 
 #include "module_fixtures.hpp"
+#include "scoped_environment.hpp"
 #include "test_support.hpp"
 
 #include <praenora/runtime/error.hpp>
@@ -25,22 +26,11 @@
 
 #include <algorithm>
 #include <cstddef>
-#include <cstdlib>
 #include <filesystem>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
-
-#ifdef _WIN32
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <windows.h>
-#endif
 
 #ifndef PRAENORA_TEST_LAYOUTS_DIR
 #error "the build defines PRAENORA_TEST_LAYOUTS_DIR for this test"
@@ -56,6 +46,7 @@ using praenora::detail::module_search_paths;
 using praenora::detail::ModuleIndex;
 using praenora::detail::ModuleManifest;
 using praenora::detail::parse_semver;
+using praenora::test::ScopedEnvironment;
 using praenora::test::utf8_path;
 
 namespace {
@@ -72,36 +63,6 @@ std::string utf8(const fs::path& path) { return path.u8string(); }
 bool contains(const std::string& text, const std::string& part) {
     return text.find(part) != std::string::npos;
 }
-
-// Sets an environment variable (or removes it, for nullopt) and restores the old value when
-// destroyed.
-class ScopedEnvironment {
-public:
-    ScopedEnvironment(const char* name, const std::optional<std::string>& value)
-        : name_(name), previous_(praenora::detail::environment_variable(name)) {
-        set(value);
-    }
-    ~ScopedEnvironment() { set(previous_); }
-    ScopedEnvironment(const ScopedEnvironment&) = delete;
-    ScopedEnvironment& operator=(const ScopedEnvironment&) = delete;
-
-private:
-    void set(const std::optional<std::string>& value) const {
-#ifdef _WIN32
-        const fs::path name = utf8_path(name_);
-        SetEnvironmentVariableW(name.c_str(), value ? utf8_path(*value).c_str() : nullptr);
-#else
-        if (value) {
-            setenv(name_, value->c_str(), 1);
-        } else {
-            unsetenv(name_);
-        }
-#endif
-    }
-
-    const char* name_;
-    std::optional<std::string> previous_;
-};
 
 std::string path_list(const std::vector<std::string>& entries) {
 #ifdef _WIN32
@@ -130,7 +91,7 @@ TEST(Manifest, LoadsGeneratedFixtureManifest) {
     EXPECT_EQ(manifest.abi_major, 0u);
     EXPECT_EQ(manifest.abi_minor, 0u);
     EXPECT_EQ(praenora::detail::to_string(manifest.pmp_version), "0.1.0");
-    EXPECT_EQ(praenora::detail::to_string(manifest.sdk_version), "0.1.0");
+    EXPECT_EQ(praenora::detail::to_string(manifest.sdk_version), "0.2.0");
 
     EXPECT_TRUE(manifest.manifest_path.is_absolute());
     EXPECT_TRUE(fs::equivalent(manifest.manifest_path, path));
@@ -159,6 +120,41 @@ TEST(Manifest, LoadsGeneratedFixtureManifest) {
     EXPECT_FALSE(manifest.test_vectors.has_value());
 
     EXPECT_EQ(manifest.manifest_sha256, praenora::detail::sha256_file_hex(path));
+}
+
+// requires.services (format 0.2): every entry in manifest order, with the defaults minor 0 and
+// optional false; a manifest of format 0.1 declares none.
+TEST(Manifest, ReadsTheServicesItRequires) {
+    const ModuleManifest generated = load_manifest(praenora::test::fixture_manifest("fx-service"));
+    ASSERT_EQ(generated.service_requirements.size(), 2u);
+    EXPECT_EQ(praenora::detail::to_string(generated.service_requirements[0].service),
+              "test.echo@0.0");
+    EXPECT_FALSE(generated.service_requirements[0].optional);
+    EXPECT_EQ(praenora::detail::to_string(generated.service_requirements[1].service),
+              "test.other@1.0");
+    EXPECT_TRUE(generated.service_requirements[1].optional);
+
+    const ModuleManifest minor =
+        load_manifest(praenora::test::fixture_manifest("fx-service-minor"));
+    ASSERT_EQ(minor.service_requirements.size(), 1u);
+    EXPECT_EQ(praenora::detail::to_string(minor.service_requirements[0].service),
+              "test.echo@0.7");
+
+    // The defaults of the schema.
+    const ModuleManifest defaults = load_manifest(
+        praenora::test::fixture_path("documents/valid/module-manifest/requires.pmm.json"));
+    ASSERT_EQ(defaults.service_requirements.size(), 2u);
+    EXPECT_EQ(praenora::detail::to_string(defaults.service_requirements[0].service),
+              "praenora.simulation@0.0");
+    EXPECT_EQ(praenora::detail::to_string(defaults.service_requirements[1].service),
+              "test.echo@0.0");
+    EXPECT_FALSE(defaults.service_requirements[1].optional);
+
+    for (const char* name : {"fx-echo", "fx-service-format-0-1"}) {
+        EXPECT_TRUE(load_manifest(praenora::test::fixture_manifest(name))
+                        .service_requirements.empty())
+            << name;
+    }
 }
 
 TEST(Discovery, SearchOrderExplicitBeforeEnvironment) {

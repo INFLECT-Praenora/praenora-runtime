@@ -100,7 +100,7 @@ std::string status_json(const ValidatedWorkflow& workflow, WorkflowState state) 
 
 const praenora::detail::CompiledSchema& run_record_schema() {
     return praenora::detail::SchemaRegistry::builtin().for_kind(
-        "run-record", praenora::detail::parse_semver("0.1.0"));
+        "run-record", praenora::detail::parse_semver("0.2.0"));
 }
 
 // Every issue of `document` against the run-record schema, one per line.
@@ -148,7 +148,7 @@ TEST(RunRecord, ValidatesAgainstSchema) {
     EXPECT_EQ(issues_of(started), "");
     EXPECT_EQ(started, writer.current());
     EXPECT_EQ(started.at("kind"), "run-record");
-    EXPECT_EQ(started.at("format_version"), "0.1.0");
+    EXPECT_EQ(started.at("format_version"), "0.2.0");
     const json& execution = started.at("execution");
     EXPECT_EQ(execution.at("status"), "running");
     EXPECT_EQ(execution.at("started_at"), "2023-11-14T22:13:20.123456789Z");

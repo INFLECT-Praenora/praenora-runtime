@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- S turns into P with a stoichiometry that an initial assignment sets from the parameter n
+     (through m = 2 * n); k is the rate constant. -->
+<sbml xmlns="http://www.sbml.org/sbml/level3/version2/core" level="3" version="2">
+  <model id="stoichiometry">
+    <listOfCompartments>
+      <compartment id="cell" spatialDimensions="3" size="1" constant="true"/>
+    </listOfCompartments>
+    <listOfSpecies>
+      <species id="S" compartment="cell" initialAmount="10" hasOnlySubstanceUnits="true"
+               boundaryCondition="false" constant="false"/>
+      <species id="P" compartment="cell" initialAmount="0" hasOnlySubstanceUnits="true"
+               boundaryCondition="false" constant="false"/>
+    </listOfSpecies>
+    <listOfParameters>
+      <parameter id="k" value="0.5" constant="true"/>
+      <parameter id="n" value="1" constant="true"/>
+      <parameter id="m" constant="true"/>
+    </listOfParameters>
+    <listOfInitialAssignments>
+      <initialAssignment symbol="m">
+        <math xmlns="http://www.w3.org/1998/Math/MathML">
+          <apply><times/><cn> 2 </cn><ci> n </ci></apply>
+        </math>
+      </initialAssignment>
+      <initialAssignment symbol="product_stoichiometry">
+        <math xmlns="http://www.w3.org/1998/Math/MathML"><ci> m </ci></math>
+      </initialAssignment>
+    </listOfInitialAssignments>
+    <listOfReactions>
+      <reaction id="conversion" reversible="false">
+        <listOfReactants>
+          <speciesReference species="S" stoichiometry="1" constant="true"/>
+        </listOfReactants>
+        <listOfProducts>
+          <speciesReference id="product_stoichiometry" species="P" constant="true"/>
+        </listOfProducts>
+        <kineticLaw>
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply><times/><ci>k</ci><ci>S</ci></apply>
+          </math>
+        </kineticLaw>
+      </reaction>
+    </listOfReactions>
+  </model>
+</sbml>

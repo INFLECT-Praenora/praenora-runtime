@@ -8,8 +8,10 @@
 //   PRAENORA_TEST_CATALOG_DIR     tests/fixtures/catalog
 //   PRAENORA_TEST_MODULES_DIR     fixture modules in the build tree, one directory per module
 //                                 holding the library and its manifest (<dir>/fx-echo/...)
+//   PRAENORA_TEST_PROVIDERS_DIR   fixture service providers in the build tree, laid out the same
+//                                 way (<dir>/test-echo/...)
 //   PRAENORA_EXAMPLE_MODULES_DIR  example modules in the build tree, laid out the same way
-// With a multi-config generator, both name the directory of the configuration being built.
+// With a multi-config generator, these name the directory of the configuration being built.
 #ifndef PRAENORA_TESTS_SUPPORT_TEST_SUPPORT_HPP
 #define PRAENORA_TESTS_SUPPORT_TEST_SUPPORT_HPP
 

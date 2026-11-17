@@ -8,6 +8,7 @@
 #include "platform/platform.hpp"
 
 #include "module_fixtures.hpp"
+#include "scoped_environment.hpp"
 #include "test_support.hpp"
 
 #include <praenora/runtime/error.hpp>
@@ -18,23 +19,12 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
-
-#ifdef _WIN32
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <windows.h>
-#endif
 
 namespace fs = std::filesystem;
 using praenora::Error;
@@ -44,6 +34,7 @@ using praenora::detail::load_manifest;
 using praenora::detail::LoadedModule;
 using praenora::detail::ModuleManifest;
 using praenora::detail::SharedLibrary;
+using praenora::test::ScopedEnvironment;
 using praenora::test::fixture_manifest;
 using praenora::test::ScratchDir;
 using praenora::test::utf8_path;
@@ -121,35 +112,6 @@ praenora_status PRAENORA_CALL append_to_string(void* context, const char* data, 
     return PRAENORA_STATUS_OK;
 }
 
-// Sets an environment variable (or removes it, for NULL) and restores its earlier value when
-// destroyed.
-class ScopedVariable {
-public:
-    ScopedVariable(const char* name, const char* value)
-        : name_(name), previous_(praenora::detail::environment_variable(name)) {
-        set(value);
-    }
-    ~ScopedVariable() { set(previous_ ? previous_->c_str() : nullptr); }
-    ScopedVariable(const ScopedVariable&) = delete;
-    ScopedVariable& operator=(const ScopedVariable&) = delete;
-
-private:
-    void set(const char* value) const {
-#ifdef _WIN32
-        SetEnvironmentVariableA(name_, value);
-#else
-        if (value != nullptr) {
-            setenv(name_, value, 1);
-        } else {
-            unsetenv(name_);
-        }
-#endif
-    }
-
-    const char* name_;
-    std::optional<std::string> previous_;
-};
-
 // Whether the environment asks for every library to stay loaded (some sanitizer test runs do).
 bool keep_libraries_requested() {
     return praenora::detail::environment_variable("PRAENORA_DEBUG_KEEP_LIBRARIES") ==
@@ -188,7 +150,7 @@ TEST(Loader, LoadsCppAdapterModule) {
     EXPECT_EQ(describe.at("name"), "fx-echo");
     EXPECT_EQ(describe.at("version"), "0.1.0");
     EXPECT_EQ(describe.at("abi"), (nlohmann::json{{"major", 0}, {"minor", 0}}));
-    EXPECT_EQ(describe.at("sdk_version"), "0.1.0");
+    EXPECT_EQ(describe.at("sdk_version"), "0.2.0");
     EXPECT_EQ(describe.at("pmp_version"), "0.1.0");
     EXPECT_EQ(describe.at("capabilities"),
               nlohmann::json::parse(R"([{"id":"test.echo","version":"0.1.0"}])"));
@@ -483,12 +445,14 @@ TEST(Loader, SharedLibraryLooksUpSymbolsAndPins) {
 
 TEST(Loader, KeepLibrariesVariablePinsEveryLibrary) {
     {
-        const ScopedVariable keep("PRAENORA_DEBUG_KEEP_LIBRARIES", "1");
+        const ScopedEnvironment keep("PRAENORA_DEBUG_KEEP_LIBRARIES", std::string("1"));
         EXPECT_TRUE(load_fixture("fx-noop")->pinned());
     }
     for (const char* value : {static_cast<const char*>(nullptr), "0", "yes"}) {
         SCOPED_TRACE(value != nullptr ? value : "(unset)");
-        const ScopedVariable other("PRAENORA_DEBUG_KEEP_LIBRARIES", value);
+        const ScopedEnvironment other("PRAENORA_DEBUG_KEEP_LIBRARIES",
+                                      value != nullptr ? std::optional<std::string>(value)
+                                                       : std::nullopt);
         EXPECT_FALSE(load_fixture("fx-noop")->pinned());
     }
 }

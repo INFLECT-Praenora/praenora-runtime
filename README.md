@@ -11,7 +11,9 @@ its predictions current. The modules are developed in their own, separately vers
 runtime library (`Praenora::Runtime`), which validates a workflow configuration, discovers and
 loads modules, and runs the workflow deterministically; the module SDK (`Praenora::ModuleSDK`)
 with its stable C ABI; the Praenora Module Protocol (PMP) and Praenora Module Manifest (PMM)
-formats; the `praenora` command-line tool; and Python bindings (`praenora.runtime`).
+formats; the `praenora` command-line tool; and Python bindings (`praenora.runtime`). Heavy engines
+come from service providers that the runtime loads on demand: modules simulate models through the
+simulation service `praenora.simulation@0` without linking an engine themselves.
 
 ## Status
 
@@ -21,6 +23,14 @@ schemas and catalog; the C++ API, the `praenora` tool and the Python bindings; t
 with an example workflow; the contract checks for modules; the installation with its CMake package
 (`find_package(Praenora COMPONENTS Runtime ModuleSDK)`); the tests; and the documentation.
 
+Since then: service providers, module manifests that declare the services a module requires, the
+engine of each service in the run fingerprint, and the simulation service `praenora.simulation@0`
+([docs/specs/simulation-service.md](docs/specs/simulation-service.md)). Its provider `roadrunner`,
+which simulates SBML models with libRoadRunner, is optional: it is built only with
+`-DPRAENORA_WITH_ROADRUNNER=ON` and an installed libRoadRunner 2.11 with its LLVM
+([docs/platforms.md](docs/platforms.md#the-roadrunner-provider)), and is verified on macOS arm64
+with libRoadRunner 2.11.0 and LLVM 13.0.1.
+
 | Platform | Status |
 |---|---|
 | macOS arm64 (AppleClang) | verified |
@@ -29,8 +39,8 @@ with an example workflow; the contract checks for modules; the installation with
 
 Not yet verified anywhere: downloading dependencies in fetch mode, and a Python wheel build that
 downloads its build requirements (a wheel built offline is verified on macOS arm64).
-WebAssembly and the libRoadRunner and libAntimony services are designs only
-([feasibility designs](docs/index.md#feasibility-designs)).
+WebAssembly, the libAntimony service and compiling module code through libRoadRunner are designs
+only ([feasibility designs](docs/index.md#feasibility-designs)).
 
 ## Quick start
 

@@ -2,7 +2,7 @@
 
 #include "compat/compat.hpp"
 #include "core/paths.hpp"
-#include "platform/platform.hpp"
+#include "discovery/search_paths.hpp"
 
 #include <algorithm>
 #include <set>
@@ -17,27 +17,7 @@ namespace {
 
 constexpr std::string_view kManifestSuffix = ".pmm.json";
 
-// Absolute, lexically normal, without a trailing separator.
-fs::path normalized(const fs::path& path) {
-    std::error_code ec;
-    fs::path result = fs::absolute(path, ec);
-    if (ec) {
-        result = path;
-    }
-    result = result.lexically_normal();
-    if (!result.has_filename() && result.has_relative_path()) {
-        result = result.parent_path();
-    }
-    return result;
-}
-
 std::string quoted(const fs::path& path) { return "'" + path_to_utf8(path) + "'"; }
-
-bool is_manifest_name(const std::string& name) {
-    return name.size() > kManifestSuffix.size() &&
-           name.compare(name.size() - kManifestSuffix.size(), kManifestSuffix.size(),
-                        kManifestSuffix) == 0;
-}
 
 void warn(std::vector<Diagnostic>& diagnostics, ErrorCode code, std::string message,
           const fs::path& file) {
@@ -47,61 +27,6 @@ void warn(std::vector<Diagnostic>& diagnostics, ErrorCode code, std::string mess
     diagnostic.message = std::move(message);
     diagnostic.location.file = path_to_utf8(file);
     diagnostics.push_back(std::move(diagnostic));
-}
-
-struct DirectoryListing {
-    std::vector<fs::path> manifests, directories; // each sorted by UTF-8 file name
-};
-
-// The manifest files and subdirectories directly inside `directory`. A directory that cannot be
-// read is reported as a warning; what was listed until then is kept.
-DirectoryListing list_directory(const fs::path& directory, std::vector<Diagnostic>& diagnostics) {
-    DirectoryListing listing;
-    std::error_code ec;
-    fs::directory_iterator it(directory, ec);
-    const fs::directory_iterator end;
-    while (!ec && it != end) {
-        const fs::directory_entry& entry = *it;
-        std::error_code type_ec;
-        if (entry.is_directory(type_ec)) {
-            listing.directories.push_back(entry.path());
-        } else if (entry.is_regular_file(type_ec) &&
-                   is_manifest_name(path_to_utf8(entry.path().filename()))) {
-            listing.manifests.push_back(entry.path());
-        }
-        it.increment(ec);
-    }
-    if (ec) {
-        warn(diagnostics, ErrorCode::IO_ERROR,
-             "cannot read module directory " + quoted(directory) + ": " + ec.message(), directory);
-    }
-    const auto by_name = [](const fs::path& a, const fs::path& b) {
-        return path_to_utf8(a.filename()) < path_to_utf8(b.filename());
-    };
-    std::sort(listing.manifests.begin(), listing.manifests.end(), by_name);
-    std::sort(listing.directories.begin(), listing.directories.end(), by_name);
-    return listing;
-}
-
-// The manifest files of one search path, in scan order.
-std::vector<fs::path> manifest_files(const fs::path& search_path,
-                                     std::vector<Diagnostic>& diagnostics) {
-    std::error_code ec;
-    if (!fs::exists(search_path, ec)) {
-        return {};
-    }
-    if (!fs::is_directory(search_path, ec)) {
-        warn(diagnostics, ErrorCode::NOT_FOUND,
-             "module search path " + quoted(search_path) + " is not a directory", search_path);
-        return {};
-    }
-    const DirectoryListing top = list_directory(search_path, diagnostics);
-    std::vector<fs::path> files = top.manifests;
-    for (const auto& directory : top.directories) {
-        const DirectoryListing sub = list_directory(directory, diagnostics);
-        files.insert(files.end(), sub.manifests.begin(), sub.manifests.end());
-    }
-    return files;
 }
 
 std::string identity(std::string_view name, const SemVer& version) {
@@ -118,44 +43,27 @@ std::vector<fs::path> module_search_paths(const std::vector<std::string>& explic
                                           const std::vector<fs::path>& config_paths,
                                           bool use_environment) {
     std::vector<fs::path> paths;
-    const auto add = [&paths](const fs::path& path) {
-        if (path.empty()) {
-            return;
-        }
-        fs::path normal = normalized(path);
-        if (std::find(paths.begin(), paths.end(), normal) == paths.end()) {
-            paths.push_back(std::move(normal));
-        }
-    };
     for (const auto& text : explicit_paths) {
-        add(path_from_utf8(text));
+        append_search_path(paths, path_from_utf8(text));
     }
     for (const auto& path : config_paths) {
-        add(path);
+        append_search_path(paths, path);
     }
     if (use_environment) {
-        if (const auto list = environment_variable("PRAENORA_MODULE_PATH")) {
-            for (const auto& entry : split_path_list(*list)) {
-                add(path_from_utf8(entry));
-            }
-        }
+        append_environment_search_paths(paths, "PRAENORA_MODULE_PATH");
     }
     if (const auto installed = installation_module_dir()) {
-        add(*installed);
+        append_search_path(paths, *installed);
     }
     return paths;
 }
 
 std::optional<fs::path> installation_module_dir() {
-    const auto binary = runtime_binary_path();
-    if (!binary) {
+    const auto directory = installation_praenora_dir();
+    if (!directory) {
         return std::nullopt;
     }
-#ifdef _WIN32
-    return (binary->parent_path() / ".." / "lib" / "praenora" / "modules").lexically_normal();
-#else
-    return (binary->parent_path() / "praenora" / "modules").lexically_normal();
-#endif
+    return *directory / "modules";
 }
 
 ModuleIndex ModuleIndex::scan(const std::vector<fs::path>& search_paths) {
@@ -163,8 +71,9 @@ ModuleIndex ModuleIndex::scan(const std::vector<fs::path>& search_paths) {
     index.search_paths_ = search_paths;
     std::set<fs::path> seen;
     for (const auto& search_path : search_paths) {
-        for (const auto& file : manifest_files(search_path, index.diagnostics_)) {
-            if (!seen.insert(normalized(file)).second) {
+        for (const auto& file :
+             manifest_files(search_path, kManifestSuffix, "module", index.diagnostics_)) {
+            if (!seen.insert(normalized_search_path(file)).second) {
                 continue;
             }
             try {

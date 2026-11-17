@@ -1,6 +1,6 @@
 # Observability
 
-- **Version:** runtime 0.1.0; document format `status-snapshot` 0.1.0
+- **Version:** runtime 0.2.0; document format `status-snapshot` 0.1.0
 - **Status:** Normative, MVP. Proposed ([ADR-0015](../adr/ADR-0015-observability.md)).
 - **Requirement keywords:** MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are used as described in
   [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119).
@@ -19,10 +19,11 @@ unaffected.
 
 | Logger | What it records | Events |
 |---|---|---|
-| `praenora.runtime` | The `Runtime`. | `runtime.ready` (search paths, number of modules and catalog entries) |
+| `praenora.runtime` | The `Runtime`. | `runtime.ready` (module and provider search paths, number of modules, providers and catalog entries) |
 | `praenora.engine` | A run. | `run.started`, `step.ready`, `invocation.completed`, `tick.completed`, `run.completed`, `run.stopped`, `run.failed`, `run.output_failed`, `trace.skipped`, `teardown.finalize_failed`, `teardown.skipped` |
 | `module.<step>` | The messages a step's module logs through the host API, and events about the step's instance. | `call.deadline`, `instance.unresponsive`, `call.refused`, `call.failed`, `service.lookup` |
 | `module.check` | Module messages during the contract checks. | |
+| `provider.<name>` | The messages a service provider logs through its host, with the attribute `provider` (`name@version`), and events about it, in the logs of the run (or, for `validate --load` and the contract checks, of the `Runtime`) that loaded it last ([runtime-services.md](runtime-services.md#loading)). | `provider.loaded` (once per process, with `library_sha256`) |
 
 Records go to standard error, without colors, unless `RuntimeOptions::logging.to_stderr` is false;
 and, when a log file is set, also to that file, which is appended to, created with its parent
@@ -169,7 +170,10 @@ every message that goes into or comes out of a step to `trace/messages.jsonl`:
   lines already written. The run record's `execution.trace` gives the file, its SHA-256 and the
   number of envelopes in it.
 - Without an output directory no trace is written, and a warning (event `trace.skipped`) says so.
-- Runtime-service lookups are not traced; they are logged (event `service.lookup`).
+- Runtime-service lookups are not traced; they are logged (event `service.lookup`, debug, on the
+  step's logger), whether the service is a provider's or built in. Which provider serves each
+  service of a run is recorded in the run record's reproducibility section (`services`), not in the
+  logs ([reproducibility.md](reproducibility.md#run-fingerprint)).
 
 ## Debug aids
 

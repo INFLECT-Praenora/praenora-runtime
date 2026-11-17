@@ -1,6 +1,7 @@
 # Praenora Module Protocol (PMP)
 
-- **Version:** PMP 0.1.0, with document formats 0.1.0
+- **Version:** PMP 0.1.0, with document formats 0.2.0 (`module-manifest`, `run-record`) and 0.1.0
+  (every other kind)
 - **Status:** Normative, MVP. The decisions behind it are Proposed unless the linked ADR says
   otherwise.
 - **Requirement keywords:** MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are used as described in
@@ -51,7 +52,8 @@ used ([ADR-0008](../adr/ADR-0008-json-schema-draft-07-embedded-schemas.md)):
 | [`capability-definition.0.1.schema.json`](../../spec/schemas/capability-definition.0.1.schema.json) | `capability-definition` | `format_version` | A catalog entry: the typed ports of a capability. | [workflow-definitions.md](workflow-definitions.md) |
 | [`message-type.0.1.schema.json`](../../spec/schemas/message-type.0.1.schema.json) | `message-type` | `format_version` | A catalog entry: a message type and the schema of its data. | [Catalog](#catalog) |
 | [`module-check-report.0.1.schema.json`](../../spec/schemas/module-check-report.0.1.schema.json) | `module-check-report` | `format_version` | The result of the contract checks (`praenora modules check`). | [ADR-0024](../adr/ADR-0024-contract-checks-and-test-vectors.md) |
-| [`module-manifest.0.1.schema.json`](../../spec/schemas/module-manifest.0.1.schema.json) | `module-manifest` | `format_version` | A module manifest (PMM). | [manifest.md](manifest.md) |
+| [`module-manifest.0.1.schema.json`](../../spec/schemas/module-manifest.0.1.schema.json) | `module-manifest` | `format_version` | A module manifest (PMM) of format 0.1.x, read but no longer written. | [manifest.md](manifest.md) |
+| [`module-manifest.0.2.schema.json`](../../spec/schemas/module-manifest.0.2.schema.json) | `module-manifest` | `format_version` | A module manifest (PMM) of format 0.2.x: the runtime services it requires or can use (`requires`). | [manifest.md](manifest.md) |
 | [`module-test-vectors.0.1.schema.json`](../../spec/schemas/module-test-vectors.0.1.schema.json) | `module-test-vectors` | `format_version` | A module's inputs and expected outputs for the contract checks. | [ADR-0024](../adr/ADR-0024-contract-checks-and-test-vectors.md) |
 | [`pmp-create.0.1.schema.json`](../../spec/schemas/pmp-create.0.1.schema.json) | `pmp-create` | `pmp_version` | The create document. | [Create document](#create-document) |
 | [`pmp-describe.0.1.schema.json`](../../spec/schemas/pmp-describe.0.1.schema.json) | `pmp-describe` | `pmp_version` (the module's) | The identity a module reports through `describe()`. | [Describe document](#describe-document) |
@@ -60,7 +62,9 @@ used ([ADR-0008](../adr/ADR-0008-json-schema-draft-07-embedded-schemas.md)):
 | [`pmp-initialize.0.1.schema.json`](../../spec/schemas/pmp-initialize.0.1.schema.json) | `pmp-initialize` | `pmp_version` | The initialize document. | [Initialize document](#initialize-document) |
 | [`pmp-invocation.0.1.schema.json`](../../spec/schemas/pmp-invocation.0.1.schema.json) | `pmp-invocation` | `pmp_version` | The invocation document of one tick. | [Invocation document](#invocation-document) |
 | [`pmp-result.0.1.schema.json`](../../spec/schemas/pmp-result.0.1.schema.json) | `pmp-result` | `pmp_version` (optional) | The result document of one invocation. | [Result document](#result-document) |
-| [`run-record.0.1.schema.json`](../../spec/schemas/run-record.0.1.schema.json) | `run-record` | `format_version` | The record of one run. | [reproducibility.md](reproducibility.md) |
+| [`provider-manifest.0.1.schema.json`](../../spec/schemas/provider-manifest.0.1.schema.json) | `provider-manifest` | `format_version` | A service provider's manifest. | [runtime-services.md](runtime-services.md#provider-manifest) |
+| [`run-record.0.1.schema.json`](../../spec/schemas/run-record.0.1.schema.json) | `run-record` | `format_version` | The record of one run, format 0.1.x (written by runtime 0.1). | [reproducibility.md](reproducibility.md) |
+| [`run-record.0.2.schema.json`](../../spec/schemas/run-record.0.2.schema.json) | `run-record` | `format_version` | The record of one run, format 0.2.x: with the services of the run. | [reproducibility.md](reproducibility.md) |
 | [`status-snapshot.0.1.schema.json`](../../spec/schemas/status-snapshot.0.1.schema.json) | `status-snapshot` | `format_version` | The status of a run at one moment. | [observability.md](observability.md) |
 | [`workflow-config.0.1.schema.json`](../../spec/schemas/workflow-config.0.1.schema.json) | `workflow-config` | `format_version` | A workflow configuration (YAML or JSON). | [ADR-0010](../adr/ADR-0010-workflow-definitions-as-catalog-data.md) |
 | [`workflow-definition.0.1.schema.json`](../../spec/schemas/workflow-definition.0.1.schema.json) | `workflow-definition` | `format_version` | A catalog entry: a workflow definition. | [workflow-definitions.md](workflow-definitions.md) |

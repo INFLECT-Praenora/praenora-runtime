@@ -19,7 +19,8 @@ import unittest
 import praenora.runtime as pr
 import support
 from support import (BAD_PARAMETERS_CONFIG, EXAMPLE_CONFIG, EXAMPLE_MODULES, FIXTURE_PATHS,
-                     FIXTURES, TEST_CATALOG, TEST_MODULES, needs_examples)
+                     FIXTURES, SERVICE_CONFIG, TEST_CATALOG, TEST_ECHO_PROVIDER, TEST_MODULES,
+                     needs_examples)
 
 # How long a thread waits for the run it watches before it gives up.
 PATIENCE_S = 60
@@ -218,6 +219,30 @@ class FixtureWorkflowTest(WorkflowTestCase):
         self.assertEqual(record["execution"]["ticks_completed"], 2)
 
 
+class ServiceWorkflowTest(WorkflowTestCase):
+    def test_provider_paths(self):
+        # fx-service requires test.echo@0: without its provider the configuration is invalid.
+        with self.assertRaises(pr.PraenoraError) as caught:
+            pr.Workflow(SERVICE_CONFIG, **FIXTURE_PATHS)
+        error = caught.exception
+        self.assertEqual((error.name, error.code), ("SERVICE_UNAVAILABLE", 407))
+        self.assertEqual(error.details["diagnostics"][0]["details"]["service"], "test.echo")
+        with self.assertRaises(TypeError):
+            pr.Workflow(SERVICE_CONFIG, provider_paths=TEST_ECHO_PROVIDER, **FIXTURE_PATHS)
+
+        # With test-echo on a provider path, the run echoes its input through the service, and
+        # its run record names the service and its provider.
+        with pr.Workflow(SERVICE_CONFIG, provider_paths=[TEST_ECHO_PROVIDER],
+                         **FIXTURE_PATHS) as workflow:
+            self.assertEqual(workflow.run()["state"], "completed")
+            self.assertEqual(workflow.latest_outputs()["result"]["data"],
+                             {"echo": {"value": 42}, "found": {"test.echo@0": True}})
+            reproducibility = workflow.run_record()["reproducibility"]
+        service = reproducibility["services"]["test.echo@0"]
+        self.assertEqual((service["provider"]["name"], service["minor"]), ("test-echo", 0))
+        self.assertEqual(reproducibility["steps"]["a"]["services"], ["test.echo@0"])
+
+
 class WorkflowErrorTest(WorkflowTestCase):
     def test_invalid_options_raise(self):
         config = write_config(self.directory, "test.single", "run: { ticks: 1 }\n",
@@ -235,7 +260,8 @@ class WorkflowErrorTest(WorkflowTestCase):
         # The facade refuses what the Python layer never sends: an unknown option, a document
         # that is not a JSON object.
         prefix = "PRAENORA_ERROR_JSON:"
-        for options in ({**FIXTURE_PATHS, "colour": "blue"}, [1, 2]):
+        for options in ({**FIXTURE_PATHS, "colour": "blue"}, [1, 2],
+                        {**FIXTURE_PATHS, "provider_paths": TEST_ECHO_PROVIDER}):
             with self.subTest(options=options):
                 with self.assertRaises(RuntimeError) as caught:
                     pr._bindings.WorkflowHandle(str(config), json.dumps(options))

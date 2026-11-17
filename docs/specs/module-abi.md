@@ -225,11 +225,28 @@ exists; the callbacks are thread-safe and never throw or `longjmp`.
 | `cancel_requested` | Nonzero while the call in flight has passed its deadline or had a stop requested; zero at the start of every call. A module SHOULD poll it in long computations and then return `PRAENORA_STATUS_CANCELLED` ([time-cancellation-timeouts.md](time-cancellation-timeouts.md)). |
 | `get_service` | The function table of a runtime service, a struct that starts with `praenora_api_header`, for a name and a major version; NULL when the service is not available. |
 
-The runtime of this version registers no production services, so `get_service` returns NULL for every
-name; tests register a test-only service. Each lookup is logged at debug level (event
-`service.lookup`). Once an instance is unresponsive, or kept after another instance of its library
-became unresponsive, `get_service` returns NULL. Planned services are described in
-[ADR-0021](../adr/ADR-0021-runtime-services-through-host-api.md).
+Runtime services come from service providers, separately built libraries that the runtime loads
+when a run needs them ([runtime-services.md](runtime-services.md)). `get_service` returns, in this
+order:
+
+1. a provider service that the module's manifest declares in `requires.services` (module manifest
+   format 0.2; [manifest.md](manifest.md#fields)) and that resolved for the run, required or
+   optional;
+2. a service built into the runtime, whatever the manifest declares; this version has no
+   production one, and tests register test-only services;
+3. NULL for everything else, including a provider service that the manifest does not declare, even
+   when the run loaded its provider for another step, and every provider service when the manifest
+   has format 0.1.
+
+The rules are those of [runtime-services.md](runtime-services.md#visibility). Each lookup is logged
+at debug level (event `service.lookup`). Once an instance is unresponsive, or kept after another
+instance of its library became unresponsive, `get_service` returns NULL for every service. A
+service's table, and what the module does with it, follow the service's own specification (for
+`praenora.simulation@0`, [simulation-service.md](simulation-service.md), with the table in the
+SDK's [`simulation.h`](../../include/praenora/sdk/simulation.h)); provider tables live until the
+process ends
+([ADR-0021](../adr/ADR-0021-runtime-services-through-host-api.md),
+[ADR-0026](../adr/ADR-0026-runtime-service-providers.md)).
 
 ## Sinks
 
@@ -290,8 +307,10 @@ module derives from `praenora::sdk::Module` and expands `PRAENORA_SDK_DEFINE_MOD
 once, which defines the entry point and a static table. Its functions catch every exception
 (`praenora::sdk::Error` becomes its code, `std::bad_alloc` `RESOURCE_EXHAUSTED`, anything else
 `INTERNAL`), write outputs in 4096-byte pieces, build `describe()` from the identity macros that
-`praenora_add_module()` defines, and parse no JSON. [`testing.hpp`](../../include/praenora/sdk/testing.hpp)
-drives a module's table in process with a fake host. Details are in
+`praenora_add_module()` defines, and parse no JSON. Its `Host` wraps the host API, and
+`Host::api()` gives the host API itself for service functions that take it.
+[`testing.hpp`](../../include/praenora/sdk/testing.hpp) drives a module's table in process with a
+fake host. Details are in
 [ADR-0004](../adr/ADR-0004-lifecycle-functions-and-documents.md) and
 [ADR-0024](../adr/ADR-0024-contract-checks-and-test-vectors.md); building a module with
 [`PraenoraModule.cmake`](../../cmake/PraenoraModule.cmake) is described in [manifest.md](manifest.md).

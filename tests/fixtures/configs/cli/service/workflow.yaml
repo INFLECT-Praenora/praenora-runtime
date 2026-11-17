@@ -1,0 +1,14 @@
+# fx-service requires the runtime service test.echo@0, which the fixture provider test-echo
+# serves: without a provider of it, validation fails with SERVICE_UNAVAILABLE (exit code 3); with
+# test-echo on a provider search path, the run echoes its input through the service (CLI tests
+# cli.validate.service_unavailable, cli.run.provider_path and others; Python tests).
+kind: workflow-config
+format_version: "0.1.0"
+workflow: { name: test.single, version: "0.1.0" }
+run: { ticks: 1 }
+inputs:
+  source: { source: json-document, path: ../source.json }
+steps:
+  a:
+    module: { name: fx-service, version: "0.1.0" }
+    parameters: { require_echo: true }

@@ -1,6 +1,6 @@
 # Time, cancellation and timeouts
 
-- **Version:** runtime 0.1.0, ABI 0.0 and the `workflow-config` format 0.1.0
+- **Version:** runtime 0.2.0, ABI 0.0 and the `workflow-config` format 0.1.0
 - **Status:** Normative, MVP. Proposed ([ADR-0012](../adr/ADR-0012-time-timeouts-and-cancellation.md)).
 - **Requirement keywords:** MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are used as described in
   [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119).

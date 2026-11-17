@@ -33,6 +33,7 @@ const std::vector<Flag>& global_flags() {
         {"--help"},
         {"-h"},
         {"--module-path", true, true},
+        {"--provider-path", true, true},
         {"--catalog-path", true, true},
         {"--log-level", true},
         {"--log-format", true},
@@ -143,6 +144,7 @@ GlobalOptions global_options(const Arguments& arguments) {
     options.json = arguments.has("--json");
     options.help = arguments.has("--help") || arguments.has("-h");
     options.module_paths = arguments.values("--module-path");
+    options.provider_paths = arguments.values("--provider-path");
     options.catalog_paths = arguments.values("--catalog-path");
     if (const auto value = arguments.value("--log-level")) {
         options.log_level = frontend::log_level_from_name(*value);
@@ -171,6 +173,7 @@ RuntimeOptions runtime_options(const GlobalOptions& options) {
     }
     RuntimeOptions runtime;
     runtime.module_paths = options.module_paths;
+    runtime.provider_paths = options.provider_paths;
     runtime.catalog_paths = options.catalog_paths;
     runtime.use_environment = true;
     if (options.log_file) {

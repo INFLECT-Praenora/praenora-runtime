@@ -24,6 +24,7 @@ with `find_package` in CONFIG mode:
 | GoogleTest | 1.11 | the tests |
 | SWIG | 4.0 | the Python bindings |
 | Python, with its headers | 3.10 | the Python bindings |
+| libRoadRunner (C++, `roadrunner-static`) and the LLVM it was built with | 2.11 | the roadrunner provider, with `PRAENORA_WITH_ROADRUNNER` only ([platforms.md](platforms.md#the-roadrunner-provider)) |
 
 The third-party libraries link privately into the runtime, so neither the installed headers nor the
 installed CMake package mention them. The commands that install them on each platform are in
@@ -110,6 +111,8 @@ Options are cache variables, set in a preset or on the configure line
 | `PRAENORA_INSTALL_EXAMPLES` | OFF | Install the example modules with every installation. |
 | `PRAENORA_WARNINGS_AS_ERRORS` | OFF | Turn compiler warnings into errors. |
 | `PRAENORA_SANITIZERS` | empty | `address;undefined` or `thread`, for GCC and Clang. |
+| `PRAENORA_WITH_ROADRUNNER` | OFF | The roadrunner service provider ([below](#the-roadrunner-provider)). |
+| `LLVM_INSTALL_PREFIX` | empty | With `PRAENORA_WITH_ROADRUNNER`: the LLVM that libRoadRunner was built with. |
 | `CMAKE_OSX_DEPLOYMENT_TARGET` | 11.0 | The oldest macOS the build runs on. |
 
 `BUILD_SHARED_LIBS` is never read: the runtime is always a shared library and modules are always
@@ -128,6 +131,8 @@ The build tree holds:
 | `build/<preset>/lib/` | The runtime library. |
 | `build/<preset>/modules/<name>/` | The example modules: library, manifest and test vectors. |
 | `build/<preset>/test-modules/<name>/` | The fixture modules of the tests. |
+| `build/<preset>/test-providers/<name>/` | The fixture service providers of the tests. |
+| `build/<preset>/lib/praenora/providers/roadrunner/` | The roadrunner provider, with `PRAENORA_WITH_ROADRUNNER`: where the build tree's runtime looks for the providers of its installation. |
 | `build/<preset>/python/` | The importable Python package, with `PRAENORA_BUILD_PYTHON`. |
 | `build/<preset>/include/` | Generated headers: `praenora/runtime/export.h`, `praenora/sdk/version.h`. |
 
@@ -138,6 +143,48 @@ An installation goes elsewhere with `--prefix`; the example modules come with th
 cmake --install build/dev --prefix "${TMPDIR:-/tmp}/praenora-install"
 cmake --install build/dev --prefix "${TMPDIR:-/tmp}/praenora-install" --component Examples
 ```
+
+### The roadrunner provider
+
+The service provider `roadrunner`
+([specs/simulation-service.md](specs/simulation-service.md#the-roadrunner-provider)) is built with
+`PRAENORA_WITH_ROADRUNNER=ON`, from an installed libRoadRunner 2.11 and the LLVM it was built with;
+[platforms.md](platforms.md#the-roadrunner-provider) says what to install and how CMake finds it.
+Keep it in presets of its own, so the `dev` presets stay as they are: in `CMakeUserPresets.json`, a
+hidden `dev-roadrunner-local` preset with the prefixes, and presets that inherit it before
+`dev-local`:
+
+```json
+{
+  "name": "dev-roadrunner",
+  "displayName": "Local development with the roadrunner provider, Debug",
+  "inherits": ["macos-arm64-debug", "dev-roadrunner-local", "dev-local"]
+},
+{
+  "name": "dev-roadrunner-tsan",
+  "displayName": "Local development with the roadrunner provider, ThreadSanitizer",
+  "inherits": ["macos-arm64-tsan", "dev-roadrunner-local", "dev-local"]
+}
+```
+
+with build and test presets of the same names. The `CMAKE_PREFIX_PATH` of `dev-roadrunner-local`
+replaces the one of `dev-local`, so it lists the other dependency prefixes too, and the macOS
+deployment target must be at least 14.0. Then:
+
+```bash
+cmake --preset dev-roadrunner
+cmake --build --preset dev-roadrunner
+ctest --preset dev-roadrunner
+./build/dev-roadrunner/bin/praenora providers list
+```
+
+The build tree's tool lists `roadrunner` without a provider path. The tests add the service checks
+against the provider, its own tests (`RoadrunnerProvider.*`) and the tests of its library file
+(`providers.roadrunner.*`); [testing.md](testing.md#the-roadrunner-provider) lists them. The
+provider links libRoadRunner statically, so the first build links for a while longer, and its
+tests load a large library in each test process. Configuring a tree without the option removes the
+provider that an earlier configuration of that tree built into it, so the tree's runtime no longer
+finds it.
 
 ## Debugging modules
 

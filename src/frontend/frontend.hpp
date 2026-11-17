@@ -1,9 +1,9 @@
 // What the two front ends of the runtime, the praenora tool (src/cli) and the Python extension
 // (src/python), share so that they report the same documents and failures: the JSON of a module,
-// of a catalog entry and of a run's summary, the failure of a validation and of the contract
-// checks, the catalog kinds and graph formats by the names that they take, the names of the log
-// levels and formats, and the limit of seeds and tick counts. Header-only and internal: the target
-// praenora_frontend is neither installed nor exported.
+// of a service provider, of a catalog entry and of a run's summary, the failure of a validation
+// and of the contract checks, the catalog kinds and graph formats by the names that they take, the
+// names of the log levels and formats, and the limit of seeds and tick counts. Header-only and
+// internal: the target praenora_frontend is neither installed nor exported.
 #ifndef PRAENORA_FRONTEND_FRONTEND_HPP
 #define PRAENORA_FRONTEND_FRONTEND_HPP
 
@@ -14,11 +14,14 @@
 
 #include <nlohmann/json.hpp>
 
+#include <charconv>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <utility>
 
 namespace praenora::frontend {
@@ -36,6 +39,58 @@ inline nlohmann::json module_json(const ModuleInfo& module) {
     if (!module.describe_json.empty()) {
         item["describe"] = nlohmann::json::parse(module.describe_json);
         item["library_sha256"] = module.library_sha256;
+    }
+    return item;
+}
+
+// A service as a provider offers it, "<name>@<major>.<minor>" (ProviderInfo::services), as
+// {"name", "major", "minor"}. Throws std::invalid_argument for text of another form.
+inline nlohmann::json service_json(std::string_view service) {
+    const auto malformed = [service] {
+        return std::invalid_argument("'" + std::string(service) +
+                                     "' is not a service as <name>@<major>.<minor>");
+    };
+    const std::size_t at = service.find('@');
+    if (at == 0 || at == std::string_view::npos) {
+        throw malformed();
+    }
+    const std::size_t dot = service.find('.', at);
+    if (dot == std::string_view::npos) {
+        throw malformed();
+    }
+    // The decimal number service[begin, end), which fits in 32 bits.
+    const auto number = [&](std::size_t begin, std::size_t end) {
+        std::uint32_t value = 0;
+        const char* last = service.data() + end;
+        const auto [next, error] = std::from_chars(service.data() + begin, last, value);
+        if (begin == end || error != std::errc() || next != last) {
+            throw malformed();
+        }
+        return value;
+    };
+    return {{"name", std::string(service.substr(0, at))},
+            {"major", number(at + 1, dot)},
+            {"minor", number(dot + 1, service.size())}};
+}
+
+// A service provider: {"name", "version", "manifest", "library", "platform": {"os", "arch"},
+// "services": [{"name", "major", "minor"}], "engine", "usable"} and, when it is not usable,
+// "problem" (why not).
+inline nlohmann::json provider_json(const ProviderInfo& provider) {
+    nlohmann::json services = nlohmann::json::array();
+    for (const std::string& service : provider.services) {
+        services.push_back(service_json(service));
+    }
+    nlohmann::json item = {{"name", provider.name},
+                           {"version", provider.version},
+                           {"manifest", provider.manifest_path},
+                           {"library", provider.library_path},
+                           {"platform", {{"os", provider.os}, {"arch", provider.arch}}},
+                           {"services", std::move(services)},
+                           {"engine", nlohmann::json::parse(provider.engine_json)},
+                           {"usable", provider.usable}};
+    if (!provider.usable) {
+        item["problem"] = provider.problem;
     }
     return item;
 }

@@ -31,8 +31,8 @@ struct Flag {
     bool repeatable = false;
 };
 
-// The flags every command accepts: --json, --module-path P, --catalog-path P (both repeatable),
-// --log-level L, --log-format F, --log-file F and --help (or -h).
+// The flags every command accepts: --json, --module-path P, --provider-path P, --catalog-path P
+// (the three repeatable), --log-level L, --log-format F, --log-file F and --help (or -h).
 const std::vector<Flag>& global_flags();
 
 // One command's arguments, parsed against its own flags and the global flags. Flags may come
@@ -68,7 +68,7 @@ bool asks_for_json(const std::vector<std::string>& args);
 struct GlobalOptions {
     bool json = false;
     bool help = false;
-    std::vector<std::string> module_paths, catalog_paths;
+    std::vector<std::string> module_paths, provider_paths, catalog_paths;
     std::optional<LogLevel> log_level;
     std::optional<LogFormat> log_format;
     std::optional<std::string> log_file;
@@ -78,12 +78,12 @@ struct GlobalOptions {
 // or off, --log-format text or json, in any case; anything else is a UsageError.
 GlobalOptions global_options(const Arguments& arguments);
 
-// The runtime options of a command: its module and catalog paths, the PRAENORA_* environment
-// variables honored, and --log-file as the runtime's log file. Before it returns, it writes the
-// --log-level and --log-format given, by their canonical names, into the process's environment
-// (PRAENORA_LOG_LEVEL, PRAENORA_LOG_FORMAT), which a Runtime reads when it is constructed, so
-// that they win over the environment's own values for the runtime's logging too. Call it before
-// constructing the Runtime and before any thread starts.
+// The runtime options of a command: its module, provider and catalog paths, the PRAENORA_*
+// environment variables honored, and --log-file as the runtime's log file. Before it returns, it
+// writes the --log-level and --log-format given, by their canonical names, into the process's
+// environment (PRAENORA_LOG_LEVEL, PRAENORA_LOG_FORMAT), which a Runtime reads when it is
+// constructed, so that they win over the environment's own values for the runtime's logging too.
+// Call it before constructing the Runtime and before any thread starts.
 RuntimeOptions runtime_options(const GlobalOptions& options);
 
 // A decimal integer from 0 to `max`; otherwise UsageError naming `flag`.

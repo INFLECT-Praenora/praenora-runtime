@@ -2,9 +2,9 @@
 
 #include "core/paths.hpp"
 #include "core/semver.hpp"
-#include "core/sha256.hpp"
 #include "document/json_util.hpp"
 #include "document/schema_registry.hpp"
+#include "loader/library_file.hpp"
 #include "loader/output_sink.hpp"
 #include "platform/platform.hpp"
 
@@ -17,13 +17,10 @@
 #include <cstring>
 #include <optional>
 #include <string>
-#include <system_error>
 #include <utility>
 #include <vector>
 
 namespace praenora::detail {
-
-namespace fs = std::filesystem;
 
 namespace {
 
@@ -31,29 +28,9 @@ namespace {
 constexpr std::size_t kMaxDescribeBytes = std::size_t{1} << 20;
 
 // Raises errors about one manifest's module, located in the manifest.
-class Failure {
-public:
-    explicit Failure(const ModuleManifest& manifest)
-        : module_(manifest.name + "@" + to_string(manifest.version)),
-          file_(path_to_utf8(manifest.manifest_path)) {}
-
-    [[noreturn]] void operator()(ErrorCode code, const std::string& message,
-                                 const std::string& pointer = "",
-                                 std::string details_json = "{}") const {
-        SourceLocation location;
-        location.file = file_;
-        location.pointer = pointer;
-        throw Error(code, "module " + module_ + ": " + message, std::move(location),
-                    std::move(details_json));
-    }
-
-private:
-    std::string module_;
-    std::string file_;
-};
-
-std::string status_text(praenora_status status) {
-    return std::to_string(status) + " (" + praenora_status_name(status) + ")";
+LocatedFailure module_failure(const ModuleManifest& manifest) {
+    return LocatedFailure("module " + manifest.name + "@" + to_string(manifest.version),
+                          manifest.manifest_path);
 }
 
 // The names of the required v0 functions that `api` lacks.
@@ -111,7 +88,7 @@ bool same_capabilities(const std::vector<CapabilityRef>& a, const std::vector<Ca
 }
 
 // Runs describe() and checks its document against the pmp-describe schema.
-nlohmann::json describe_document(const praenora_module_api_v0& api, const Failure& fail) {
+nlohmann::json describe_document(const praenora_module_api_v0& api, const LocatedFailure& fail) {
     OutputSink out(kMaxDescribeBytes);
     const praenora_status status = api.describe(out.sink());
     if (status != PRAENORA_STATUS_OK) {
@@ -148,7 +125,8 @@ nlohmann::json describe_document(const praenora_module_api_v0& api, const Failur
 
 // A version describe() reports. The schema's pattern admits numbers that do not fit in 64 bits,
 // which cannot be compared: such a describe() gives no usable identity either.
-SemVer describe_version(const std::string& text, const std::string& what, const Failure& fail) {
+SemVer describe_version(const std::string& text, const std::string& what,
+                        const LocatedFailure& fail) {
     try {
         return parse_semver(text);
     } catch (const Error& error) {
@@ -160,7 +138,7 @@ SemVer describe_version(const std::string& text, const std::string& what, const 
 
 // Compares describe()'s identity with the manifest's.
 void check_identity(const ModuleManifest& manifest, const nlohmann::json& describe,
-                    const Failure& fail) {
+                    const LocatedFailure& fail) {
     std::vector<std::string> differences;
     nlohmann::json details = nlohmann::json::array();
     const auto differ = [&](const char* field, const std::string& in_manifest,
@@ -211,29 +189,13 @@ LoadedModule::LoadedModule(ModuleManifest manifest, SharedLibrary library,
       describe_(std::move(describe)), library_sha256_(std::move(library_sha256)) {}
 
 std::string check_library_file(const ModuleManifest& manifest) {
-    const Failure fail(manifest);
-    const std::string library_file = path_to_utf8(manifest.library_path);
-    std::error_code ec;
-    if (!fs::is_regular_file(manifest.library_path, ec)) {
-        fail(ErrorCode::LIBRARY_NOT_FOUND,
-             "the module library '" + library_file + "' does not exist or is not a file",
-             "/library/path");
-    }
-    std::string digest;
-    try {
-        digest = sha256_file_hex(manifest.library_path);
-    } catch (const Error& error) {
-        // Unreadable (for example no permission): located like the other library errors.
-        fail(error.code(), "cannot hash the module library: " + std::string(error.what()),
-             "/library/path", error.details_json());
-    }
-    if (manifest.library_sha256 && *manifest.library_sha256 != digest) {
-        fail(ErrorCode::LIBRARY_DIGEST_MISMATCH,
-             "the module library '" + library_file + "' has SHA-256 " + digest +
-                 ", but the manifest requires " + *manifest.library_sha256,
-             "/library/sha256");
-    }
-    return digest;
+    LibraryFile file;
+    file.owner = "module " + manifest.name + "@" + to_string(manifest.version);
+    file.kind = "module";
+    file.manifest_path = manifest.manifest_path;
+    file.library_path = manifest.library_path;
+    file.pinned_sha256 = manifest.library_sha256;
+    return check_library_file(file);
 }
 
 praenora_module_api_v0 copy_module_table(const praenora_api_header& header) noexcept {
@@ -258,7 +220,7 @@ std::shared_ptr<LoadedModule> LoadedModule::load(const ModuleManifest& manifest)
 }
 
 std::shared_ptr<LoadedModule> LoadedModule::load(const ModuleManifest& manifest, Check* reached) {
-    const Failure fail(manifest);
+    const LocatedFailure fail = module_failure(manifest);
     const std::string library_file = path_to_utf8(manifest.library_path);
     const auto reach = [reached](Check check) {
         if (reached != nullptr) {

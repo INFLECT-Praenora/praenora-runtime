@@ -7,6 +7,8 @@
 #include "document/schema_registry.hpp"
 #include "engine/envelope.hpp"
 #include "engine/result_check.hpp"
+#include "loader/library_file.hpp"
+#include "provider/provider_loader.hpp"
 
 #include <praenora/sdk/status.h>
 
@@ -41,14 +43,6 @@ std::string identity(const std::string& name, const SemVer& version) {
 }
 
 std::string quoted(const std::string& text) { return "'" + text + "'"; }
-
-// "status 11 (FAILED)", or "module status 10001" for a module's own code.
-std::string status_text(praenora_status status) {
-    if (status >= PRAENORA_STATUS_MODULE_BASE) {
-        return "module status " + std::to_string(status);
-    }
-    return "status " + std::to_string(status) + " (" + praenora_status_name(status) + ")";
-}
 
 // The module's error document of a call that failed: the JSON object it wrote (its code and
 // message filled in from the call when missing), or {"code", "message"} made of its text.
@@ -292,6 +286,11 @@ void Engine::start_run() {
         {{"event", "run.started"},
          {"workflow", identity(workflow_.definition->name, workflow_.definition->version)}});
     open_output(started_at);
+    if (stop_flag_.load()) {
+        stop_run(std::nullopt); // a run stopped before it started loads no provider either
+        return;
+    }
+    load_providers();
     for (Step& step : steps_) {
         if (!start_step(step)) {
             return; // stopped
@@ -301,6 +300,22 @@ void Engine::start_run() {
     update_end_reached();
     if (end_reached_.load()) {
         complete_run(); // a run of no ticks
+    }
+}
+
+void Engine::load_providers() {
+    for (const ProviderLoad& load : provider_loads(workflow_)) {
+        const LoadedProvider* provider = nullptr;
+        try {
+            provider =
+                &load_provider(*load.provider, load.services, load.library_sha256, settings_.logs);
+        } catch (const Error& error) {
+            throw fail(error, Failure{nullptr, nullptr});
+        }
+        for (std::size_t i = 0; i < load.services.size(); ++i) {
+            const ServiceVersion& service = load.services[i];
+            provider_tables_[load.keys[i]] = provider->service(service.name, service.major);
+        }
     }
 }
 
@@ -387,6 +402,10 @@ bool Engine::start_step(Step& step) {
     options.cancel_grace = resolved.timeouts.cancel_grace;
     options.logger = step.logger;
     options.services = settings_.services;
+    for (const std::string& key : resolved.services) {
+        const ServiceVersion& service = workflow_.services.at(key).service;
+        options.provider_services.add(service.name, service.major, provider_tables_.at(key));
+    }
     options.run_fingerprint = workflow_.fingerprint;
     options.stop_flag = &stop_flag_;
     step.instance = std::make_unique<ModuleInstance>(module->second, std::move(options));
@@ -456,7 +475,7 @@ Error Engine::call_error(const Step& step, const char* phase, const CallResult& 
     case CallOutcome::cancelled:
         break;
     }
-    return Error(ErrorCode::STEP_FAILED, who + " failed" + when + " with " +
+    return Error(ErrorCode::STEP_FAILED, who + " failed" + when + " with status " +
                                              status_text(result.status) + ": " +
                                              cause_of(result).at("message").get<std::string>());
 }

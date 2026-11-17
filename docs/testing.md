@@ -49,13 +49,13 @@ themselves.
 |---|---|---|
 | `unit` | Runtime internals, white-box: documents and YAML, canonical JSON, SHA-256, versions, durations, seeds, CSV and other input sources, configuration, logging, metrics, health, status files, run records, the error table against `status.h`, and the SDK's headers, adapter and test kit. | `praenora_unit_tests` |
 | `protocol` | Every schema and catalog entry, valid and invalid documents per kind, graph validation and schedules, graph export, and the committed AsyncAPI documents. | `praenora_protocol_tests` |
-| `contract` | Manifests and discovery, the loader, module instances, the engine and the contract checks, through the real loader and the fixture modules. | `praenora_contract_tests` |
-| `negative` | What must be refused: bad manifests, configurations and graphs, incompatible modules, failing validations, each with its code and location. | `praenora_negative_tests` |
-| `lifecycle` | Call order and cleanup, timeouts, unresponsive modules, cancellation and stop requests. | `praenora_lifecycle_tests` |
+| `contract` | Manifests and discovery, the loader, module instances, the engine and the contract checks, through the real loader and the fixture modules; service providers and runs that use their services, with the fixture providers; the service checks of the simulation service; provider libraries as files: their exported symbols, and the same results in two processes. | `praenora_contract_tests`, `providers.<provider>.exports`, `providers.<provider>.processes` |
+| `negative` | What must be refused: bad manifests, configurations and graphs, incompatible modules, failing validations, services no provider serves, providers that do not load in a run, each with its code and location. | `praenora_negative_tests` |
+| `lifecycle` | Call order and cleanup, timeouts, unresponsive modules, cancellation and stop requests, and the runtime services an instance is served. | `praenora_lifecycle_tests` |
 | `integration` | The public API through the shared library only, and the example workflow end to end: golden outputs, determinism, the fingerprint, files on disk, status queries during a run. | `praenora_integration_tests` |
 | `cli` | The `praenora` tool: every command, exit code, `--json` shape and diagnostics format (`cli.<command>.<case>`, driven by `tests/cli/run_cli.cmake`), and the unit tests of its helpers (`CliTable.*`) and of what it shares with the Python extension (`Frontend.*`, `src/frontend`). | `praenora_cli_tests` and the CLI driver |
 | `python` | The Python package: CLI parity, errors, the context manager, calls from a second thread. One CTest test, `python.unittest`, runs the `unittest` suite of `tests/python`. | `python.unittest` |
-| `install` | An installation into a scratch prefix: its layout, a module and an application built against it, the installed tool, a moved installation, no build or source paths in installed files. | `install.consumer` |
+| `install` | An installation into a scratch prefix: its layout (service providers included), a module and an application built against it, the installed tool, a moved installation, no build or source paths in installed files. | `install.consumer` |
 | `perf` | The performance probe `praenora_perf`: 2000 ticks of a four-step chain of no-op modules, with and without payload validation. It prints a JSON report and fails only when the probe fails, never on timings. | `perf.validation_strict`, `perf.validation_off` |
 | `docs` | The documentation against the source tree: every error code in the error taxonomy, every schema file in the protocol specification, every ADR in its index, every relative link resolving, the open-questions register complete. | `docs.consistency` |
 
@@ -63,11 +63,11 @@ The suites of the GoogleTest labels name the components they test:
 
 | Label | Suites |
 |---|---|
-| `unit` | `Adapter`, `Config`, `Csv`, `Duration`, `Error`, `ErrorTaxonomy`, `Fingerprint`, `Health`, `Json`, `JsonDocument`, `JsonNear`, `Locale`, `Logging`, `Metrics`, `MetricsJson`, `ObservationCsv`, `OutputDir`, `OutputRecorder`, `Paths`, `Resources`, `RunRecord`, `RuntimeContext`, `Schema`, `SchemaRegistry`, `SdkAbi`, `Seed`, `SemVer`, `Sha256`, `StatusFile`, `StatusJson`, `StatusNames`, `TestKit`, `Time`, `TraceWriter`, `ValidationReport`, `Version`, `Yaml` |
+| `unit` | `Adapter`, `Config`, `Csv`, `Duration`, `Error`, `ErrorTaxonomy`, `Fingerprint`, `Health`, `Json`, `JsonDocument`, `JsonNear`, `Locale`, `Logging`, `Metrics`, `MetricsJson`, `ObservationCsv`, `OutputDir`, `OutputRecorder`, `Paths`, `ProviderAbi`, `Resources`, `RunRecord`, `RuntimeContext`, `Schema`, `SchemaRegistry`, `SdkAbi`, `Seed`, `SemVer`, `Sha256`, `SimulationAbi`, `StatusFile`, `StatusJson`, `StatusNames`, `TestKit`, `Time`, `TraceWriter`, `ValidationReport`, `Version`, `Yaml` |
 | `protocol` | `Catalog`, `Graph`, `GraphExport`, `Schemas` |
-| `contract` | `Discovery`, `Engine`, `Envelope`, `Instance`, `Loader`, `Manifest`, `ModuleCheck`, `Services` |
-| `negative` | `Compat`, `Config`, `ConfigBadFixtures`, `Graph`, `Manifest`, `Validation` |
-| `lifecycle` | `Cancel`, `Lifecycle`, `Timeout` |
+| `contract` | `Discovery`, `Engine`, `Envelope`, `Instance`, `Loader`, `Manifest`, `ModuleCheck`, `ProviderDiscovery`, `ProviderIndex`, `ProviderLoader`, `ProviderManifest`, `ServiceRun`, `Services`, the parameterized `SimulationService` (the service checks: `<Provider>/SimulationService.<Check>/<ParameterSet>`), and, with the roadrunner provider, `RoadrunnerProvider` |
+| `negative` | `Compat`, `Config`, `ConfigBadFixtures`, `Graph`, `Manifest`, `ProviderLoadFailure`, `ProviderManifest`, `ServiceValidation`, `Validation` |
+| `lifecycle` | `Cancel`, `Lifecycle`, `ServiceVisibility`, `Timeout` |
 | `integration` | `Api`, `Example` |
 | `cli` | `CliTable`, `Frontend` (beside the `cli.<command>.<case>` driver tests, which are not GoogleTest) |
 
@@ -76,6 +76,37 @@ need them: `PRAENORA_BUILD_EXAMPLES=OFF` drops the `Example.*` tests, the CLI te
 workflow and the contract checks of the example modules (and the Python tests that need the example
 modules are skipped), `PRAENORA_BUILD_CLI=OFF` drops the `cli` label, `PRAENORA_BUILD_PYTHON=OFF`
 drops `python.unittest`, and `PRAENORA_INSTALL=OFF` drops `install.consumer`.
+
+### The roadrunner provider
+
+A build with `PRAENORA_WITH_ROADRUNNER`
+([developer-guide.md](developer-guide.md#the-roadrunner-provider)) adds tests of the roadrunner
+provider ([specs/simulation-service.md](specs/simulation-service.md#the-roadrunner-provider)),
+most in the `contract` label:
+
+- the service checks with two SBML models whose solutions are known exactly
+  (`Roadrunner/SimulationService.<Check>/Decay` and `.../TwoCompartments`, from
+  `tests/contract/simulation_service_roadrunner_test.cpp`), which require agreement to a relative
+  1e-9;
+- `RoadrunnerProvider.*` (`tests/contract/roadrunner_provider_test.cpp`): the engine identity, the
+  model texts it refuses (paths, URIs, texts libRoadRunner would read as a path or a URI, document
+  type declarations, required packages, `comp`, a flux-balance model it cannot simulate), SBML
+  Level 1, Level 2 and Level 3 Version 1 (the other models it simulates are Level 3 Version 2), the
+  ids of a model with every kind of rule and of models whose stoichiometry an initial assignment or
+  a `stoichiometryMath` sets, events, delayed events across runs and at the start, simultaneous
+  events, solver settings, the step limit, solver steps (also at the row limit) and cancellation
+  within a run;
+- `providers.roadrunner.exports` and `providers.roadrunner.processes`
+  ([Adding tests](#adding-tests), provider files);
+- `Api.TheBuildTreeRuntimeFindsTheRoadrunnerProvider` (label `integration`); and `install.consumer`
+  checks that the installation holds the provider and that the installed tool lists it, usable.
+
+In such a build the build tree's runtime finds the provider without a provider path, so a test that
+expects no provider of `praenora.simulation@0` there (`cli.providers.list_empty`, part of
+`Api.RunSimulatesThroughTheSimulationService`) is left out or adapted. The SBML models are in
+`tests/fixtures/models/sbml/`. `ctest --preset dev-roadrunner-tsan -L contract` runs the concurrency
+checks under ThreadSanitizer, which sees only the provider's own code: libRoadRunner, LLVM and the
+code they generate are not instrumented.
 
 ## Sanitizer builds
 
@@ -91,8 +122,8 @@ ctest --preset dev-tsan
   the test. So does the first UndefinedBehaviorSanitizer report (`runtime error: ...`): a build
   whose `PRAENORA_SANITIZERS` holds `undefined`, such as `dev-asan`, compiles with
   `-fno-sanitize-recover=undefined`, so the process ends with an error there instead of going on.
-  The CLI, install and perf drivers also fail a command whose output holds any sanitizer report,
-  whatever its exit code.
+  The CLI, install, perf and provider-file drivers also fail a command whose output holds any
+  sanitizer report, whatever its exit code.
 - On macOS, AddressSanitizer test runs set `PRAENORA_DEBUG_KEEP_LIBRARIES=1`, so module libraries
   stay loaded: the sanitizer keeps an unloaded library's globals registered, which would trip false
   reports against a library loaded later at the same address. Unloading is tested by every other
@@ -204,10 +235,38 @@ gate in every build that has them: the contract tests run the checks on them.
 - **Fixture modules.** Add one with `praenora_add_fixture_module()` in
   [`tests/fixtures/modules/CMakeLists.txt`](../tests/fixtures/modules/CMakeLists.txt)
   ([developer-guide.md](developer-guide.md#adding-a-module-locally)); test capabilities and message
-  types go into `tests/fixtures/catalog/`.
+  types go into `tests/fixtures/catalog/`. Its manifest comes from `<name>/<name>.pmm.json.in` when
+  that file exists, otherwise `praenora_add_module()` generates it; `REQUIRES_SERVICES` and
+  `OPTIONAL_SERVICES` declare runtime services. The modules built from `fx-service/` use the test
+  service `test.echo@0` of the fixture provider `test-echo` and report what `get_service()`
+  returned.
+- **Fixture providers.** Add one with `praenora_add_fixture_provider()` in
+  [`tests/fixtures/providers/CMakeLists.txt`](../tests/fixtures/providers/CMakeLists.txt). A
+  provider is loaded once per process and never unloaded, so a test that needs a provider's first
+  load, or a copy of one under its name, uses a provider no other test loads.
+  `make_provider_context()` (`tests/support/validation_fixtures.hpp`) builds a runtime context over
+  fixture providers; `copy_fixture_provider()` and `copy_fixture_module()`
+  (`tests/support/provider_fixtures.hpp`) copy one, manifest edited, into a scratch directory.
+  `test-simulation` offers the simulation service for the toy model format `test-decay`
+  ([specs/simulation-service.md](specs/simulation-service.md#the-test-provider-test-simulation)),
+  and the fixture module `simulating-module` uses it in workflows and in its own test vectors.
+- **Provider files.** `tests/providers/` tests a provider library as a file, for `test-simulation`
+  and, when built, `roadrunner`: `providers.<provider>.exports` lists its exported symbols with `nm`
+  (`check_exports.cmake`; not on Windows) and requires the entry point to be the only one, and
+  `providers.<provider>.processes` runs `praenora_simulation_print` twice, each time in a new
+  process (`run_twice.cmake`): it simulates a model of `tests/fixtures/models/`, runs a kernel and a
+  plan's batch, prints every double exactly, and the two outputs must be the same bytes.
+- **Service checks.** The simulation service's checks
+  ([`tests/contract/simulation_service_checks.hpp`](../tests/contract/simulation_service_checks.hpp))
+  are a parameterized suite: a provider of the service is checked by a source file that instantiates
+  `SimulationService` with its parameter sets (provider manifest, model format and text, ids, exact
+  solution, tolerances), as `tests/contract/simulation_service_test.cpp` does for `test-simulation`.
+  Add the file to `praenora_contract_tests` in `tests/CMakeLists.txt`.
 - **CLI tests.** Add one with `praenora_add_cli_test(cli.<command>.<case> CMD ... EXPECT_EXIT ...)`
   in [`tests/cli/CMakeLists.txt`](../tests/cli/CMakeLists.txt); the driver checks the exit code,
-  regular expressions on both outputs, values in the JSON output and files left behind.
+  regular expressions on both outputs, values in the JSON output and files left behind. The tests
+  run in the caller's environment: one that must find no service provider there sets
+  `ENVIRONMENT "PRAENORA_PROVIDER_PATH="`, an empty value, which counts as unset.
 - **Python tests.** Add a `test_*.py` module of stdlib `unittest` tests to `tests/python/`
   (classes `<Topic>Test`, methods `test_<what>`); `tests/python/support.py` holds the environment
   and fixture paths they share. `python.unittest` discovers them.

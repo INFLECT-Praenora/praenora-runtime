@@ -33,8 +33,10 @@ constexpr std::string_view kUsage =
     "         platform; --load also loads its library and reports its describe() document and\n"
     "         the library's SHA-256\n"
     "check    the contract checks of a module, each passed, failed or skipped; the exit code is 1\n"
-    "         when one fails. --vectors F runs the test vectors in F instead of the ones the\n"
-    "         manifest names (tests.vectors)\n";
+    "         when one fails. The services its manifest declares are resolved on the provider\n"
+    "         search paths (--provider-path, then PRAENORA_PROVIDER_PATH, then the installation's\n"
+    "         provider directory), and their providers loaded and started. --vectors F runs the\n"
+    "         test vectors in F instead of the ones the manifest names (tests.vectors)\n";
 
 std::string usage_text() { return std::string(kUsage) + "\n" + std::string(kGlobalOptionsUsage); }
 

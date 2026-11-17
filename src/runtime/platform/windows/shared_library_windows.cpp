@@ -79,13 +79,14 @@ public:
         }
     }
 
-    void add(const std::filesystem::path& directory, const std::filesystem::path& library) {
+    void add(const std::filesystem::path& directory, const std::filesystem::path& library,
+             std::string_view what) {
         const std::filesystem::path native = with_backslashes(directory);
         const DLL_DIRECTORY_COOKIE cookie = AddDllDirectory(native.c_str());
         if (cookie == nullptr) {
             const DWORD error = GetLastError();
             throw Error(ErrorCode::LIBRARY_LOAD_FAILED,
-                        "cannot load module library '" + path_to_utf8(library) +
+                        "cannot load " + std::string(what) + " '" + path_to_utf8(library) +
                             "': cannot add its dependency directory '" + path_to_utf8(directory) +
                             "': " + system_message(error));
         }
@@ -102,10 +103,11 @@ SharedLibrary::SharedLibrary(void* handle, std::filesystem::path path) noexcept
     : handle_(handle), path_(std::move(path)) {}
 
 SharedLibrary SharedLibrary::open(const std::filesystem::path& absolute_path,
-                                  const std::vector<std::filesystem::path>& dependency_dirs) {
+                                  const std::vector<std::filesystem::path>& dependency_dirs,
+                                  std::string_view what) {
     DependencyDirectories directories;
     for (const auto& directory : dependency_dirs) {
-        directories.add(directory, absolute_path);
+        directories.add(directory, absolute_path, what);
     }
     // A library that cannot be loaded must produce an error code, never a dialog box.
     DWORD previous_mode = 0;
@@ -122,7 +124,7 @@ SharedLibrary SharedLibrary::open(const std::filesystem::path& absolute_path,
         SetThreadErrorMode(previous_mode, nullptr);
     }
     if (module == nullptr) {
-        throw Error(ErrorCode::LIBRARY_LOAD_FAILED, "cannot load module library '" +
+        throw Error(ErrorCode::LIBRARY_LOAD_FAILED, "cannot load " + std::string(what) + " '" +
                                                         path_to_utf8(absolute_path) +
                                                         "': " + system_message(error));
     }

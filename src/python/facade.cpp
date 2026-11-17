@@ -60,9 +60,11 @@ std::optional<std::string> given(const std::string& text) {
 }
 
 RuntimeOptions runtime_options(const std::vector<std::string>& module_paths,
-                               const std::vector<std::string>& catalog_paths) {
+                               const std::vector<std::string>& catalog_paths,
+                               const std::vector<std::string>& provider_paths = {}) {
     RuntimeOptions options;
     options.module_paths = module_paths;
+    options.provider_paths = provider_paths;
     options.catalog_paths = catalog_paths;
     options.use_environment = true;
     return options;
@@ -161,6 +163,8 @@ HandleOptions handle_options(const std::string& options_json) {
         }
         if (key == "module_paths") {
             result.runtime.module_paths = paths_option(key, value);
+        } else if (key == "provider_paths") {
+            result.runtime.provider_paths = paths_option(key, value);
         } else if (key == "catalog_paths") {
             result.runtime.catalog_paths = paths_option(key, value);
         } else if (key == "seed") {
@@ -184,8 +188,8 @@ HandleOptions handle_options(const std::string& options_json) {
         } else {
             throw argument_error("unknown workflow option '" + key +
                                  "'; the options are catalog_paths, log_file, log_format, "
-                                 "log_level, module_paths, output_dir, overwrite, seed, "
-                                 "status_file, ticks and trace_messages");
+                                 "log_level, module_paths, output_dir, overwrite, "
+                                 "provider_paths, seed, status_file, ticks and trace_messages");
         }
     }
     // The run's logging settings are the runtime's too, as with the praenora tool's --log-*
@@ -209,9 +213,10 @@ std::string version_json() {
 }
 
 std::string validate_json(const std::string& config, const std::vector<std::string>& module_paths,
-                          const std::vector<std::string>& catalog_paths, bool load) {
+                          const std::vector<std::string>& catalog_paths,
+                          const std::vector<std::string>& provider_paths, bool load) {
     return guarded([&] {
-        const Runtime runtime(runtime_options(module_paths, catalog_paths));
+        const Runtime runtime(runtime_options(module_paths, catalog_paths, provider_paths));
         ValidateOptions options;
         options.load = load;
         return report_or_failure(runtime.validate(config, options), config);
@@ -236,6 +241,17 @@ std::string list_modules_json(const std::vector<std::string>& module_paths) {
     });
 }
 
+std::string list_providers_json(const std::vector<std::string>& provider_paths) {
+    return guarded([&] {
+        const Runtime runtime(runtime_options({}, {}, provider_paths));
+        json providers = json::array();
+        for (const ProviderInfo& provider : runtime.list_providers()) {
+            providers.push_back(frontend::provider_json(provider));
+        }
+        return dump(providers);
+    });
+}
+
 std::string inspect_module_json(const std::string& name, const std::string& version, bool load,
                                 const std::vector<std::string>& module_paths) {
     return guarded([&] {
@@ -245,9 +261,10 @@ std::string inspect_module_json(const std::string& name, const std::string& vers
 }
 
 std::string check_module_json(const std::string& manifest, const std::string& vectors,
-                              const std::vector<std::string>& catalog_paths) {
+                              const std::vector<std::string>& catalog_paths,
+                              const std::vector<std::string>& provider_paths) {
     return guarded([&] {
-        const Runtime runtime(runtime_options({}, catalog_paths));
+        const Runtime runtime(runtime_options({}, catalog_paths, provider_paths));
         const ModuleCheckReport report = runtime.check_module(manifest, given(vectors));
         if (!report.passed()) {
             throw frontend::check_failure(report);

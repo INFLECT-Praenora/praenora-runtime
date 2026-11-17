@@ -1,6 +1,6 @@
 {
   "kind": "module-manifest",
-  "format_version": "0.1.0",
+  "format_version": "@PRAENORA_MODULE_MANIFEST_FORMAT_VERSION@",
   "module": {
     "name": "@PRAENORA_MODULE_NAME@",
     "version": "@PRAENORA_MODULE_VERSION@",

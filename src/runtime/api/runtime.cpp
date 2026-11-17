@@ -1,5 +1,6 @@
-// praenora::Runtime: the runtime context (catalog, module index, services), the runtime's logging,
-// validation of configurations and documents, module listings, and opening workflows.
+// praenora::Runtime: the runtime context (catalog, module index, provider index, services), the
+// runtime's logging, validation of configurations and documents, module and provider listings, and
+// opening workflows.
 #include <praenora/runtime/runtime.hpp>
 
 #include "api/graph_export.hpp"
@@ -18,6 +19,8 @@
 #include "loader/loaded_module.hpp"
 #include "observability/logging.hpp"
 #include "platform/platform.hpp"
+#include "provider/provider_index.hpp"
+#include "provider/provider_loader.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -82,11 +85,56 @@ ModuleInfo module_info(const detail::ModuleManifest& manifest) {
     return info;
 }
 
-// Step 10 of the validation sequence: loads each module of `workflow` once (load() checks the
-// library's table and its identity against the manifest) and checks that its library is still
-// the one validation hashed; each problem is reported for the first step that uses the module.
-// The libraries are released again before this returns.
-void check_loading(const detail::ValidatedWorkflow& workflow, ValidationReport& report) {
+ProviderInfo provider_info(const detail::IndexedProvider& entry) {
+    const detail::ProviderManifest& manifest = entry.manifest;
+    ProviderInfo info;
+    info.name = manifest.name;
+    info.version = detail::to_string(manifest.version);
+    info.manifest_path = detail::path_to_utf8(manifest.manifest_path);
+    info.library_path = detail::path_to_utf8(manifest.library_path);
+    info.os = manifest.os;
+    info.arch = manifest.arch;
+    for (const detail::ServiceVersion& service : manifest.services) {
+        info.services.push_back(detail::to_string(service));
+    }
+    info.engine_json = detail::canonical_json(manifest.engine);
+    // As resolution reports it: shadowed first, then the first rule of usability it breaks.
+    if (entry.shadowed_by) {
+        info.problem = detail::shadowed_reason(*entry.shadowed_by);
+    } else {
+        info.problem = entry.problem.value_or(std::string());
+    }
+    info.usable = info.problem.empty();
+    return info;
+}
+
+// Step 10 of the validation sequence: loads and starts each provider of `workflow`, as a run
+// does (load_provider() checks its library, table and identity, and that its library is still the
+// one validation hashed; its records go to `logs`), then loads each module of `workflow` once
+// (load() checks the library's table and its identity against the manifest) and checks that its
+// library is still the one validation hashed. Each problem is reported for the first step that
+// uses the provider or the module. Providers stay loaded for the rest of the process; module
+// libraries are released again before this returns.
+void check_loading(const detail::ValidatedWorkflow& workflow, ValidationReport& report,
+                   detail::LogHub* logs) {
+    for (const detail::ProviderLoad& load : detail::provider_loads(workflow)) {
+        const auto uses = [&load](const detail::ResolvedStep& step) {
+            return std::any_of(load.keys.begin(), load.keys.end(), [&step](const auto& key) {
+                return std::find(step.services.begin(), step.services.end(), key) !=
+                       step.services.end();
+            });
+        };
+        const auto user = std::find_if(workflow.steps.begin(), workflow.steps.end(), uses);
+        try {
+            detail::load_provider(*load.provider, load.services, load.library_sha256, logs);
+        } catch (const Error& e) {
+            add(report, e.code(), e.what(), e.location(),
+                user == workflow.steps.end() ? std::string() : user->id,
+                user == workflow.steps.end()
+                    ? std::string()
+                    : identity(user->manifest->name, user->manifest->version));
+        }
+    }
     for (const auto& manifest : workflow.manifests) {
         const auto user = std::find_if(workflow.steps.begin(), workflow.steps.end(),
                                        [&manifest](const detail::ResolvedStep& step) {
@@ -419,14 +467,20 @@ Runtime::Runtime(RuntimeOptions options) {
         std::make_shared<const detail::RuntimeContext>(detail::make_runtime_context(options));
     impl->options = std::move(options);
 
-    json search_paths = json::array();
-    for (const fs::path& path : impl->context->modules.search_paths()) {
-        search_paths.push_back(detail::path_to_utf8(path));
-    }
+    const auto utf8_paths = [](const std::vector<fs::path>& paths) {
+        json list = json::array();
+        for (const fs::path& path : paths) {
+            list.push_back(detail::path_to_utf8(path));
+        }
+        return list;
+    };
     detail::log_event(*impl->logger, LogLevel::debug, "runtime ready",
                       {{"event", "runtime.ready"},
-                       {"module_search_paths", std::move(search_paths)},
+                       {"module_search_paths", utf8_paths(impl->context->modules.search_paths())},
                        {"modules", impl->context->modules.entries().size()},
+                       {"provider_search_paths",
+                        utf8_paths(impl->context->providers.search_paths())},
+                       {"providers", impl->context->providers.entries().size()},
                        {"catalog_entries", impl->context->catalog.entries().size()}});
     impl_ = std::move(impl);
 }
@@ -441,7 +495,7 @@ ValidationReport Runtime::validate(const std::string& config_path,
     const std::optional<detail::ValidatedWorkflow> workflow = detail::validate_workflow(
         detail::path_from_utf8(config_path), *impl_->context, WorkflowOptions{}, report);
     if (workflow && options.load) {
-        check_loading(*workflow, report);
+        check_loading(*workflow, report, impl_->logs.get());
     }
     return report;
 }
@@ -469,6 +523,14 @@ std::vector<ModuleInfo> Runtime::list_modules() const {
         modules.push_back(module_info(*manifest));
     }
     return modules;
+}
+
+std::vector<ProviderInfo> Runtime::list_providers() const {
+    std::vector<ProviderInfo> providers;
+    for (const detail::IndexedProvider& entry : impl_->context->providers.entries()) {
+        providers.push_back(provider_info(entry));
+    }
+    return providers;
 }
 
 ModuleInfo Runtime::inspect_module(const std::string& name,
@@ -529,7 +591,7 @@ ModuleCheckReport Runtime::check_module(const std::string& manifest_path,
         vectors = detail::path_from_utf8(*vectors_path);
     }
     return detail::check_module(detail::path_from_utf8(manifest_path), vectors, *impl_->context,
-                                impl_->logs->logger("module.check"));
+                                impl_->logs->logger("module.check"), {}, impl_->logs.get());
 }
 
 std::string Runtime::graph(const GraphRequest& request) const {

@@ -30,7 +30,9 @@ add_library(praenora_runtime_objects OBJECT
     compat/compat.cpp
     config/workflow_config.cpp
     discovery/manifest.cpp
+    discovery/manifest_reader.cpp
     discovery/module_index.cpp
+    discovery/search_paths.cpp
     engine/engine.cpp
     engine/envelope.cpp
     engine/result_check.cpp
@@ -45,6 +47,7 @@ add_library(praenora_runtime_objects OBJECT
     io/output_recorder.cpp
     io/run_record.cpp
     io/trace_writer.cpp
+    loader/library_file.cpp
     loader/loaded_module.cpp
     core/duration.cpp
     core/error.cpp
@@ -62,7 +65,10 @@ add_library(praenora_runtime_objects OBJECT
     observability/logging.cpp
     observability/metrics.cpp
     observability/status_file.cpp
-    observability/status_json.cpp)
+    observability/status_json.cpp
+    provider/provider_index.cpp
+    provider/provider_loader.cpp
+    provider/provider_manifest.cpp)
 # Operating-system specific code: platform/windows on Windows, platform/posix elsewhere.
 if(WIN32)
     target_sources(praenora_runtime_objects PRIVATE
@@ -100,16 +106,36 @@ praenora_embed_resources(TARGET praenora_runtime_objects NAME praenora_runtime
 
 # Build facts reported by praenora::version_info() (api/version.cpp). They are target-level
 # definitions because some generators (Xcode) cannot vary per-source settings by configuration.
+# The document formats, one version per kind (PRAENORA_FORMAT_VERSIONS), reach version.cpp as the
+# generated table format_versions.inc, one line {"<kind>", "<version>"}, per kind; file(CONFIGURE)
+# rewrites it only when it changes.
+set(_praenora_format_table "// Generated from PRAENORA_FORMAT_VERSIONS.\n")
+foreach(_praenora_format IN LISTS PRAENORA_FORMAT_VERSIONS)
+    string(REGEX REPLACE "^([^=]+)=(.+)$" "{\"\\1\", \"\\2\"},\n" _praenora_line
+        "${_praenora_format}")
+    string(APPEND _praenora_format_table "${_praenora_line}")
+endforeach()
+file(CONFIGURE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/generated/format_versions.inc"
+    CONTENT "${_praenora_format_table}" NEWLINE_STYLE UNIX)
+target_include_directories(praenora_runtime_objects PRIVATE
+    "${CMAKE_CURRENT_BINARY_DIR}/generated")
 target_compile_definitions(praenora_runtime_objects PRIVATE
     "PRAENORA_BUILD_RUNTIME_VERSION=\"${PRAENORA_RUNTIME_VERSION}\""
     "PRAENORA_BUILD_SDK_VERSION=\"${PRAENORA_SDK_VERSION}\""
     "PRAENORA_BUILD_PMP_VERSION=\"${PRAENORA_PMP_VERSION}\""
-    "PRAENORA_BUILD_FORMAT_VERSION=\"${PRAENORA_FORMAT_VERSION}\""
     "PRAENORA_BUILD_ABI_MAJOR=${PRAENORA_ABI_MAJOR}u"
     "PRAENORA_BUILD_ABI_MINOR=${PRAENORA_ABI_MINOR}u"
     "PRAENORA_BUILD_PLATFORM=\"${PRAENORA_PLATFORM}\""
     "PRAENORA_BUILD_COMPILER=\"${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}\""
     "PRAENORA_BUILD_TYPE=\"$<CONFIG>\"")
+
+# The provider interface (provider/provider_abi.h, which provider code includes as
+# "provider_abi.h") for the service providers built in this repository with
+# praenora_add_provider() (cmake/PraenoraProvider.cmake). Internal: never installed.
+add_library(praenora_provider_interface INTERFACE)
+target_include_directories(praenora_provider_interface INTERFACE
+    "${CMAKE_CURRENT_SOURCE_DIR}/provider")
+target_link_libraries(praenora_provider_interface INTERFACE praenora_module_sdk)
 
 add_library(praenora_runtime SHARED)
 add_library(Praenora::Runtime ALIAS praenora_runtime)

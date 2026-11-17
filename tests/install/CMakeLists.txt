@@ -3,10 +3,11 @@
 # outside: two projects that are not part of this build are configured and built against the
 # installation with find_package(Praenora), consumer-module (COMPONENTS ModuleSDK: a module built
 # with praenora_add_module()) and consumer-app (COMPONENTS Runtime: an application that loads
-# that module), and the installed files and the installed praenora tool are checked. The driver
-# lists every step. The consumers get this build's generator, compilers, build type, macOS
-# settings, dependency prefixes (CMAKE_PREFIX_PATH) and compile and link flags, sanitizer options
-# included, since they link the installed (in sanitizer builds, instrumented) runtime library.
+# that module), and the installed files (the service providers included) and the installed
+# praenora tool are checked. The driver lists every step. The consumers get this build's
+# generator, compilers, build type, macOS settings, dependency prefixes (CMAKE_PREFIX_PATH) and
+# compile and link flags, sanitizer options included, since they link the installed (in sanitizer
+# builds, instrumented) runtime library.
 
 get_property(_praenora_multi_config GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
 # The consumers' flags: this build's CMAKE_<LANG>_FLAGS and CMAKE_<KIND>_LINKER_FLAGS, plus its
@@ -41,6 +42,13 @@ foreach(_praenora_pair IN ITEMS PREFIX_PATH:CMAKE_PREFIX_PATH
     list(APPEND _praenora_install_settings "-D${_praenora_name}=${_praenora_value}")
 endforeach()
 
+# The service providers that a default installation includes.
+set(_praenora_installed_providers "")
+if(PRAENORA_WITH_ROADRUNNER)
+    list(APPEND _praenora_installed_providers roadrunner)
+endif()
+string(REPLACE ";" "\\;" _praenora_installed_providers "${_praenora_installed_providers}")
+
 add_test(NAME install.consumer
     COMMAND "${CMAKE_COMMAND}"
         "-DBUILD_DIR=${PROJECT_BINARY_DIR}"
@@ -65,6 +73,7 @@ add_test(NAME install.consumer
         "-DWITH_CLI=${PRAENORA_BUILD_CLI}"
         "-DWITH_EXAMPLES=${PRAENORA_BUILD_EXAMPLES}"
         "-DINSTALL_EXAMPLES=${PRAENORA_INSTALL_EXAMPLES}"
+        "-DPROVIDERS=${_praenora_installed_providers}"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/run_install_test.cmake")
 # _praenora_test_environment (tests/CMakeLists.txt): what every test of a macOS
 # AddressSanitizer build needs.

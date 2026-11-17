@@ -85,9 +85,14 @@ struct InstanceOptions {
     // (during an invocation), step and module (name@version). Usually the logger module.<step>.
     // Without one, messages are dropped and log_enabled() reports 0.
     std::shared_ptr<spdlog::logger> logger;
-    // Served through get_service(); NULL offers none. Must outlive the instance, or at least its
-    // abandonment or withdraw_services().
+    // The runtime's built-in services, served through get_service() to every module whatever its
+    // manifest declares; NULL offers none. Must outlive the instance, or at least its abandonment
+    // or withdraw_services().
     const ServiceRegistry* services = nullptr;
+    // The provider services this instance's module may use: those its manifest declares that
+    // resolved for the run (docs/specs/runtime-services.md). get_service() looks here first, then
+    // in `services`. Provider tables live until the process ends; the instance keeps a copy.
+    ServiceRegistry provider_services;
     // Each of a call's sinks refuses writes beyond this many bytes with
     // PRAENORA_STATUS_RESOURCE_EXHAUSTED.
     std::size_t max_output_bytes = 256u << 20;
@@ -144,10 +149,10 @@ public:
     void request_cancel() noexcept;
 
     // Stops serving runtime services to the module, as an abandoned (unresponsive) instance does:
-    // its get_service() returns NULL from now on, also on the module's own threads, so the
-    // registry (InstanceOptions::services) need not outlive the instance any more once this has
-    // returned. For an instance that is kept, never to be called again, while the run it belonged
-    // to goes away. Thread-safe; never throws.
+    // its get_service() returns NULL from now on for every service, provider services included,
+    // also on the module's own threads, so the registry (InstanceOptions::services) need not
+    // outlive the instance any more once this has returned. For an instance that is kept, never
+    // to be called again, while the run it belonged to goes away. Thread-safe; never throws.
     void withdraw_services() noexcept;
 
     StepState state() const noexcept; // thread-safe
@@ -171,6 +176,9 @@ private:
                    StopFlag stop_flag, const std::string& input, Body body,
                    praenora_instance** created = nullptr);
     void abandon(const char* call) noexcept;
+    // Stops serving runtime services, built-in and provider ones alike: what withdraw_services()
+    // and an abandonment both do. Takes the lock that get_service() takes.
+    void stop_serving() noexcept;
     // Logs an event about the instance; never throws (the message is copied inside).
     void log(LogLevel level, std::string_view message, const char* event) const noexcept;
 

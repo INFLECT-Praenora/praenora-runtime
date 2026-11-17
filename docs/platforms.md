@@ -8,7 +8,7 @@ and Windows commands below are given as they should work and are marked "not yet
 
 | Platform | Compiler | Status |
 |---|---|---|
-| macOS arm64 (macOS 15) | AppleClang 17 | Verified: configure, build without warnings, and every test in the `dev` (Debug), `dev-asan` and `dev-tsan` builds; an installation, moved; the Python bindings with CPython 3.12; a Python wheel built offline and installed into a fresh virtual environment ([python.md](python.md#building-a-wheel)). |
+| macOS arm64 (macOS 15) | AppleClang 17 | Verified: configure, build without warnings, and every test in the `dev` (Debug), `dev-release`, `dev-asan` and `dev-tsan` builds; an installation, moved; the Python bindings with CPython 3.12; a Python wheel built offline and installed into a fresh virtual environment ([python.md](python.md#building-a-wheel)); the roadrunner provider with libRoadRunner 2.11.0 and LLVM 13.0.1, every test in a Debug build and the labels `unit`, `contract`, `negative`, `lifecycle`, `integration` and `install` in a ThreadSanitizer build ([The roadrunner provider](#the-roadrunner-provider)). |
 | Linux x86-64 | GCC 9+, Clang 10+ | Presets and portable code; not yet verified. |
 | Windows x86-64 | MSVC 19.29+ (Visual Studio 2022) | Presets and portable code; not yet verified. |
 
@@ -61,6 +61,70 @@ cmake -S "$JSV" -B "$JSV/build" -DCMAKE_BUILD_TYPE=Release \
 cmake --build "$JSV/build" --target install
 ```
 
+## The roadrunner provider
+
+The service provider `roadrunner`, which simulates SBML models with libRoadRunner
+([specs/simulation-service.md](specs/simulation-service.md#the-roadrunner-provider)), is built only
+with `-DPRAENORA_WITH_ROADRUNNER=ON`. It needs an installed libRoadRunner 2.11 C++ library (its
+static library `roadrunner-static` and the packages it links) and the LLVM it was built with; the
+build never downloads them. It was built and tested on macOS arm64 with the upstream release
+binaries of libRoadRunner 2.11.0 (`roadrunner-2.11.0-macos-14-arm64-Release.zip` of the release
+v2.11.0 of sys-bio/roadrunner) and of LLVM 13.0.1 (`llvm-13.x-macos-14-arm64-Release.zip` of the
+release v13.1 of sys-bio/llvm-13.x), each unpacked into a prefix of its own
+(`chmod a+x bin/llvm-config` in LLVM's).
+
+libRoadRunner's installation keeps its CMake packages directly in `<prefix>/lib/cmake`, and
+POCO's in `<prefix>/lib/cmake/Poco`, so those directories go into `CMAKE_PREFIX_PATH`, and
+`LLVM_INSTALL_PREFIX` names LLVM's prefix, as for libRoadRunner's own build. A local preset in
+`CMakeUserPresets.json` ([developer-guide.md](developer-guide.md#the-roadrunner-provider)):
+
+```json
+{
+  "name": "dev-roadrunner-local",
+  "hidden": true,
+  "cacheVariables": {
+    "CMAKE_PREFIX_PATH": "/opt/homebrew;<json-schema-validator prefix>;<RR>;<RR>/lib/cmake;<RR>/lib/cmake/Poco;<LLVM>",
+    "LLVM_INSTALL_PREFIX": "<LLVM>",
+    "PRAENORA_WITH_ROADRUNNER": "ON"
+  }
+}
+```
+
+with `<RR>` and `<LLVM>` the two prefixes. Configuring prints a line for libRoadRunner, SUNDIALS,
+libSBML and LLVM, and stops with a message that names what is missing. It accepts libRoadRunner
+2.11.x only, with a status line when the version is not 2.11.0, the one checked, and requires LLVM
+13, which libRoadRunner 2.11 is built against; another version of either stops the configuration.
+`llvm-config` is searched for again at each configuration, so changing `LLVM_INSTALL_PREFIX` in a
+tree takes effect. The upstream package of
+`roadrunner-static` names LLVM's libraries by the paths of the machine that built it; the build
+takes the libraries of the same names from `LLVM_INSTALL_PREFIX` instead
+([`cmake/PraenoraRoadrunner.cmake`](../cmake/PraenoraRoadrunner.cmake)).
+
+- **macOS.** The upstream binaries are built for macOS 14, so a build with the provider needs
+  `CMAKE_OSX_DEPLOYMENT_TARGET` 14.0 or later (15.0 where this was checked); with the project
+  default of 11.0 the linker warns about every one of their libraries. The provider library is a
+  `.so` bundle, about 48 MB in a Debug build and about 37 MB stripped, that needs only libSystem
+  and libc++, and exports only `praenora_provider_get_api`. libRoadRunner compiles models into
+  machine code at run time, so a host signed with the hardened runtime needs an entitlement for
+  code generated at run time: `com.apple.security.cs.allow-jit` (for memory mapped with `MAP_JIT`)
+  or, if LLVM's MCJit memory manager does not use `MAP_JIT`,
+  `com.apple.security.cs.allow-unsigned-executable-memory`. Neither is verified with such a host
+  yet.
+- **Linux.** Not yet verified. The export list is a version script; the upstream `manylinux_2_28`
+  and `ubuntu-24` archives are the candidates.
+- **Windows.** Not yet verified. The upstream `windows-msvc18` archives may need newer build tools
+  than Visual Studio 2022 (a static library must be linked by tools at least as new as those that
+  built it). In a multi-configuration build every configuration writes its provider to the same
+  directory, `build\<preset>\bin\lib\praenora\providers` (the `..\lib\praenora\providers` of each
+  configuration's `bin\<config>`, where its runtime looks), so build one configuration per tree.
+
+The provider goes where the build tree's runtime looks for the providers of its installation
+(`build/<preset>/lib/praenora/providers/roadrunner/`), so `praenora providers list` lists it without
+a provider path, and it is installed to `<prefix>/lib/praenora/providers/roadrunner/`. Distributing
+it raises license questions (libSBML is LGPL-2.1 and is linked statically; the NLEQ sources state no
+license), which are open, with the other questions of building and distributing the engine
+([open-questions.md](open-questions.md), OQ-27).
+
 ## macOS
 
 **Dependencies.** Not yet verified: this command downloads packages, which the environment where
@@ -92,7 +156,7 @@ the project default stays 11.0.
 **Run paths.** In the build tree, CMake's default run paths let the tool and the tests find the
 runtime library. An installation is relocatable: the installed `praenora` finds the runtime through
 the run path `@loader_path/../lib`, and the runtime's install name is
-`@rpath/libpraenora_runtime.0.1.dylib`; the runtime itself has no run path and finds its
+`@rpath/libpraenora_runtime.0.2.dylib`; the runtime itself has no run path and finds its
 third-party libraries by their own install names (Homebrew's are absolute). Modules are `MODULE`
 libraries with the suffix `.so`; a module's own dependencies belong beside it, found through an
 `@loader_path` run path of the module. On an installation:
@@ -104,7 +168,7 @@ otool -l "$PREFIX/bin/praenora" | grep -A2 LC_RPATH
 otool -D "$PREFIX/lib/libpraenora_runtime.dylib"
 ```
 
-shows `path @loader_path/../lib` and `@rpath/libpraenora_runtime.0.1.dylib`. (Inside some
+shows `path @loader_path/../lib` and `@rpath/libpraenora_runtime.0.2.dylib`. (Inside some
 sandboxes, Apple's developer tools also print a harmless `xcrun_db` cache warning.)
 
 **Code signing and the hardened runtime.** The linker gives every binary of the build an ad-hoc

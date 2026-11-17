@@ -3,6 +3,8 @@ include(GoogleTest)
 add_subdirectory(support)
 # Fixture modules, built into ${PRAENORA_TEST_MODULES_DIR}/<name>/ for the tests to load.
 add_subdirectory(fixtures/modules)
+# Fixture service providers, built into ${PRAENORA_TEST_PROVIDERS_DIR}/<name>/.
+add_subdirectory(fixtures/providers)
 
 # praenora_add_module() records where it generates each manifest, and where it copies a module's
 # test vectors; stop early if it did not.
@@ -126,6 +128,10 @@ praenora_add_gtest(praenora_unit_tests LABEL unit WHITEBOX
         unit/version_test.cpp
         unit/sdk_abi_test.cpp
         unit/sdk_abi_c99_check.c
+        unit/provider_abi_test.cpp
+        unit/provider_abi_c99_check.c
+        unit/simulation_abi_test.cpp
+        unit/simulation_c99_check.c
         unit/sdk_adapter_test.cpp
         unit/sdk_testkit_test.cpp
         unit/sdk_windows_macros_test.cpp
@@ -144,15 +150,16 @@ praenora_add_gtest(praenora_unit_tests LABEL unit WHITEBOX
         unit/runtime_context_test.cpp
         unit/run_record_test.cpp
     LINK Praenora::ModuleSDK)
-# sdk_abi_c99_check.c proves that the SDK's C headers are valid C99.
+# sdk_abi_c99_check.c, simulation_c99_check.c and provider_abi_c99_check.c prove that the SDK's C
+# headers (the simulation service's included) and the provider interface header are valid C99.
 set_target_properties(praenora_unit_tests PROPERTIES
     C_STANDARD 99
     C_STANDARD_REQUIRED ON
     C_EXTENSIONS OFF)
 # The unit tests embed two fixture schemas of their own (praenora_test_find_resource()), beside the
 # runtime's embedded resources.
-# The fingerprint tests resolve and hash the fixture modules (without loading them).
-add_dependencies(praenora_unit_tests praenora_test_modules)
+# The fingerprint tests resolve and hash the fixture modules and providers (without loading them).
+add_dependencies(praenora_unit_tests praenora_test_modules praenora_test_providers)
 praenora_embed_resources(TARGET praenora_unit_tests NAME praenora_test
     BASE_DIR "${PROJECT_SOURCE_DIR}/tests/fixtures/documents"
     FILES
@@ -170,35 +177,60 @@ praenora_add_gtest(praenora_negative_tests LABEL negative WHITEBOX
     SOURCES
         negative/graph_negative_test.cpp
         negative/manifest_negative_test.cpp
+        negative/provider_manifest_negative_test.cpp
         negative/compat_test.cpp
         negative/config_negative_test.cpp
-        negative/validation_test.cpp)
-# The validation tests resolve and check the fixture modules (without loading them).
-add_dependencies(praenora_negative_tests praenora_test_modules)
+        negative/validation_test.cpp
+        negative/service_validation_test.cpp)
+# The validation tests resolve and check the fixture modules and providers (without loading them);
+# the provider load failures load fixture providers that break the provider interface.
+add_dependencies(praenora_negative_tests praenora_test_modules praenora_test_providers)
 
 # Contract tests: manifests and discovery, the loader, module instances, the engine and the
-# contract checks, through the real loader and the fixture modules.
+# contract checks, through the real loader and the fixture modules; and the service checks of the
+# simulation service (contract/simulation_service_checks.hpp), one instantiation per provider.
 praenora_add_gtest(praenora_contract_tests LABEL contract WHITEBOX
     SOURCES
         contract/discovery_test.cpp
         contract/loader_test.cpp
+        contract/provider_discovery_test.cpp
+        contract/provider_loader_test.cpp
         contract/instance_contract_test.cpp
         contract/engine_test.cpp
-        contract/module_check_test.cpp)
+        contract/service_run_test.cpp
+        contract/module_check_test.cpp
+        contract/simulation_service_checks.hpp
+        contract/simulation_service_checks.cpp
+        contract/simulation_service_test.cpp)
 target_compile_definitions(praenora_contract_tests PRIVATE
     "PRAENORA_TEST_LAYOUTS_DIR=\"${PRAENORA_TEST_LAYOUTS_DIR}\"")
-add_dependencies(praenora_contract_tests praenora_test_modules)
+add_dependencies(praenora_contract_tests praenora_test_modules praenora_test_providers)
 # The contract checks are also run against the example modules, when they are built.
 if(PRAENORA_BUILD_EXAMPLES)
     target_compile_definitions(praenora_contract_tests PRIVATE PRAENORA_TEST_WITH_EXAMPLES)
     add_dependencies(praenora_contract_tests praenora_example_modules)
 endif()
+# With the roadrunner provider (PRAENORA_WITH_ROADRUNNER): the service checks against it, with two
+# SBML models (contract/simulation_service_roadrunner_test.cpp), and what it does beyond them
+# (contract/roadrunner_provider_test.cpp). PRAENORA_TEST_ROADRUNNER_MANIFEST names its manifest.
+if(PRAENORA_WITH_ROADRUNNER)
+    target_sources(praenora_contract_tests PRIVATE
+        contract/simulation_service_roadrunner_test.cpp
+        contract/roadrunner_provider_test.cpp)
+    set(_praenora_roadrunner_manifest
+        "$<TARGET_PROPERTY:praenora_provider_roadrunner,PRAENORA_PROVIDER_MANIFEST>")
+    target_compile_definitions(praenora_contract_tests PRIVATE
+        "PRAENORA_TEST_ROADRUNNER_MANIFEST=\"${_praenora_roadrunner_manifest}\"")
+    add_dependencies(praenora_contract_tests praenora_provider_roadrunner)
+endif()
 
-# Lifecycle tests: call order, cleanup, timeouts and cancellation of module instances.
+# Lifecycle tests: call order, cleanup, timeouts and cancellation of module instances, and the
+# runtime services an instance is served.
 praenora_add_gtest(praenora_lifecycle_tests LABEL lifecycle WHITEBOX
     SOURCES
-        lifecycle/instance_test.cpp)
-add_dependencies(praenora_lifecycle_tests praenora_test_modules)
+        lifecycle/instance_test.cpp
+        lifecycle/service_visibility_test.cpp)
+add_dependencies(praenora_lifecycle_tests praenora_test_modules praenora_test_providers)
 
 # Integration tests: the public API through the shared library only, with the fixture modules and
 # the test catalog (integration/api_test.cpp) and, when the examples are built, the example
@@ -209,16 +241,23 @@ if(PRAENORA_BUILD_EXAMPLES)
 endif()
 praenora_add_gtest(praenora_integration_tests LABEL integration
     SOURCES ${_praenora_integration_sources})
+# The build's document formats, "<kind>=<version>" pairs separated by ','.
+list(JOIN PRAENORA_FORMAT_VERSIONS "," _praenora_format_versions)
 target_compile_definitions(praenora_integration_tests PRIVATE
     "PRAENORA_TEST_RUNTIME_VERSION=\"${PRAENORA_RUNTIME_VERSION}\""
-    "PRAENORA_TEST_FORMAT_VERSION=\"${PRAENORA_FORMAT_VERSION}\""
+    "PRAENORA_TEST_FORMAT_VERSIONS=\"${_praenora_format_versions}\""
     "PRAENORA_TEST_PLATFORM=\"${PRAENORA_PLATFORM}\""
     "PRAENORA_TEST_BUILD_TYPE=\"$<CONFIG>\""
     "PRAENORA_EXAMPLE_WORKFLOW_DIR=\"${PROJECT_SOURCE_DIR}/examples/workflows/estimate-predict\""
     "PRAENORA_TEST_GOLDEN_DIR=\"${PROJECT_SOURCE_DIR}/tests/fixtures/golden\"")
-add_dependencies(praenora_integration_tests praenora_test_modules)
+add_dependencies(praenora_integration_tests praenora_test_modules praenora_test_providers)
 if(PRAENORA_BUILD_EXAMPLES)
     add_dependencies(praenora_integration_tests praenora_example_modules)
+endif()
+# With the roadrunner provider, the build tree's runtime finds it without a provider path.
+if(PRAENORA_WITH_ROADRUNNER)
+    target_compile_definitions(praenora_integration_tests PRIVATE PRAENORA_TEST_WITH_ROADRUNNER)
+    add_dependencies(praenora_integration_tests praenora_provider_roadrunner)
 endif()
 
 # CLI tests (label cli): the praenora tool, run through tests/cli/run_cli.cmake.
@@ -237,6 +276,10 @@ endif()
 if(PRAENORA_INSTALL_RULES)
     add_subdirectory(install)
 endif()
+
+# Provider libraries as built files (label contract): their exported symbols, and the same results
+# in two processes (tests/providers).
+add_subdirectory(providers)
 
 # Performance probe (label perf): praenora_perf and its two report-only runs (tests/perf).
 add_subdirectory(perf)

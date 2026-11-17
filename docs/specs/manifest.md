@@ -1,15 +1,19 @@
 # Praenora Module Manifest (PMM)
 
-- **Version:** PMM 0.1.0 (documents of kind `module-manifest` with `format_version` 0.1.x, schema
-  [`module-manifest.0.1.schema.json`](../../spec/schemas/module-manifest.0.1.schema.json))
+- **Version:** PMM 0.2.0 (documents of kind `module-manifest` with `format_version` 0.2.x, schema
+  [`module-manifest.0.2.schema.json`](../../spec/schemas/module-manifest.0.2.schema.json));
+  manifests of format 0.1.x are still read, with
+  [`module-manifest.0.1.schema.json`](../../spec/schemas/module-manifest.0.1.schema.json)
 - **Status:** Normative, MVP. Separately discoverable manifests are Accepted; the fields and rules
-  below are Proposed ([ADR-0009](../adr/ADR-0009-module-manifests.md)).
+  below are Proposed ([ADR-0009](../adr/ADR-0009-module-manifests.md); the service requirements
+  of format 0.2, [ADR-0026](../adr/ADR-0026-runtime-service-providers.md)).
 - **Requirement keywords:** MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are used as described in
   [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119).
 
 A module manifest describes one module library so that the runtime can find it, check it and report
 problems before any of the module's code runs: its identity, its library, its compatibility
-declarations, the capabilities it implements and the schema of its parameters. This document is for
+declarations, the capabilities it implements, the schema of its parameters and the runtime services
+it requires or can use. This document is for
 module authors and for implementers of another host. The library's binary interface is the
 [module ABI](module-abi.md).
 
@@ -20,7 +24,7 @@ The manifest of the example estimator, as `praenora_add_module()` generates it o
 ```json
 {
   "kind": "module-manifest",
-  "format_version": "0.1.0",
+  "format_version": "0.2.0",
   "module": {
     "name": "example-estimator",
     "version": "0.1.0",
@@ -30,7 +34,7 @@ The manifest of the example estimator, as `praenora_add_module()` generates it o
   },
   "abi": { "major": 0, "minor": 0 },
   "pmp_version": "0.1.0",
-  "sdk_version": "0.1.0",
+  "sdk_version": "0.2.0",
   "library": { "path": "example-estimator.so" },
   "platform": { "os": "macos", "arch": "arm64" },
   "capabilities": [{"id":"example.estimate","version":"0.1.0"}],
@@ -52,12 +56,25 @@ The manifest of the example estimator, as `praenora_add_module()` generates it o
 }
 ```
 
+A module that uses runtime services of service providers declares them in `requires`
+([runtime-services.md](runtime-services.md)). The manifest of the tests' fixture module
+`fx-service`, which requires `test.echo@0` and can use `test.other@1`, holds:
+
+```json
+"requires": {
+  "services": [
+    {"name": "test.echo", "major": 0, "minor": 0, "optional": false},
+    {"name": "test.other", "major": 1, "minor": 0, "optional": true}
+  ]
+}
+```
+
 ## Fields
 
 | Field | Type | Required | Meaning |
 |---|---|---|---|
 | `kind` | `"module-manifest"` | yes | The document kind. |
-| `format_version` | semantic version | yes | The PMM format; 0.1.x is read with the 0.1 schema. |
+| `format_version` | semantic version | yes | The PMM format; 0.2.x is read with the 0.2 schema, 0.1.x with the 0.1 schema. |
 | `module.name` | module name | yes | The module's name ([protocol.md](protocol.md#identifiers)). |
 | `module.version` | semantic version | yes | The module's version. |
 | `module.summary`, `module.authors`, `module.repository` | string, array of strings, string | no | Informational. |
@@ -71,6 +88,11 @@ The manifest of the example estimator, as `praenora_add_module()` generates it o
 | `platform.arch` | `x86_64` or `arm64` | yes | The architecture the library was built for. |
 | `capabilities` | array of `{id, version}`, at least one | yes | The capabilities the module implements. |
 | `parameters_schema` | object | no | A draft-07 schema of a step's parameters; `{"type": "object"}` when absent. |
+| `requires.services` | array of `{name, major, minor, optional}` | no (format 0.2) | The runtime services of providers that the module requires or can use. |
+| `requires.services[].name` | service name | yes | A dotted identifier, such as `praenora.simulation` ([runtime-services.md](runtime-services.md#services)). |
+| `requires.services[].major` | integer from 0 to 4294967295 | yes | The service's major version. |
+| `requires.services[].minor` | integer from 0 to 4294967295 | no (default 0) | The lowest minor version the module accepts. |
+| `requires.services[].optional` | boolean | no (default `false`) | `false`: the module requires the service; `true`: it uses the service when the run has it. |
 | `features.concurrency` | `module` or `instance` | no (default `module`) | Whether the library's instances may be called concurrently. |
 | `features.cancellation` | boolean | no (default `false`) | Whether the module polls `cancel_requested()`. |
 | `features.diagnostics` | boolean | no (default `false`) | Whether the module implements `diagnostics()`. |
@@ -110,6 +132,13 @@ The manifest of the example estimator, as `praenora_add_module()` generates it o
   With `diagnostics: true` the runtime asks a failing instance for `diagnostics()` and adds the
   document to the failure's details. With `self_test: true` the contract checks require a
   `self_test()` function.
+- **Services.** Each `(name, major)` of `requires.services` MUST appear at most once. A manifest of
+  format 0.1 has no `requires` and declares no service. Validation resolves each declared service on
+  the provider search paths ([runtime-services.md](runtime-services.md#resolution)): a required one
+  that does not resolve is `SERVICE_UNAVAILABLE`, an optional one is then not used. The module's
+  instances are served exactly the declared services that resolved, besides the runtime's built-in
+  ones ([runtime-services.md](runtime-services.md#visibility)). The declarations are not part of
+  `describe()` and not compared with it.
 - **Test vectors.** `tests.vectors` names a `module-test-vectors` document that
   `praenora modules check` uses unless `--vectors` names another
   ([ADR-0024](../adr/ADR-0024-contract-checks-and-test-vectors.md)).
@@ -130,8 +159,9 @@ be read, is located at the file only:
 | 5 | `module.version` is a usable semantic version, `abi.major` and `abi.minor` fit in 32 bits, and `pmp_version` and `sdk_version` are usable semantic versions, in that order. | `MANIFEST_INVALID` |
 | 6 | `library.path` and every `library.dependency_paths` entry are relative. | `MANIFEST_INVALID` |
 | 7 | Capability by capability, in order: its version is a usable semantic version, and the capability is not listed before. | `MANIFEST_INVALID` |
-| 8 | `parameters_schema` compiles. | `MANIFEST_INVALID` |
-| 9 | `tests.vectors` is relative. | `MANIFEST_INVALID` |
+| 8 | Service by service in `requires.services`, in order: its major and minor fit in 32 bits, and its name and major are not listed before. | `MANIFEST_INVALID` |
+| 9 | `parameters_schema` compiles. | `MANIFEST_INVALID` |
+| 10 | `tests.vectors` is relative. | `MANIFEST_INVALID` |
 
 The manifest's SHA-256 is the digest of exactly the bytes read; it is part of the run fingerprint
 ([reproducibility.md](reproducibility.md)).
@@ -181,12 +211,16 @@ Before loading anything, validation checks the resolved manifest against the ste
 | 2 | `abi.major` equals the runtime's ABI major; any `abi.minor` is accepted. | `ABI_INCOMPATIBLE` (`/abi/major`) |
 | 3 | `pmp_version` is in the runtime's PMP compatibility class and not newer than the runtime's PMP version. | `PROTOCOL_INCOMPATIBLE` (`/pmp_version`) |
 | 4 | `capabilities` lists the step's capability at the required version. | `CAPABILITY_NOT_IMPLEMENTED` (`/capabilities`) |
-| 5 | The library file exists and can be read. | `LIBRARY_NOT_FOUND`, `IO_ERROR` (`/library/path`) |
-| 6 | When `library.sha256` is present, the file has that digest. | `LIBRARY_DIGEST_MISMATCH` (`/library/sha256`) |
+| 5 | Each service `requires.services` lists as required (`optional` false) resolves on the provider search paths ([runtime-services.md](runtime-services.md#resolution)). | `SERVICE_UNAVAILABLE` (`/requires/services/<i>`) |
+| 6 | The library file exists and can be read. | `LIBRARY_NOT_FOUND`, `IO_ERROR` (`/library/path`) |
+| 7 | When `library.sha256` is present, the file has that digest. | `LIBRARY_DIGEST_MISMATCH` (`/library/sha256`) |
 
-The library's digest is computed in rule 5 or 6 and kept for the run. When the run loads the
-library it computes the digest again and refuses a file that changed in between
-(`LIBRARY_DIGEST_MISMATCH`).
+Rule 5 reports every required service that does not resolve, and does not keep the later rules
+from running. The library's digest is computed in rule 6 or 7 and kept for the run. When the run
+loads the library it computes the digest again and refuses a file that changed in between
+(`LIBRARY_DIGEST_MISMATCH`). Then the library file of each provider the run uses is checked the
+same way, located in the provider's manifest
+([runtime-services.md](runtime-services.md#resolution)).
 
 ## Identity check
 
@@ -210,7 +244,7 @@ Module projects build with [`PraenoraModule.cmake`](../../cmake/PraenoraModule.c
 with the module SDK:
 
 ```cmake
-find_package(Praenora 0.1 REQUIRED COMPONENTS ModuleSDK)
+find_package(Praenora 0.2 REQUIRED COMPONENTS ModuleSDK)
 praenora_add_module(example_estimator
   NAME         example-estimator
   VERSION      0.1.0
@@ -222,14 +256,19 @@ praenora_add_module(example_estimator
 
 `praenora_add_module()` always creates a `MODULE` library with hidden visibility, named after the
 module without a `lib` prefix, and writes `<name>.pmm.json` beside it, evaluated for each build
-configuration. Without `MANIFEST_TEMPLATE` it writes the required fields and
-`"parameters_schema": {"type": "object"}`. A template is processed like `configure_file(@ONLY)`
-with these variables:
+configuration, in the manifest format of the SDK (0.2.0). `REQUIRES_SERVICES` and
+`OPTIONAL_SERVICES` list the services the module requires and can use, each as
+`<name>@<major>.<minor>` (for example `praenora.simulation@0.0`); a name and major appears once in
+both lists together. Without `MANIFEST_TEMPLATE` it writes the required fields,
+`"parameters_schema": {"type": "object"}` and, when the module lists services, `requires`. A
+template is processed like `configure_file(@ONLY)` with these variables:
 
 | Variable | Value |
 |---|---|
+| `@PRAENORA_MODULE_MANIFEST_FORMAT_VERSION@` | The manifest format the SDK writes, 0.2.0, for `format_version`. |
 | `@PRAENORA_MODULE_NAME@`, `@PRAENORA_MODULE_VERSION@` | `NAME` and `VERSION`. |
 | `@PRAENORA_MODULE_CAPABILITIES_JSON@` | `CAPABILITIES` as a JSON array of `{id, version}`. |
+| `@PRAENORA_MODULE_REQUIRES_JSON@` | The value of `requires`: `{"services": [...]}`, the required services first, each `{name, major, minor, optional}`; an empty list when the module lists none. |
 | `@PRAENORA_ABI_MAJOR@`, `@PRAENORA_ABI_MINOR@`, `@PRAENORA_PMP_VERSION@`, `@PRAENORA_SDK_VERSION@` | The versions of the SDK the module is built against. |
 | `@PRAENORA_MODULE_OS@`, `@PRAENORA_MODULE_ARCH@` | The target platform in manifest vocabulary: `linux`, `macos` or `windows`; `x86_64` or `arm64`. |
 | `@PRAENORA_MODULE_LIBRARY_FILE@` | The library's file name, for each build configuration. |

@@ -2,10 +2,11 @@
 
 The Python package `praenora.runtime` (distribution `praenora-runtime`) offers what the `praenora`
 tool offers, with the same results: validating configurations and documents, listing, inspecting
-and checking modules, workflow graphs, the protocol catalog and the schemas, and running workflows
-with their status, metrics and outputs. It is a pure-Python layer over an extension that SWIG
-generates from a narrow facade of the C++ API, which passes only strings and numbers
-([ADR-0018](adr/ADR-0018-python-bindings-with-swig.md)). `praenora` is a namespace package.
+and checking modules, listing service providers, workflow graphs, the protocol catalog and the
+schemas, and running workflows with their status, metrics and outputs. It is a pure-Python layer
+over an extension that SWIG generates from a narrow facade of the C++ API, which passes only
+strings and numbers ([ADR-0018](adr/ADR-0018-python-bindings-with-swig.md)). `praenora` is a
+namespace package.
 
 It needs Python 3.10 or newer. The examples below were run on macOS arm64 with CPython 3.12,
 from the repository root, against the `dev` build.
@@ -54,21 +55,25 @@ ticks with health `healthy`.
 
 ## Functions
 
-Paths are `str` or `os.PathLike`; `module_paths` and `catalog_paths` are lists of paths, which play
-the part of the tool's `--module-path` and `--catalog-path` options: the caller's module search
-paths ([search order](specs/manifest.md#discovery)) and extra catalog directories
-([specs/protocol.md](specs/protocol.md#catalog)). A single path where a list is expected is a
+Paths are `str` or `os.PathLike`; `module_paths`, `provider_paths` and `catalog_paths` are lists of
+paths, which play the part of the tool's `--module-path`, `--provider-path` and `--catalog-path`
+options: the caller's module search paths ([search order](specs/manifest.md#discovery)), the
+caller's service provider search paths ([search order](specs/runtime-services.md#discovery)),
+searched before `PRAENORA_PROVIDER_PATH` and the installation's provider directory, and extra
+catalog directories ([specs/protocol.md](specs/protocol.md#catalog)). `provider_paths` is a
+keyword-only argument wherever it is not the first. A single path where a list is expected is a
 `TypeError`. Results are decoded JSON: what the tool's `--json` output holds as its `result`,
 without the `{"ok": true, "result": ...}` around it.
 
 | Function | Returns |
 |---|---|
 | `version()` | `{"runtime", "sdk", "pmp", "abi": {"major", "minor"}, "formats", "platform", "compiler", "build_type"}`. |
-| `validate(config, module_paths=None, catalog_paths=None, load=False)` | The validation report, `{"ok": True, "diagnostics": [...]}`, whose diagnostics are warnings and notes; raises `PraenoraError` when it holds an error. `load=True` also loads each module and checks its identity. |
+| `validate(config, module_paths=None, catalog_paths=None, load=False, *, provider_paths=None)` | The validation report, `{"ok": True, "diagnostics": [...]}`, whose diagnostics are warnings and notes; raises `PraenoraError` when it holds an error. `load=True` also starts the service providers of the workflow's services, and loads each module and checks its identity. |
 | `validate_document(path)` | The report for any Praenora document, checked against the schema of its kind; raises like `validate()`. |
 | `list_modules(module_paths=None)` | Every manifest on the search paths, in search order: `[{"name", "version", "manifest_path", "library_path", "os", "arch", "capabilities"}]`. |
-| `inspect_module(name, version=None, load=False, module_paths=None)` | One module as discovery resolves it (its highest version for this platform by default), with `"describe"` and `"library_sha256"` when `load=True`. |
-| `check_module(manifest, vectors=None, *, catalog_paths=None)` | The contract checks' report, `{"kind", "format_version", "passed", "checks"}`; raises `PraenoraError` `FAILED` when a check failed. `catalog_paths` adds the catalog entries the module uses that are not built in, as `--catalog-path` does for `praenora modules check`. |
+| `list_providers(provider_paths=None)` | Every service provider manifest on the provider search paths, in search order: `[{"name", "version", "manifest", "library", "platform": {"os", "arch"}, "services": [{"name", "major", "minor"}], "engine", "usable"}]`, with `"problem"`, why the runtime cannot use it, for a provider that is not usable; a manifest shadowed by an earlier one of the same name and platform is unusable, its problem naming the manifest that shadows it. Nothing is loaded. |
+| `inspect_module(name, version=None, load=False, module_paths=None)` | One module as discovery resolves it (its highest version for this platform by default), with `"describe"` and `"library_sha256"` when `load=True`. Inspecting a module loads no service provider, so it takes no `provider_paths`. |
+| `check_module(manifest, vectors=None, *, catalog_paths=None, provider_paths=None)` | The contract checks' report, `{"kind", "format_version", "passed", "checks"}`; raises `PraenoraError` `FAILED` when a check failed. `catalog_paths` adds the catalog entries the module uses that are not built in, as `--catalog-path` does for `praenora modules check`; the services the module's manifest declares are resolved on the provider search paths, `provider_paths` first, and their providers started for the checks. |
 | `graph(config=None, workflow=None, format="json", *, module_paths=None, catalog_paths=None)` | The graph of the definition `workflow` (`"<name>@<version>"`) or of the one `config` pins: a dict for `"json"`, a string for `"text"`, `"dot"` and `"asyncapi"`. |
 | `list_catalog(kind=None, *, catalog_paths=None)` | The catalog's entries, `[{"kind", "id", "version", "status", "summary"}]`, sorted; `kind` is `"workflows"`, `"capabilities"` or `"messages"`. |
 | `catalog_entry(id, version, *, catalog_paths=None)` | One entry's document. |
@@ -81,7 +86,7 @@ without the `{"ok": true, "result": ...}` around it.
 ```python
 Workflow(config, module_paths=None, output_dir=None, seed=None, log_level=None, *,
          ticks=None, overwrite=False, trace_messages=None, status_file=None,
-         log_format=None, log_file=None, catalog_paths=None)
+         log_format=None, log_file=None, catalog_paths=None, provider_paths=None)
 ```
 
 The constructor validates the configuration, with its arguments as overrides
@@ -92,7 +97,7 @@ take the names of the tool's options in any case; `None` leaves a setting to the
 
 | Method or property | Does |
 |---|---|
-| `start()` | Loads the modules and creates and initializes an instance for each step. |
+| `start()` | Loads and starts the service providers of the run's services, then loads the modules and creates and initializes an instance for each step. |
 | `tick()` | Runs the next tick: `{"tick", "logical_time", "outputs", "finished"}`, `outputs` naming the workflow outputs it produced. |
 | `run(ticks=None)` | Starts the run if needed, then runs ticks until it is finished, or until `ticks` more ran: `{"state", "ticks_completed", "fingerprint"}`. It returns for a completed or stopped run, and raises the failure of a failed one, again on every later call. |
 | `request_stop()` | Asks the run to stop: the call in progress is asked to cancel and no further call starts. Safe from any thread. |
@@ -113,7 +118,32 @@ Every failure of the runtime raises `praenora.runtime.PraenoraError`, with the a
 `validate()`, `validate_document()` and `check_module()` raise when what they check fails, as the
 tool exits with an error: the error carries the first problem's code and location, and `details`
 holds the whole report, a validation report (`{"ok": False, "diagnostics": [...]}`) or the check
-report. `Workflow(...)` raises the same way when the configuration is invalid.
+report. `Workflow(...)` raises the same way when the configuration is invalid. Each diagnostic of a
+validation report has the keys of the tool's `--json` diagnostics: `severity`, `code`, `name`,
+`category`, `message`, `location` and, when set, `step`, `module` and `details`. A
+`SERVICE_UNAVAILABLE` diagnostic (code 407, category `compatibility`), for a service that a module
+requires and no usable provider offers, has the details `{"service", "major", "minor",
+"search_paths", "providers"}`, the providers being those that offer the service's name but cannot
+serve it, each with its `reason`:
+
+```python
+import praenora.runtime as pr
+
+config = "tests/fixtures/configs/cli/service/workflow.yaml"
+paths = {"module_paths": ["build/dev/test-modules"], "catalog_paths": ["tests/fixtures/catalog"]}
+try:
+    pr.validate(config, **paths)
+except pr.PraenoraError as error:
+    print(error.code, error.name, error.location["pointer"])
+    print(error.details["diagnostics"][0]["details"]["service"])
+print(pr.validate(config, provider_paths=["build/dev/test-providers/test-echo"], **paths))
+```
+
+```text
+407 SERVICE_UNAVAILABLE /requires/services/0
+test.echo
+{'ok': True, 'diagnostics': []}
+```
 
 ```python
 import praenora.runtime as pr
@@ -266,14 +296,14 @@ macOS version all the same (`macosx_15_0_arm64` on macOS 15).
 
 **Contents.** A wheel build has only the Python package's install rules, so the wheel holds just
 `praenora/runtime/` and its `.dist-info` (`METADATA`, `WHEEL` and `RECORD`); `praenora` has no
-`__init__.py`. The wheel built above is 0.84 MB, and 2.0 MB once installed:
+`__init__.py`. The wheel built above is 0.91 MB, and 2.2 MB once installed:
 
 | File | Size | From |
 |---|---|---|
-| `__init__.py` | 15.7 kB | `python/praenora/runtime/`, through `wheel.packages` |
-| `_bindings.py` | 9.1 kB | SWIG's proxy module, installed by the build |
+| `__init__.py` | 17.2 kB | `python/praenora/runtime/`, through `wheel.packages` |
+| `_bindings.py` | 9.3 kB | SWIG's proxy module, installed by the build |
 | `_bindings_native.cpython-312-darwin.so` | 349 kB | The extension, installed by the build |
-| `libpraenora_runtime.0.1.dylib` | 1.6 MB | The runtime library, installed by the build |
+| `libpraenora_runtime.0.2.dylib` | 1.8 MB | The runtime library, installed by the build |
 
 The binaries are Release builds, stripped on installation. The extension finds the runtime library
 beside itself (an RPATH of `$ORIGIN` on Linux, `@loader_path` on macOS; on Windows the DLL lies next
@@ -281,9 +311,9 @@ to the extension), and it is specific to one Python version (no stable-ABI wheel
 [open-questions.md](open-questions.md), OQ-21). Each file is in the wheel once:
 
 - A wheel cannot hold a symbolic link, so the runtime library's soname link would be stored as a
-  second copy of the whole library (the same build was 1.55 MB with it). In a wheel build the
-  library's file name is its soname (`libpraenora_runtime.0.1.dylib`; `libpraenora_runtime.so.0.1`
-  on Linux), so there is no link; its Mach-O current version is still the full runtime version.
+  second copy of the whole library. In a wheel build the library's file name is its soname
+  (`libpraenora_runtime.0.2.dylib`; `libpraenora_runtime.so.0.2` on Linux), so there is no link;
+  its Mach-O current version is still the full runtime version.
 - `__init__.py` comes from `wheel.packages` only, and the install rules add only what the build
   makes. scikit-build-core leaves out a package file that an install rule has already installed, so
   installing a file both ways does not fail: the install rule's copy wins without a warning.
@@ -292,11 +322,11 @@ to the extension), and it is specific to one Python version (no stable-ABI wheel
 
 ```sh
 uv venv --python 3.12 build/wheel-test
-uv pip install --python build/wheel-test build/wheel/praenora_runtime-0.1.0-cp312-cp312-macosx_15_0_arm64.whl
+uv pip install --python build/wheel-test build/wheel/praenora_runtime-0.2.0-cp312-cp312-macosx_15_0_arm64.whl
 build/wheel-test/bin/python -c 'import praenora.runtime as pr; print(pr.version()["runtime"], pr.version()["build_type"])'
 ```
 
-prints `0.1.0 Release`. The tests of `tests/python` pass against the installed package as well, run
+prints `0.2.0 Release`. The tests of `tests/python` pass against the installed package as well, run
 with that environment's Python, CTest's environment for `python.unittest` and `PYTHONPATH` naming
 the environment's `site-packages` instead of `build/<preset>/python`.
 

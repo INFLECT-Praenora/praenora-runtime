@@ -1,5 +1,6 @@
 """Tests of the functions of praenora.runtime: the package itself, its errors, versions,
-validation, modules and their contract checks, graphs, the catalog and the schemas.
+validation, modules and their contract checks, service providers and the services modules require,
+graphs, the catalog and the schemas.
 
 CTest runs them (python.unittest) against the package in the build tree, with the environment
 that support.py describes. The tests write files only to temporary directories.
@@ -19,8 +20,8 @@ from unittest import mock
 import praenora
 import praenora.runtime as pr
 from support import (BAD_PARAMETERS_CONFIG, EXAMPLE_CONFIG, EXAMPLE_MODULES, FIXTURE_PATHS,
-                     FIXTURES, SOURCE_DIR, TEST_CATALOG, TEST_MODULES, environment,
-                     needs_examples)
+                     FIXTURES, SERVICE_CONFIG, SOURCE_DIR, TEST_CATALOG, TEST_ECHO_PROVIDER,
+                     TEST_MODULES, UNUSABLE_PROVIDERS, environment, needs_examples)
 
 EXAMPLE_WORKFLOW = "example.estimate-predict@0.1.0"
 # A valid configuration of the test workflow test.single (one fx-slow step).
@@ -41,8 +42,9 @@ class PackageTest(unittest.TestCase):
             sorted(pr.__all__),
             sorted([
                 "PraenoraError", "Workflow", "catalog_entry", "check_module", "graph",
-                "inspect_module", "list_catalog", "list_modules", "list_schemas", "read_status",
-                "schema", "validate", "validate_document", "version",
+                "inspect_module", "list_catalog", "list_modules", "list_providers",
+                "list_schemas", "read_status", "schema", "validate", "validate_document",
+                "version",
             ]))
         for name in pr.__all__:
             self.assertTrue(hasattr(pr, name), name)
@@ -56,6 +58,9 @@ class PackageTest(unittest.TestCase):
         self.assertEqual(set(info["abi"]), {"major", "minor"})
         self.assertTrue(all(isinstance(value, int) for value in info["abi"].values()))
         self.assertEqual(info["formats"]["workflow-config"], "0.1.0")
+        self.assertEqual(info["formats"]["provider-manifest"], "0.1.0")
+        self.assertEqual(info["formats"]["module-manifest"], "0.2.0")
+        self.assertEqual(info["formats"]["run-record"], "0.2.0")
 
 
 class BindingsTest(unittest.TestCase):
@@ -258,6 +263,104 @@ class CheckModuleTest(unittest.TestCase):
             pr.check_module(manifest, catalog_paths=TEST_CATALOG)
 
 
+class ProvidersTest(unittest.TestCase):
+    KEYS = {"name", "version", "manifest", "library", "platform", "services", "engine", "usable"}
+
+    def test_list_providers(self):
+        echo = pr.list_providers([TEST_ECHO_PROVIDER])[0]
+        self.assertEqual(set(echo), self.KEYS)
+        self.assertEqual((echo["name"], echo["version"]), ("test-echo", "0.1.0"))
+        self.assertEqual(pathlib.Path(echo["manifest"]),
+                         pathlib.Path(TEST_ECHO_PROVIDER, "test-echo.provider.json"))
+        self.assertTrue(pathlib.Path(echo["library"]).is_file())
+        self.assertEqual(set(echo["platform"]), {"os", "arch"})
+        self.assertEqual(echo["services"], [{"name": "test.echo", "major": 0, "minor": 0}])
+        self.assertEqual(echo["engine"], {"name": "test-echo-engine", "version": "1.0.0"})
+        self.assertIs(echo["usable"], True)
+
+        # A provider this runtime cannot use is listed with the reason; listing loads nothing.
+        old, shadowed = pr.list_providers(provider_paths=[UNUSABLE_PROVIDERS])[:2]
+        self.assertEqual(set(old), self.KEYS | {"problem"})
+        self.assertEqual((old["name"], old["version"], old["usable"]),
+                         ("test-old-runtime", "0.1.0", False))
+        self.assertTrue(old["problem"].startswith("built for "), old["problem"])
+        # A manifest shadowed by an earlier one of its name and platform is listed too, unusable,
+        # naming the manifest that shadows it.
+        self.assertEqual((shadowed["name"], shadowed["version"], shadowed["usable"]),
+                         ("test-old-runtime", "0.2.0", False))
+        self.assertTrue(shadowed["problem"].startswith(f"shadowed by '{old['manifest']}'"),
+                        shadowed["problem"])
+        with self.assertRaises(TypeError):
+            pr.list_providers(TEST_ECHO_PROVIDER)
+
+    def test_provider_paths_default_to_the_environment(self):
+        # Without provider_paths the runtime searches PRAENORA_PROVIDER_PATH (which CTest unsets).
+        self.assertNotIn("test-echo", [provider["name"] for provider in pr.list_providers()])
+        with mock.patch.dict(os.environ, {"PRAENORA_PROVIDER_PATH": TEST_ECHO_PROVIDER}):
+            self.assertEqual(pr.list_providers()[0]["name"], "test-echo")
+            self.assertTrue(pr.validate(SERVICE_CONFIG, **FIXTURE_PATHS)["ok"])
+
+
+class ServicesTest(unittest.TestCase):
+    """fx-service requires the runtime service test.echo@0; provider_paths names where its provider
+    is found."""
+
+    MANIFEST = pathlib.Path(TEST_MODULES, "fx-service", "fx-service.pmm.json")
+
+    def test_validate_reports_an_unavailable_service(self):
+        with self.assertRaises(pr.PraenoraError) as caught:
+            pr.validate(SERVICE_CONFIG, **FIXTURE_PATHS)
+        error = caught.exception
+        self.assertEqual((error.code, error.name, error.category),
+                         (407, "SERVICE_UNAVAILABLE", "compatibility"))
+        self.assertEqual(error.location["pointer"], "/requires/services/0")
+        # Each diagnostic of the report carries its details.
+        diagnostic = error.details["diagnostics"][0]
+        self.assertEqual(diagnostic["name"], "SERVICE_UNAVAILABLE")
+        self.assertEqual(diagnostic["module"], "fx-service@0.1.0")
+        details = diagnostic["details"]
+        self.assertEqual((details["service"], details["major"], details["minor"]),
+                         ("test.echo", 0, 0))
+        self.assertIsInstance(details["search_paths"], list)
+        self.assertEqual(details["providers"], [])
+
+        report = pr.validate(SERVICE_CONFIG, load=True, provider_paths=[TEST_ECHO_PROVIDER],
+                             **FIXTURE_PATHS)
+        self.assertEqual(report, {"ok": True, "diagnostics": []})
+        # provider_paths is keyword-only, and a lone path is refused.
+        with self.assertRaises(TypeError):
+            pr.validate(SERVICE_CONFIG, [TEST_MODULES], [TEST_CATALOG], False,
+                        [TEST_ECHO_PROVIDER])
+        with self.assertRaises(TypeError):
+            pr.validate(SERVICE_CONFIG, provider_paths=TEST_ECHO_PROVIDER, **FIXTURE_PATHS)
+
+    def test_check_module_uses_the_provider_paths(self):
+        report = pr.check_module(self.MANIFEST, catalog_paths=[TEST_CATALOG],
+                                 provider_paths=[TEST_ECHO_PROVIDER])
+        load = {check["id"]: check for check in report["checks"]}["library.load"]
+        self.assertEqual(load["status"], "pass")
+        self.assertIn("test.echo@0 from provider test-echo@0.1.0", load["message"])
+
+        with self.assertRaises(pr.PraenoraError) as caught:
+            pr.check_module(self.MANIFEST, catalog_paths=[TEST_CATALOG])
+        self.assertEqual(caught.exception.name, "FAILED")
+        failed = [check for check in caught.exception.details["checks"]
+                  if check["status"] == "fail"]
+        self.assertEqual([check["id"] for check in failed], ["library.load"])
+        self.assertTrue(failed[0]["message"].startswith("SERVICE_UNAVAILABLE: "),
+                        failed[0]["message"])
+
+    def test_inspect_module_takes_no_provider_paths(self):
+        # Inspecting a module loads no service provider, so inspect_module() has no provider
+        # search paths to take.
+        info = pr.inspect_module("fx-service", load=True, module_paths=[TEST_MODULES])
+        self.assertEqual((info["name"], info["version"]), ("fx-service", "0.1.0"))
+        self.assertRegex(info["library_sha256"], SHA256)
+        with self.assertRaises(TypeError):
+            pr.inspect_module("fx-service", module_paths=[TEST_MODULES],
+                              provider_paths=[TEST_ECHO_PROVIDER])
+
+
 class GraphTest(unittest.TestCase):
     def test_graph_formats(self):
         graph = pr.graph(workflow=EXAMPLE_WORKFLOW)
@@ -325,13 +428,18 @@ class CatalogTest(unittest.TestCase):
                                           catalog_paths=[TEST_CATALOG])["name"], "test.chain")
 
         schemas = pr.list_schemas()
-        self.assertEqual(len(schemas), 16)
+        self.assertEqual(len(schemas), 19)
         self.assertEqual(schemas, sorted(schemas))
         self.assertIn("module-manifest@0.1", schemas)
+        self.assertIn("module-manifest@0.2", schemas)
+        self.assertIn("provider-manifest@0.1", schemas)
+        self.assertIn("run-record@0.2", schemas)
         schema = pr.schema("module-manifest")
-        self.assertEqual(schema["$id"], "urn:praenora:schema:module-manifest:0.1")
-        self.assertEqual(pr.schema("module-manifest", "0.1"), schema)
-        self.assertEqual(pr.schema("module-manifest", format_version="0.1.0"), schema)
+        self.assertEqual(schema["$id"], "urn:praenora:schema:module-manifest:0.2")
+        self.assertEqual(pr.schema("module-manifest", "0.2"), schema)
+        self.assertEqual(pr.schema("module-manifest", format_version="0.2.0"), schema)
+        self.assertEqual(pr.schema("module-manifest", "0.1")["$id"],
+                         "urn:praenora:schema:module-manifest:0.1")
         with self.assertRaises(pr.PraenoraError) as caught:
             pr.schema("no-such-kind")
         self.assertEqual(caught.exception.name, "FORMAT_VERSION_UNSUPPORTED")

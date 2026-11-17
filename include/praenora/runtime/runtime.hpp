@@ -1,6 +1,7 @@
 // The entry point of the C++ API: a Runtime validates workflow configurations, lists and inspects
-// modules, validates documents and opens workflows (praenora/runtime/workflow.hpp). Paths are
-// UTF-8 strings; relative ones are relative to the current directory.
+// modules, lists service providers, validates documents and opens workflows
+// (praenora/runtime/workflow.hpp). Paths are UTF-8 strings; relative ones are relative to the
+// current directory.
 #ifndef PRAENORA_RUNTIME_RUNTIME_HPP
 #define PRAENORA_RUNTIME_RUNTIME_HPP
 
@@ -25,6 +26,21 @@ struct ModuleInfo {
     // Filled in only when the module was loaded: what its describe() reported (a JSON object) and
     // the SHA-256 of its library.
     std::string describe_json, library_sha256;
+};
+
+// A service provider manifest found on the provider search paths
+// (docs/specs/runtime-services.md).
+struct ProviderInfo {
+    std::string name, version, manifest_path, library_path, os, arch;
+    std::vector<std::string> services; // the services it offers, "<name>@<major>.<minor>"
+    std::string engine_json;           // the manifest's engine object, as JSON text
+    // Whether this runtime can use the provider: no earlier manifest of its name and platform
+    // shadows it, and its manifest is for this platform, this runtime version and this provider
+    // interface major. When it cannot, `problem` says why (shadowed, naming the manifest that
+    // shadows it, or else the first of the other rules it breaks); it is empty for a usable
+    // provider.
+    bool usable = false;
+    std::string problem;
 };
 
 // One contract check of a module: its id, its status ("pass", "fail" or "skip") and a message.
@@ -57,7 +73,9 @@ struct CatalogEntryInfo {
 // The runtime: the protocol catalog (the built-in entries, RuntimeOptions::catalog_paths and, with
 // use_environment, PRAENORA_CATALOG_PATH), the index of the module search paths (the options'
 // module_paths, then PRAENORA_MODULE_PATH with use_environment, then the installation's module
-// directory) and the runtime's logging. Everything is read once, when the Runtime is constructed.
+// directory), the index of the provider search paths (the options' provider_paths, then
+// PRAENORA_PROVIDER_PATH with use_environment, then the installation's provider directory) and
+// the runtime's logging. Everything is read once, when the Runtime is constructed.
 // A Runtime is immutable and thread-safe; copies share one state and are cheap (a move is a copy,
 // so a Runtime stays usable whatever happened to it).
 //
@@ -81,7 +99,9 @@ public:
 
     // Validates a workflow configuration: everything a run checks before tick 0, without running
     // anything, every problem reported (never thrown) with its location. With `load`, it also
-    // loads each module library once and checks its identity, then releases the libraries.
+    // loads and starts the service providers of the workflow's services, as a run does (they stay
+    // loaded for the rest of the process, and their records go to this runtime's logging), then
+    // loads each module library once and checks its identity, and releases the libraries.
     ValidationReport validate(const std::string& config_path,
                               const ValidateOptions& options = {}) const;
 
@@ -92,6 +112,12 @@ public:
 
     // Every manifest found on the module search paths, in search order, other platforms' too.
     std::vector<ModuleInfo> list_modules() const;
+
+    // Every service provider manifest found on the provider search paths, in search order, other
+    // platforms' and other runtime versions' too, each saying whether this runtime can use it: a
+    // manifest shadowed by an earlier one of the same provider name and platform, which is never
+    // used, is listed unusable. Nothing is loaded.
+    std::vector<ProviderInfo> list_providers() const;
 
     // The module `name` at `version` (by default its highest version for this platform), as
     // discovery resolves it. With `load`, the library is loaded and checked (and released again),
@@ -114,7 +140,10 @@ public:
     // throws praenora::Error(IO_ERROR) instead, and so does a vectors file that cannot be read,
     // which is opened only once the manifest checks have passed (a manifest that fails them is
     // reported, and its vectors are never read); either is thrown before any of the module's code
-    // runs. The module's log messages go to the runtime's logging (logger module.check).
+    // runs. library.load first resolves the services the manifest declares on this runtime's
+    // provider search paths and loads and starts their providers, as a run does, and the module's
+    // instances are then served them. The module's log messages go to the runtime's logging
+    // (logger module.check), and so do the providers' records (logger provider.<name>).
     ModuleCheckReport
     check_module(const std::string& manifest_path,
                  const std::optional<std::string>& vectors_path = std::nullopt) const;

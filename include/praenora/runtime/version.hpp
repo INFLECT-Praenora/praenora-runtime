@@ -13,7 +13,7 @@ namespace praenora {
 struct VersionInfo {
     std::string runtime, sdk, pmp;              // package, module SDK and protocol (PMP) versions
     std::uint32_t abi_major = 0, abi_minor = 0; // module ABI version
-    std::map<std::string, std::string> formats; // document kind -> supported format_version
+    std::map<std::string, std::string> formats; // document kind -> its format version
     std::string platform, compiler, build_type; // e.g. "macos-arm64", "AppleClang 17.0.0", "Debug"
 };
 

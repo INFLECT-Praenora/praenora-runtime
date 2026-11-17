@@ -1,7 +1,9 @@
 # praenora_test_support: helpers for every test executable (test_support.hpp; json_compare.hpp,
-# JSON comparison with a tolerance; the header-only temp_dir.hpp, temporary directories, and
-# module_fixtures.hpp for tests that use the fixture modules). It uses only the standard library,
-# nlohmann/json and GoogleTest, so black-box tests (linked to the shared library) can use it too.
+# JSON comparison with a tolerance; scoped_environment.hpp, environment variables set for a scope;
+# the header-only temp_dir.hpp, temporary directories, module_fixtures.hpp for tests that use the
+# fixture modules and provider_fixtures.hpp for tests that use the fixture providers). It uses
+# only the standard library, nlohmann/json and GoogleTest, so black-box tests (linked to the
+# shared library) can use it too.
 # Its compile definitions give tests the locations of sources, fixtures and built modules.
 add_library(praenora_test_support STATIC
     test_support.hpp
@@ -9,7 +11,10 @@ add_library(praenora_test_support STATIC
     json_compare.hpp
     json_compare.cpp
     temp_dir.hpp
-    module_fixtures.hpp)
+    module_fixtures.hpp
+    provider_fixtures.hpp
+    scoped_environment.hpp
+    scoped_environment.cpp)
 target_include_directories(praenora_test_support PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 # json_compare.cpp forwards to the runtime's header-only comparison (core/json_near.hpp), the one
 # implementation of its rule; the include directory stays private, so the tests that use this
@@ -22,6 +27,7 @@ target_compile_definitions(praenora_test_support PUBLIC
     "PRAENORA_TEST_FIXTURES_DIR=\"${PROJECT_SOURCE_DIR}/tests/fixtures\""
     "PRAENORA_TEST_CATALOG_DIR=\"${PROJECT_SOURCE_DIR}/tests/fixtures/catalog\""
     "PRAENORA_TEST_MODULES_DIR=\"${PRAENORA_TEST_MODULES_DIR}\""
+    "PRAENORA_TEST_PROVIDERS_DIR=\"${PRAENORA_TEST_PROVIDERS_DIR}\""
     "PRAENORA_EXAMPLE_MODULES_DIR=\"${PRAENORA_EXAMPLE_MODULES_DIR}\"")
 praenora_target_warnings(praenora_test_support)
 

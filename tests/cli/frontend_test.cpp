@@ -1,17 +1,21 @@
 // What the two front ends share (src/frontend/frontend.hpp): names taken in any letter case, folded
-// the same way whatever the process's locale.
+// the same way whatever the process's locale, and the JSON of a service provider.
 #include <frontend.hpp>
 
 #include <praenora/runtime/options.hpp>
+#include <praenora/runtime/runtime.hpp>
 
 #include <gtest/gtest.h>
+#include <nlohmann/json.hpp>
 
 #include <cctype>
 #include <clocale>
 #include <optional>
+#include <stdexcept>
 #include <string>
 
 namespace frontend = praenora::frontend;
+using nlohmann::json;
 
 namespace {
 
@@ -57,4 +61,48 @@ TEST(Frontend, NamesFoldOnlyAsciiLetters) {
         return;
     }
     GTEST_SKIP() << "no locale on this system folds bytes beyond ASCII";
+}
+
+// The JSON of a provider has the keys of `praenora providers list --json` and list_providers():
+// the services split into their name, major and minor, the engine as an object, and "problem"
+// only for a provider that is not usable.
+TEST(Frontend, ProviderJsonHasTheKeysOfTheListings) {
+    praenora::ProviderInfo provider;
+    provider.name = "test-echo";
+    provider.version = "0.1.0";
+    provider.manifest_path = "/p/test-echo/test-echo.provider.json";
+    provider.library_path = "/p/test-echo/test-echo.so";
+    provider.os = "macos";
+    provider.arch = "arm64";
+    provider.services = {"test.echo@0.0", "praenora.simulation@4294967295.12"};
+    provider.engine_json = R"({"name":"echo","version":"1.0.0"})";
+    provider.usable = true;
+    EXPECT_EQ(frontend::provider_json(provider),
+              json({{"name", "test-echo"},
+                    {"version", "0.1.0"},
+                    {"manifest", "/p/test-echo/test-echo.provider.json"},
+                    {"library", "/p/test-echo/test-echo.so"},
+                    {"platform", {{"os", "macos"}, {"arch", "arm64"}}},
+                    {"services",
+                     {{{"name", "test.echo"}, {"major", 0}, {"minor", 0}},
+                      {{"name", "praenora.simulation"}, {"major", 4294967295u}, {"minor", 12}}}},
+                    {"engine", {{"name", "echo"}, {"version", "1.0.0"}}},
+                    {"usable", true}}));
+
+    provider.usable = false;
+    provider.problem = "built for runtime 0.0.1; this runtime is 0.2.0";
+    const json unusable = frontend::provider_json(provider);
+    EXPECT_EQ(unusable.at("usable"), false);
+    EXPECT_EQ(unusable.at("problem"), provider.problem);
+    EXPECT_EQ(unusable.size(), 9u);
+}
+
+TEST(Frontend, ServiceJsonRefusesTextOfAnotherForm) {
+    EXPECT_EQ(frontend::service_json("a.b-c@1.2"),
+              json({{"name", "a.b-c"}, {"major", 1}, {"minor", 2}}));
+    for (const char* text : {"test.echo", "@0.0", "test.echo@0", "test.echo@0.", "test.echo@.0",
+                             "test.echo@x.0", "test.echo@0.0x", "test.echo@-1.0",
+                             "test.echo@4294967296.0"}) {
+        EXPECT_THROW(frontend::service_json(text), std::invalid_argument) << text;
+    }
 }

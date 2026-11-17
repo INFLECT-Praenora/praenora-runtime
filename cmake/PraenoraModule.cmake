@@ -1,5 +1,6 @@
 # praenora_add_module(<target>
 #     NAME <name> VERSION <semver> CAPABILITIES <id@version>... SOURCES <source>...
+#     [REQUIRES_SERVICES <name>@<major>.<minor>...] [OPTIONAL_SERVICES <name>@<major>.<minor>...]
 #     [MANIFEST_TEMPLATE <file>] [TEST_VECTORS <file>] [OUTPUT_DIRECTORY <dir>]
 #     [INSTALL_DESTINATION <dir> [INSTALL_COMPONENT <component>] [INSTALL_EXCLUDE_FROM_ALL]]
 #     [LINK_LIBRARIES <library>...])
@@ -7,6 +8,12 @@
 # Builds a Praenora module: an independently loadable library that implements the capabilities
 # listed, plus its Praenora Module Manifest. Installed with the module SDK; module projects use it
 # after find_package(Praenora COMPONENTS ModuleSDK), and this repository uses it the same way.
+#
+# - REQUIRES_SERVICES lists the runtime services the module requires and OPTIONAL_SERVICES those
+#   it can use when they are there, each as <name>@<major>.<minor> (the lowest minor it accepts),
+#   for example praenora.simulation@0.0. A service name and major may appear once in both lists
+#   together. They become the manifest's requires.services; validation refuses a run whose
+#   required services no provider offers, and a module sees only the provider services it lists.
 #
 # - <target> is always an add_library(MODULE) target, whatever BUILD_SHARED_LIBS says. Its file is
 #   <name> plus the platform's module suffix, without a "lib" prefix (fx-echo.so, fx-echo.dll).
@@ -20,12 +27,17 @@
 #   are relative to the current binary directory. A multi-config generator gets one directory per
 #   configuration: OUTPUT_DIRECTORY may contain $<CONFIG> for that, otherwise /$<CONFIG> is
 #   appended.
-# - The manifest <name>.pmm.json is generated beside the library. MANIFEST_TEMPLATE is a file
+# - The manifest <name>.pmm.json is generated beside the library, in the module manifest format
+#   of the SDK (PRAENORA_MODULE_MANIFEST_FORMAT_VERSION, 0.2.0). MANIFEST_TEMPLATE is a file
 #   (relative to the current source directory) processed like configure_file(@ONLY) with the
 #   variables below; generator expressions in the result are then evaluated, so the template must
-#   not otherwise contain "$<". Without a template, a manifest with the required fields and
-#   "parameters_schema": {"type": "object"} is generated.
+#   not otherwise contain "$<". Without a template, a manifest with the required fields,
+#   "parameters_schema": {"type": "object"} and, when the module lists services, "requires" is
+#   generated.
+#     @PRAENORA_MODULE_MANIFEST_FORMAT_VERSION@ (the format_version to write)
 #     @PRAENORA_MODULE_NAME@ @PRAENORA_MODULE_VERSION@ @PRAENORA_MODULE_CAPABILITIES_JSON@
+#     @PRAENORA_MODULE_REQUIRES_JSON@ (the value of "requires": {"services": [{"name", "major",
+#     "minor", "optional"}, ...]}, the required services first, an empty list for none)
 #     @PRAENORA_ABI_MAJOR@ @PRAENORA_ABI_MINOR@ @PRAENORA_PMP_VERSION@ @PRAENORA_SDK_VERSION@
 #     @PRAENORA_MODULE_OS@ @PRAENORA_MODULE_ARCH@ (manifest vocabulary: linux|macos|windows and
 #     x86_64|arm64) @PRAENORA_MODULE_TEST_VECTORS@ (file name of the copied vectors, or empty)
@@ -40,9 +52,10 @@
 #   PRAENORA_MODULE_TEST_VECTORS_PATH hold the output directory, the manifest path and the path of
 #   the copied test vectors (empty without TEST_VECTORS); each may contain $<CONFIG>.
 #
-# The ABI, protocol and SDK versions come from the variables PRAENORA_ABI_MAJOR,
-# PRAENORA_ABI_MINOR, PRAENORA_PMP_VERSION and PRAENORA_SDK_VERSION, which the installed package
-# configuration (or, in this repository, cmake/PraenoraVersions.cmake) defines.
+# The ABI, protocol, SDK and manifest format versions come from the variables
+# PRAENORA_ABI_MAJOR, PRAENORA_ABI_MINOR, PRAENORA_PMP_VERSION, PRAENORA_SDK_VERSION and
+# PRAENORA_MODULE_MANIFEST_FORMAT_VERSION, which the installed package configuration (or, in this
+# repository, cmake/PraenoraVersions.cmake) defines.
 
 include_guard(GLOBAL)
 
@@ -94,7 +107,7 @@ function(praenora_add_module target)
     set(one_value_keywords NAME VERSION MANIFEST_TEMPLATE TEST_VECTORS OUTPUT_DIRECTORY
         INSTALL_DESTINATION INSTALL_COMPONENT)
     cmake_parse_arguments(PARSE_ARGV 1 arg "INSTALL_EXCLUDE_FROM_ALL" "${one_value_keywords}"
-        "CAPABILITIES;SOURCES;LINK_LIBRARIES")
+        "CAPABILITIES;SOURCES;LINK_LIBRARIES;REQUIRES_SERVICES;OPTIONAL_SERVICES")
     set(where "praenora_add_module(${target})")
     if(DEFINED arg_UNPARSED_ARGUMENTS)
         message(FATAL_ERROR "${where}: unexpected arguments: ${arg_UNPARSED_ARGUMENTS}")
@@ -113,7 +126,7 @@ function(praenora_add_module target)
             "${where}: INSTALL_COMPONENT and INSTALL_EXCLUDE_FROM_ALL need INSTALL_DESTINATION")
     endif()
     foreach(variable IN ITEMS PRAENORA_ABI_MAJOR PRAENORA_ABI_MINOR PRAENORA_PMP_VERSION
-                              PRAENORA_SDK_VERSION)
+                              PRAENORA_SDK_VERSION PRAENORA_MODULE_MANIFEST_FORMAT_VERSION)
         if(NOT DEFINED ${variable})
             message(FATAL_ERROR "${where}: ${variable} is not defined; load the SDK with "
                 "find_package(Praenora COMPONENTS ModuleSDK) first.")
@@ -158,6 +171,45 @@ function(praenora_add_module target)
         string(APPEND capabilities_json "{\"id\":\"${id}\",\"version\":\"${version}\"}")
     endforeach()
     set(capabilities_json "[${capabilities_json}]")
+
+    # The services the module requires, then those it can use: requires.services.
+    set(services_json "")
+    set(service_keys "")
+    foreach(kind IN ITEMS REQUIRES_SERVICES OPTIONAL_SERVICES)
+        if(kind STREQUAL "OPTIONAL_SERVICES")
+            set(optional "true")
+        else()
+            set(optional "false")
+        endif()
+        foreach(service IN LISTS arg_${kind})
+            if(NOT service MATCHES "^([^@]+)@(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$")
+                message(FATAL_ERROR "${where}: service '${service}' in ${kind} is not "
+                    "<name>@<major>.<minor>")
+            endif()
+            set(service_name "${CMAKE_MATCH_1}")
+            set(service_major "${CMAKE_MATCH_2}")
+            set(service_minor "${CMAKE_MATCH_3}")
+            if(NOT service_name MATCHES "${id_pattern}")
+                message(FATAL_ERROR "${where}: service '${service}' in ${kind} needs a name "
+                    "matching ${id_pattern}")
+            endif()
+            if(service_major GREATER 4294967295 OR service_minor GREATER 4294967295)
+                message(FATAL_ERROR "${where}: service '${service}' in ${kind}: the major and "
+                    "minor version must fit in 32 bits")
+            endif()
+            if("${service_name}@${service_major}" IN_LIST service_keys)
+                message(FATAL_ERROR "${where}: service ${service_name}@${service_major} is listed "
+                    "more than once in REQUIRES_SERVICES and OPTIONAL_SERVICES")
+            endif()
+            list(APPEND service_keys "${service_name}@${service_major}")
+            if(NOT services_json STREQUAL "")
+                string(APPEND services_json ",")
+            endif()
+            string(APPEND services_json "{\"name\":\"${service_name}\",\"major\":${service_major},"
+                "\"minor\":${service_minor},\"optional\":${optional}}")
+        endforeach()
+    endforeach()
+    set(requires_json "{\"services\":[${services_json}]}")
 
     # Output directory, with one directory per configuration for multi-config generators.
     if(DEFINED arg_OUTPUT_DIRECTORY)
@@ -226,6 +278,11 @@ function(praenora_add_module target)
     set(PRAENORA_MODULE_NAME "${arg_NAME}")
     set(PRAENORA_MODULE_VERSION "${arg_VERSION}")
     set(PRAENORA_MODULE_CAPABILITIES_JSON "${capabilities_json}")
+    set(PRAENORA_MODULE_REQUIRES_JSON "${requires_json}")
+    set(requires_member "")
+    if(NOT services_json STREQUAL "")
+        set(requires_member ",\n  \"requires\": ${requires_json}")
+    endif()
     set(PRAENORA_MODULE_LIBRARY_FILE "$<TARGET_FILE_NAME:${target}>")
     set(configured "${CMAKE_CURRENT_BINARY_DIR}/praenora-manifests/${target}.pmm.json.in")
     if(DEFINED arg_MANIFEST_TEMPLATE)
@@ -237,7 +294,7 @@ function(praenora_add_module target)
     else()
         file(CONFIGURE OUTPUT "${configured}" @ONLY NEWLINE_STYLE UNIX CONTENT [=[{
   "kind": "module-manifest",
-  "format_version": "0.1.0",
+  "format_version": "@PRAENORA_MODULE_MANIFEST_FORMAT_VERSION@",
   "module": {
     "name": "@PRAENORA_MODULE_NAME@",
     "version": "@PRAENORA_MODULE_VERSION@"
@@ -248,7 +305,7 @@ function(praenora_add_module target)
   "library": { "path": "@PRAENORA_MODULE_LIBRARY_FILE@" },
   "platform": { "os": "@PRAENORA_MODULE_OS@", "arch": "@PRAENORA_MODULE_ARCH@" },
   "capabilities": @PRAENORA_MODULE_CAPABILITIES_JSON@,
-  "parameters_schema": { "type": "object" }@tests_member@
+  "parameters_schema": { "type": "object" }@requires_member@@tests_member@
 }
 ]=])
     endif()

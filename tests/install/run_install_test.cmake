@@ -19,6 +19,8 @@
 #   BINDIR, LIBDIR, INCLUDEDIR, DATADIR        the build's GNUInstallDirs directories
 #   WITH_CLI, WITH_EXAMPLES     the build has the praenora tool, the example modules
 #   INSTALL_EXAMPLES            a default installation includes the example modules
+#   PROVIDERS                   the service providers a default installation includes (the
+#                               roadrunner provider, in a build with PRAENORA_WITH_ROADRUNNER)
 #
 # Steps, in order; the first failure ends the test, showing what ran and what it printed:
 #   1. cmake --install <BUILD_DIR> --prefix <WORK_DIR>/prefix. Each kind of installed file must
@@ -26,7 +28,9 @@
 #      generated ones included; no template and no internal header), the package configuration,
 #      the schemas and the catalog. No file of the Python package is installed, and no example
 #      module unless INSTALL_EXAMPLES. With example modules built, cmake --install ...
-#      --component Examples then installs them, with their manifests.
+#      --component Examples then installs them, with their manifests. The installation's
+#      provider directory holds each of PROVIDERS, its manifest and library side by side, and
+#      nothing else (no directory at all without PROVIDERS).
 #   2. consumer-module and consumer-app are configured, with uninitialized variables reported
 #      (one read in the installed PraenoraConfig.cmake or PraenoraModule.cmake fails; each
 #      configuration's output is kept in <WORK_DIR>/<consumer>-configure.log), and built, each
@@ -37,8 +41,11 @@
 #   3. consumer-app runs with the installed module's directory and CATALOG_DIR: exit 0, and
 #      consumer-echo's describe document on standard output.
 #   4. No file below <prefix>/<LIBDIR>/cmake/Praenora and no installed *.pmm.json (the
-#      installation's and consumer-module's) mentions SOURCE_DIR or BUILD_DIR.
-#   5. <prefix>/<BINDIR>/praenora version --json: exit 0 and a successful JSON document.
+#      installation's and consumer-module's) or *.provider.json mentions SOURCE_DIR or
+#      BUILD_DIR.
+#   5. <prefix>/<BINDIR>/praenora version --json: exit 0 and a successful JSON document; with
+#      PROVIDERS, praenora providers list --json, without --provider-path, lists each of them,
+#      usable, from the installation's provider directory.
 #   6. With example modules: <prefix>/<BINDIR>/praenora modules list --json, without
 #      --module-path, lists them from the installation's module directory, and
 #      praenora modules check passes for each installed manifest (the module loads from the
@@ -61,13 +68,14 @@ endforeach()
 foreach(variable IN ITEMS GENERATOR_PLATFORM GENERATOR_TOOLSET MULTI_CONFIG MAKE_PROGRAM C_COMPILER
                           CXX_COMPILER BUILD_TYPE PREFIX_PATH C_FLAGS CXX_FLAGS EXE_LINKER_FLAGS
                           SHARED_LINKER_FLAGS MODULE_LINKER_FLAGS OSX_ARCHITECTURES
-                          OSX_DEPLOYMENT_TARGET WITH_CLI WITH_EXAMPLES INSTALL_EXAMPLES)
+                          OSX_DEPLOYMENT_TARGET WITH_CLI WITH_EXAMPLES INSTALL_EXAMPLES
+                          PROVIDERS)
     if(NOT DEFINED ${variable})
         set(${variable} "")
     endif()
 endforeach()
-foreach(variable IN ITEMS PRAENORA_MODULE_PATH PRAENORA_CATALOG_PATH PRAENORA_LOG_LEVEL
-                          PRAENORA_LOG_FORMAT)
+foreach(variable IN ITEMS PRAENORA_MODULE_PATH PRAENORA_PROVIDER_PATH PRAENORA_CATALOG_PATH
+                          PRAENORA_LOG_LEVEL PRAENORA_LOG_FORMAT)
     unset(ENV{${variable}})
 endforeach()
 
@@ -120,6 +128,42 @@ function(_check_tool root step)
             "document:\n${VERSION_OUT}")
     endif()
     message(STATUS "${step}: ${tool} version --json:\n${VERSION_OUT}")
+
+    # The providers of the installation, found in its provider directory.
+    if(PROVIDERS)
+        _run(PROVIDERS_LIST "${step}: praenora providers list" "${tool}" providers list --json)
+        string(JSON count ERROR_VARIABLE json_error LENGTH "${PROVIDERS_LIST_OUT}" result)
+        if(json_error)
+            message(FATAL_ERROR "${step}: 'praenora providers list --json' did not print a list "
+                "of providers:\n${PROVIDERS_LIST_OUT}")
+        endif()
+        file(REAL_PATH "${root}/${LIBDIR}/praenora/providers" providers_dir)
+        set(usable_providers "")
+        if(count GREATER 0)
+            math(EXPR last "${count} - 1")
+            foreach(index RANGE ${last})
+                string(JSON name GET "${PROVIDERS_LIST_OUT}" result ${index} name)
+                string(JSON usable GET "${PROVIDERS_LIST_OUT}" result ${index} usable)
+                string(JSON manifest GET "${PROVIDERS_LIST_OUT}" result ${index} manifest)
+                file(TO_CMAKE_PATH "${manifest}" manifest)
+                file(REAL_PATH "${manifest}" manifest)
+                string(FIND "${manifest}" "${providers_dir}/" position)
+                if(usable AND position EQUAL 0)
+                    list(APPEND usable_providers "${name}")
+                endif()
+            endforeach()
+        endif()
+        foreach(name IN LISTS PROVIDERS)
+            if(NOT name IN_LIST usable_providers)
+                message(FATAL_ERROR "${step}: the installed praenora tool does not list provider "
+                    "${name}, usable, from the installation's provider directory "
+                    "${providers_dir}:\n${PROVIDERS_LIST_OUT}")
+            endif()
+        endforeach()
+        list(JOIN PROVIDERS ", " listed_providers)
+        message(STATUS "${step}: the installed tool lists ${listed_providers}, usable, from "
+            "${providers_dir}")
+    endif()
 
     if(NOT WITH_EXAMPLES)
         message(STATUS "${step}: modules list skipped (the build has no example modules)")
@@ -233,6 +277,26 @@ if(WITH_EXAMPLES)
 else()
     message(STATUS "step 1: the build has no example modules; the steps with them are skipped")
 endif()
+set(providers_dir "${prefix}/${LIBDIR}/praenora/providers")
+if(PROVIDERS)
+    set(expected_providers "")
+    foreach(name IN LISTS PROVIDERS)
+        list(APPEND expected_providers "${name}/${name}.provider.json")
+        file(GLOB provider_library LIST_DIRECTORIES false RELATIVE "${providers_dir}"
+            "${providers_dir}/${name}/${name}.*")
+        list(REMOVE_ITEM provider_library "${name}/${name}.provider.json")
+        if(NOT provider_library)
+            message(FATAL_ERROR "step 1: provider ${name}'s library was not installed beside "
+                "its manifest in ${providers_dir}/${name}")
+        endif()
+        list(APPEND expected_providers ${provider_library})
+    endforeach()
+    _expect_files(providers "${providers_dir}" "${expected_providers}")
+elseif(EXISTS "${providers_dir}")
+    _files_below("${providers_dir}" installed_providers)
+    message(FATAL_ERROR "step 1: a provider was installed, although the build has none: "
+        "${installed_providers}")
+endif()
 _files_below("${prefix}" installed_files)
 list(LENGTH installed_files installed_count)
 message(STATUS "step 1: ${installed_count} files installed in ${prefix}")
@@ -329,7 +393,7 @@ endforeach()
 set(unknown_dir "${WORK_DIR}/unknown-component")
 file(WRITE "${unknown_dir}/CMakeLists.txt" "cmake_minimum_required(VERSION 3.24)\n"
     "project(praenora_unknown_component LANGUAGES NONE)\n"
-    "find_package(Praenora 0.1 REQUIRED COMPONENTS Runtime Frobnicator)\n")
+    "find_package(Praenora 0.2 REQUIRED COMPONENTS Runtime Frobnicator)\n")
 praenora_test_run(UNKNOWN "step 2: an unknown component"
     "${CMAKE_COMMAND}" -S "${unknown_dir}" -B "${unknown_dir}/build" -C "${settings_file}"
     ${generator_args})
@@ -390,7 +454,8 @@ message(STATUS "step 3: consumer_app loaded the installed consumer-echo: ${APP_O
 
 # 4. Nothing installed names the source or build tree.
 file(GLOB_RECURSE scanned LIST_DIRECTORIES false "${package_dir}/*")
-file(GLOB_RECURSE manifests LIST_DIRECTORIES false "${prefix}/*.pmm.json")
+file(GLOB_RECURSE manifests LIST_DIRECTORIES false "${prefix}/*.pmm.json"
+    "${prefix}/*.provider.json")
 list(APPEND manifests "${module_manifest}")
 list(APPEND scanned ${manifests})
 set(forbidden "")

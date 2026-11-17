@@ -4,7 +4,7 @@ cmake_minimum_required(VERSION 3.24)
 # ignored on other platforms.
 set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS version targeted by the build")
 
-project(praenora_runtime VERSION 0.1.0 LANGUAGES C CXX)
+project(praenora_runtime VERSION 0.2.0 LANGUAGES C CXX)
 
 list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake")
 
@@ -28,26 +28,42 @@ endif()
 
 # Modules built in this tree: test fixtures below PRAENORA_TEST_MODULES_DIR and examples below
 # PRAENORA_EXAMPLE_MODULES_DIR, one directory per module holding the library and its manifest.
-# Multi-config generators put the configuration first (test-modules/<config>/<name>), so one
-# directory per configuration holds all of its modules.
+# Fixture service providers go below PRAENORA_TEST_PROVIDERS_DIR the same way. Multi-config
+# generators put the configuration first (test-modules/<config>/<name>), so one directory per
+# configuration holds all of its modules.
 get_property(_praenora_multi_config GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
 set(PRAENORA_TEST_MODULES_DIR "${PROJECT_BINARY_DIR}/test-modules")
 set(PRAENORA_EXAMPLE_MODULES_DIR "${PROJECT_BINARY_DIR}/modules")
+set(PRAENORA_TEST_PROVIDERS_DIR "${PROJECT_BINARY_DIR}/test-providers")
 if(_praenora_multi_config)
     string(APPEND PRAENORA_TEST_MODULES_DIR "/$<CONFIG>")
     string(APPEND PRAENORA_EXAMPLE_MODULES_DIR "/$<CONFIG>")
+    string(APPEND PRAENORA_TEST_PROVIDERS_DIR "/$<CONFIG>")
 endif()
 
 include(GNUInstallDirs)
 include(PraenoraWarnings)
 include(PraenoraSanitizers)
 include(PraenoraModule)
+include(PraenoraProvider)
 include(PraenoraEmbedResources)
 include(PraenoraDependencies)
 praenora_find_dependencies()
+if(PRAENORA_WITH_ROADRUNNER)
+    include(PraenoraRoadrunner)
+    praenora_find_roadrunner()
+endif()
 
 add_subdirectory(src/sdk)
 add_subdirectory(src/runtime)
+# Service providers shipped with the runtime: the libRoadRunner provider, built only with
+# PRAENORA_WITH_ROADRUNNER.
+if(PRAENORA_WITH_ROADRUNNER)
+    add_subdirectory(src/providers/roadrunner)
+else()
+    # A tree configured with the provider before must not keep finding it.
+    praenora_remove_build_tree_provider(roadrunner)
+endif()
 # What the two front ends below share (header-only, internal).
 if(PRAENORA_BUILD_CLI OR PRAENORA_BUILD_PYTHON)
     add_subdirectory(src/frontend)

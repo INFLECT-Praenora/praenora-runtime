@@ -1,11 +1,12 @@
 # Python tests (label python): CTest test python.unittest runs the unittest suite of tests/python
 # with the interpreter the extension is built for, against the package in the build tree
-# (PYTHONPATH). The environment names the fixture modules, the test catalog, the example
-# configuration and, when the examples are built, the example modules (tests/python/support.py
-# reads them). It sets PRAENORA_LOG_LEVEL to off, so the output shows only the tests' own lines
-# (a test that wants log records asks for them), unsets the other PRAENORA_* variables that the
-# runtime reads, so the caller's environment cannot change the results, and keeps Python from
-# writing bytecode beside the tests. The tests write files only to temporary directories.
+# (PYTHONPATH). The environment names the fixture modules, the fixture providers, the test
+# catalog, the example configuration and, when the examples are built, the example modules
+# (tests/python/support.py reads them). It sets PRAENORA_LOG_LEVEL to off, so the output shows
+# only the tests' own lines (a test that wants log records asks for them), unsets the other
+# PRAENORA_* variables that the runtime reads, so the caller's environment cannot change the
+# results, and keeps Python from writing bytecode beside the tests. The tests write files only to
+# temporary directories.
 find_package(Python3 3.10 REQUIRED COMPONENTS Interpreter)
 
 set(_praenora_example_config
@@ -15,6 +16,7 @@ set(_praenora_python_environment
     "PYTHONDONTWRITEBYTECODE=1"
     "PRAENORA_LOG_LEVEL=off"
     "PRAENORA_TEST_MODULES_DIR=${PRAENORA_TEST_MODULES_DIR}"
+    "PRAENORA_TEST_PROVIDERS_DIR=${PRAENORA_TEST_PROVIDERS_DIR}"
     "PRAENORA_TEST_CATALOG_DIR=${PROJECT_SOURCE_DIR}/tests/fixtures/catalog"
     "PRAENORA_EXAMPLE_CONFIG=${_praenora_example_config}")
 if(PRAENORA_BUILD_EXAMPLES)
@@ -23,6 +25,7 @@ if(PRAENORA_BUILD_EXAMPLES)
 endif()
 set(_praenora_python_unset
     "PRAENORA_MODULE_PATH=unset:"
+    "PRAENORA_PROVIDER_PATH=unset:"
     "PRAENORA_CATALOG_PATH=unset:"
     "PRAENORA_LOG_FORMAT=unset:")
 

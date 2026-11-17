@@ -26,8 +26,12 @@ struct LogOptions {
 // Process-level settings; fixed once a Runtime is constructed.
 struct RuntimeOptions {
     std::vector<std::string> module_paths, catalog_paths; // searched before configured paths
-    // Honor PRAENORA_MODULE_PATH, PRAENORA_CATALOG_PATH, PRAENORA_LOG_LEVEL and
-    // PRAENORA_LOG_FORMAT (PRAENORA_DEBUG_KEEP_LIBRARIES, a debugging aid, is read regardless).
+    // Searched for service providers first, before PRAENORA_PROVIDER_PATH and the installation's
+    // provider directory.
+    std::vector<std::string> provider_paths;
+    // Honor PRAENORA_MODULE_PATH, PRAENORA_PROVIDER_PATH, PRAENORA_CATALOG_PATH,
+    // PRAENORA_LOG_LEVEL and PRAENORA_LOG_FORMAT (PRAENORA_DEBUG_KEEP_LIBRARIES, a debugging aid,
+    // is read regardless).
     bool use_environment = true;
     LogOptions logging;
 };
@@ -48,7 +52,9 @@ struct WorkflowOptions {
 };
 
 struct ValidateOptions {
-    bool load = false; // also load the module libraries and check their identity
+    // Also load and start the service providers of the workflow's services (they stay loaded for
+    // the rest of the process), and load the module libraries and check their identity.
+    bool load = false;
 };
 
 enum class GraphFormat { text, json, dot, asyncapi };

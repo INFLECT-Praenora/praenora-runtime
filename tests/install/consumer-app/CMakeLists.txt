@@ -3,7 +3,7 @@
 cmake_minimum_required(VERSION 3.24)
 project(praenora_consumer_app VERSION 0.1.0 LANGUAGES CXX)
 
-find_package(Praenora 0.1 REQUIRED COMPONENTS Runtime)
+find_package(Praenora 0.2 REQUIRED COMPONENTS Runtime)
 # The Runtime component loads only the runtime library.
 if(TARGET Praenora::ModuleSDK)
     message(FATAL_ERROR "find_package(Praenora COMPONENTS Runtime) defined Praenora::ModuleSDK")

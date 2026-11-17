@@ -1,14 +1,21 @@
 // The execution engine: runs one validated workflow, tick by tick.
 //
-// start(). For each step, in schedule order: the step's module is loaded (once per manifest,
-// shared by the steps that use it; LIBRARY_DIGEST_MISMATCH when the library changed after
-// validation), an instance is created with the create document {pmp_version, step, capability
-// {id, version}, module {name, version}, parameters} and initialized with the initialize document
-// {pmp_version, run {fingerprint, seed (the step's)}, time {unit, start, period}}. Before that,
-// with an output directory, the directory must hold no earlier run (prepare_output_dir() without
-// overwrite), run-record.json is written (status running), and the output files and, when tracing,
-// trace/messages.jsonl are opened. Without an output directory nothing is written to disk: the run
-// record is kept in memory, and a message trace that was asked for is skipped with a warning.
+// start(). With an output directory, the directory must hold no earlier run (prepare_output_dir()
+// without overwrite), run-record.json is written (status running), and the output files and, when
+// tracing, trace/messages.jsonl are opened. Without an output directory nothing is written to
+// disk: the run record is kept in memory, and a message trace that was asked for is skipped with a
+// warning. Then, unless a stop was requested, the providers of the run's services are loaded
+// (load_provider(), each provider once, with every service the run gets from it, in the order of
+// the reproducibility section's `services` keys): LIBRARY_DIGEST_MISMATCH when a provider's
+// library changed after validation, and every other error of the provider loader, located in the
+// provider's manifest, fails the run before any module is loaded. Then for each step, in schedule
+// order: the step's module is loaded (once per manifest, shared by the steps that use it;
+// LIBRARY_DIGEST_MISMATCH when the library changed after validation), an instance is created with
+// the create document {pmp_version, step, capability {id, version}, module {name, version},
+// parameters} and initialized with the initialize document {pmp_version, run {fingerprint, seed
+// (the step's)}, time {unit, start, period}}. The instance is served the built-in services
+// (EngineSettings::services) and the provider services of its step (ResolvedStep::services), and
+// no other provider service.
 //
 // run_tick(). Tick t covers the logical-time window [start + t*period, start + (t+1)*period),
 // computed by multiplication; its logical time is the window's end.
@@ -49,7 +56,8 @@
 // create, initialize or invoke), tick (during a tick), cause (the module's error document) and,
 // when the failing instance declares diagnostics and is not unresponsive, its diagnostics (asked
 // for before the teardown; over 64 KiB they become {"truncated": true, "bytes", "text": the first
-// 64 KiB}). The engine enters `stopping`, tears everything down, enters `failed`, writes the final
+// 64 KiB}); a provider that does not load names no step, and its error keeps the loader's
+// details. The engine enters `stopping`, tears everything down, enters `failed`, writes the final
 // run record and throws the error. Other errors (writing files, input data, unexpected
 // exceptions, as INTERNAL) end the run the same way. Even an exception that breaks off the ending
 // itself (out of memory, most likely) leaves a failed run with an error, the first failure: the
@@ -61,10 +69,10 @@
 // Stop. request_stop() raises the stop flag, which every instance sees as its calls start, and
 // asks the call in flight to cancel. The engine starts no module call while the flag is up: the
 // next step of start() or of a tick, or the next tick, ends the run as `stopped` instead, as does
-// a call that returns cancelled. A tick cut short does not count and records no outputs (the trace
-// keeps what it has written). A stopped run is not an error: start() and run_tick() return normally
-// (run_tick() with finished set, no outputs and the tick that did not complete), and the summary's
-// error is RUN_STOPPED.
+// a call that returns cancelled; a run stopped before start() loads no provider either. A tick
+// cut short does not count and records no outputs (the trace keeps what it has written). A stopped
+// run is not an error: start() and run_tick() return normally (run_tick() with finished set, no
+// outputs and the tick that did not complete), and the summary's error is RUN_STOPPED.
 //
 // Teardown. Every ready instance is finalized, the last created first; then every created instance
 // is destroyed, again the last created first; then the libraries are released (unloaded unless
@@ -122,12 +130,14 @@
 namespace praenora::detail {
 
 struct EngineSettings {
-    // The loggers praenora.engine and module.<step> (a step's log_level filters its logger). With
-    // none, nothing is logged. Must outlive the engine.
+    // The loggers praenora.engine and module.<step> (a step's log_level filters its logger), and
+    // provider.<name> of the providers the run loads. With none, nothing is logged. Must outlive
+    // the engine.
     LogHub* logs = nullptr;
     // Required. Must outlive the engine.
     MetricsRegistry* metrics = nullptr;
-    // Served to the modules through the host API's get_service(). Must outlive the engine.
+    // The built-in services, served to every module through the host API's get_service() after
+    // its step's provider services. Must outlive the engine.
     const ServiceRegistry* services = nullptr;
     // "strict" validation: input data and module outputs against their message types, envelopes
     // against pmp-envelope. false ("off") is for performance measurements; the run record says so.
@@ -195,6 +205,8 @@ private:
     // is not over yet, and is rethrown as a praenora::Error.
     template <class Body> auto control(Body&& body) -> decltype(body());
     void start_run();
+    // Loads the providers of the run's services and keeps their tables.
+    void load_providers();
     TickResult tick_once();
     void open_output(std::int64_t started_at);
     // Loads, creates and initializes `step`; false when a stop ended the run instead.
@@ -265,6 +277,7 @@ private:
 
     std::vector<Step> steps_; // in schedule order
     std::map<const ModuleManifest*, std::shared_ptr<LoadedModule>> modules_;
+    std::map<std::string, const void*> provider_tables_; // by service key, once loaded
     std::unique_ptr<OutputRecorder> outputs_;
     std::unique_ptr<TraceWriter> trace_;
     std::map<std::string, nlohmann::json> previous_; // last tick's messages, by source endpoint

@@ -3,9 +3,9 @@
 This guide is for teams that write Praenora modules: libraries, built in their own repositories,
 that implement one or more capabilities of the protocol catalog and that the runtime loads at run
 time. It covers the module SDK, the rules of the ABI, the C++ adapter, the manifest,
-`praenora_add_module()`, the in-process test kit, test vectors, the contract checks, the
-determinism and portability rules, and versioning. The normative rules are in
-[specs/module-abi.md](specs/module-abi.md), [specs/manifest.md](specs/manifest.md) and
+`praenora_add_module()`, runtime services and the simulation service, the in-process test kit, test
+vectors, the contract checks, the determinism and portability rules, and versioning. The normative
+rules are in [specs/module-abi.md](specs/module-abi.md), [specs/manifest.md](specs/manifest.md) and
 [specs/threading-and-ownership.md](specs/threading-and-ownership.md).
 
 The commands were run on macOS arm64 against an installation of this repository's `dev` build.
@@ -36,17 +36,18 @@ needs only a C or C++ compiler: no runtime library and no third-party package.
 |---|---|
 | `praenora/sdk/abi.h` | The C ABI v0: the entry point, the function table, the host API, sinks (C99). |
 | `praenora/sdk/status.h` | The status codes `PRAENORA_STATUS_*` and `praenora_status_name()` (C99). |
+| `praenora/sdk/simulation.h` | The table of the simulation service `praenora.simulation@0` (C99; [Using the simulation service](#using-the-simulation-service)). |
 | `praenora/sdk/version.h` | The SDK and protocol versions the SDK was built with. |
 | `praenora/sdk/module.hpp` | The optional C++ adapter (header-only, C++17 standard library only). |
 | `praenora/sdk/testing.hpp` | The in-process test kit (header-only). |
 | `PraenoraModule.cmake` | `praenora_add_module()`, loaded by `find_package`. |
 
 ```cmake
-find_package(Praenora 0.1 REQUIRED COMPONENTS ModuleSDK)
+find_package(Praenora 0.2 REQUIRED COMPONENTS ModuleSDK)
 ```
 
 gives the target `Praenora::ModuleSDK` and `praenora_add_module()`. The package accepts every
-0.1.z installation (`SameMinorVersion` while the version is 0.x).
+0.2.z installation (`SameMinorVersion` while the version is 0.x).
 
 ## A first module
 
@@ -73,7 +74,7 @@ files.
 cmake_minimum_required(VERSION 3.24)
 project(last_value_estimator VERSION 0.1.0 LANGUAGES CXX)
 
-find_package(Praenora 0.1 REQUIRED COMPONENTS ModuleSDK)
+find_package(Praenora 0.2 REQUIRED COMPONENTS ModuleSDK)
 find_package(nlohmann_json 3.11 REQUIRED)
 
 praenora_add_module(last_value_estimator
@@ -181,7 +182,7 @@ PRAENORA_SDK_DEFINE_MODULE(last_value::LastValue)
 ```json
 {
   "kind": "module-manifest",
-  "format_version": "0.1.0",
+  "format_version": "@PRAENORA_MODULE_MANIFEST_FORMAT_VERSION@",
   "module": {
     "name": "@PRAENORA_MODULE_NAME@",
     "version": "@PRAENORA_MODULE_VERSION@",
@@ -390,9 +391,10 @@ from 100 to 9999. It should write an error document to its error sink:
 
 **Host API.** `log(level, message)` writes to the step's logger (`module.<step>`), which adds the
 step, module, tick and run fingerprint; `log_enabled(level)` saves formatting messages nobody reads.
-`get_service(name, major)` returns a runtime service's function table, or NULL: this version
-registers no production service. Read `host->struct_size` before using a callback added in a later
-ABI minor version.
+`get_service(name, major)` returns a runtime service's function table, or NULL: only the services
+of service providers that the manifest declares ([Requiring services](#requiring-services)), and
+the runtime's built-in ones, of which this version has no production one. Read `host->struct_size`
+before using a callback added in a later ABI minor version.
 
 ## The C++ adapter
 
@@ -405,7 +407,7 @@ and expand `PRAENORA_SDK_DEFINE_MODULE(ClassName)` once in the library, at names
 | `Module` | The base class: `invoke(std::string_view invocation_json)` returns the result document (required); `initialize(const InitializeContext&)`, `finalize()` and `diagnostics()` have defaults. The constructor is `create`, the destructor `destroy`. |
 | `CreateContext` | `host` (valid until the instance is destroyed) and `create_json` (valid during the constructor). |
 | `InitializeContext` | `initialize_json`, which holds the run fingerprint, the step's seed and the time base. |
-| `Host` | `log()`, `log_enabled()`, `cancel_requested()` and `service()`; each checks the host's `struct_size` first. |
+| `Host` | `log()`, `log_enabled()`, `cancel_requested()` and `service()`; each checks the host's `struct_size` first. `api()` gives the host API itself, for service functions that take it. |
 | `LogLevel` | `trace`, `debug`, `info`, `warn`, `error`, `critical`. |
 | `Error` | `Error(code, message, details_json = "{}")`: throw it to fail a call with a status of your choice. |
 | `PRAENORA_SDK_DEFINE_MODULE(ClassName)` | The exported entry point and the static table. |
@@ -450,6 +452,8 @@ Besides the variables, a template sets what only the module knows:
 - `library.sha256`: an optional pin of the library's digest, checked before loading; and
   `library.dependency_paths`: directories, relative to the manifest, where the module's own DLLs
   live (honored on Windows only; on Linux and macOS use an RPATH of `$ORIGIN` or `@loader_path`).
+- `"requires": @PRAENORA_MODULE_REQUIRES_JSON@`, when the module declares services
+  ([Requiring services](#requiring-services)); without a template the manifest gets it by itself.
 
 The template must not contain `$<` otherwise: the result is evaluated for generator expressions.
 Every field and rule is in [specs/manifest.md](specs/manifest.md), and
@@ -460,6 +464,7 @@ Every field and rule is in [specs/manifest.md](specs/manifest.md), and
 ```cmake
 praenora_add_module(<target>
     NAME <name> VERSION <semver> CAPABILITIES <id@version>... SOURCES <source>...
+    [REQUIRES_SERVICES <name>@<major>.<minor>...] [OPTIONAL_SERVICES <name>@<major>.<minor>...]
     [MANIFEST_TEMPLATE <file>] [TEST_VECTORS <file>] [OUTPUT_DIRECTORY <dir>]
     [INSTALL_DESTINATION <dir> [INSTALL_COMPONENT <component>] [INSTALL_EXCLUDE_FROM_ALL]]
     [LINK_LIBRARIES <library>...])
@@ -471,6 +476,7 @@ praenora_add_module(<target>
 | `VERSION` | The module's semantic version. |
 | `CAPABILITIES` | Each implemented capability as `<id>@<version>`, as the catalog names it. |
 | `SOURCES` | The sources. |
+| `REQUIRES_SERVICES`, `OPTIONAL_SERVICES` | The runtime services the module requires, and those it can use when they are there, each as `<name>@<major>.<minor>` with the lowest minor it accepts ([Requiring services](#requiring-services)). |
 | `MANIFEST_TEMPLATE` | The manifest template, relative to the current source directory. |
 | `TEST_VECTORS` | A test vectors file, copied beside the manifest at build time. |
 | `OUTPUT_DIRECTORY` | Where the library and manifest go (default `<current binary dir>/<name>`); multi-configuration generators get a directory per configuration. |
@@ -478,12 +484,176 @@ praenora_add_module(<target>
 | `INSTALL_COMPONENT`, `INSTALL_EXCLUDE_FROM_ALL` | Put the installed files in a component, and leave them out of a full installation. |
 | `LINK_LIBRARIES` | More libraries to link privately, such as a JSON library. |
 
-The target is always an `add_library(MODULE)` target, whatever `BUILD_SHARED_LIBS` says, compiled
-with hidden symbol visibility so that only the entry point is exported, and linked to
-`Praenora::ModuleSDK`. The target properties `PRAENORA_MODULE_DIR`, `PRAENORA_MODULE_MANIFEST` and
-`PRAENORA_MODULE_TEST_VECTORS_PATH` give the output directory, the manifest and the copied vectors
-for rules of your own. The helper's reference is the comment at the top of
+The manifest it writes has format 0.2.0, which a runtime 0.2 or later reads. The target is always an
+`add_library(MODULE)` target, whatever `BUILD_SHARED_LIBS` says, compiled with hidden symbol
+visibility so that only the entry point is exported, and linked to `Praenora::ModuleSDK`. The target
+properties `PRAENORA_MODULE_DIR`, `PRAENORA_MODULE_MANIFEST` and `PRAENORA_MODULE_TEST_VECTORS_PATH`
+give the output directory, the manifest and the copied vectors for rules of your own. The helper's
+reference is the comment at the top of
 [`cmake/PraenoraModule.cmake`](../cmake/PraenoraModule.cmake).
+
+## Requiring services
+
+Some services come with a heavy engine, a simulation engine for example, that a module should not
+link itself. The runtime offers them through service providers, separately built libraries shipped
+with it, which it loads only when a run needs them
+([specs/runtime-services.md](specs/runtime-services.md)). A module that uses such a service declares
+it, and gets it only then:
+
+```cmake
+praenora_add_module(simulating_module
+    NAME simulating-module VERSION 0.1.0 CAPABILITIES example.estimate@0.1.0
+    SOURCES src/module.cpp
+    REQUIRES_SERVICES praenora.simulation@0.0)
+```
+
+- `REQUIRES_SERVICES` lists the services the module cannot work without, `OPTIONAL_SERVICES` those
+  it uses when the run has them. Each is `<name>@<major>.<minor>`: its name, the major version whose
+  table the module uses, and the lowest minor it needs (a later minor only appends to the table). A
+  name and major appears once in both lists together.
+- `praenora_add_module()` writes them into the manifest's `requires.services`; a template takes them
+  with `"requires": @PRAENORA_MODULE_REQUIRES_JSON@`.
+- Validation resolves each one to a usable provider on the provider search paths (`--provider-path`
+  or `RuntimeOptions::provider_paths`, then `PRAENORA_PROVIDER_PATH`, then the installation's
+  `lib/praenora/providers`; `praenora providers list` shows what is found there). A required service
+  that does not resolve fails validation with `SERVICE_UNAVAILABLE`, located at
+  `/requires/services/<i>` of the manifest, whose details list the searched paths and every provider
+  that came close and why it does not serve. An optional one that does not resolve is simply not
+  there.
+- A run loads and starts the providers before any module is created. The module then asks for each
+  service with `get_service(name, major)` (`host.service(name, major)` in the C++ adapter), usually
+  once, in `create`, and keeps the table: tables live until the process ends. It gets the table of
+  every declared service that resolved, NULL for an optional one that did not, and NULL for any
+  provider service it did not declare. Check for NULL, and that the table's `header.struct_size`
+  covers the fields you use.
+- The run record names each service with its provider and engine, so the run fingerprint changes
+  when the engine does ([specs/reproducibility.md](specs/reproducibility.md)).
+- `praenora modules check` resolves the services and loads their providers as part of its
+  `library.load` check, and serves them to the module as a run does; test vectors can then exercise
+  the module with the real service.
+- A service's own specification says what its table does, which objects it hands out and who frees
+  them, and which threads may use them.
+
+## Using the simulation service
+
+The simulation service `praenora.simulation@0` simulates a model with an engine that a service
+provider brings, for example an SBML model with libRoadRunner; its normative specification is
+[specs/simulation-service.md](specs/simulation-service.md), and its table is declared in
+`praenora/sdk/simulation.h`. Require it with `REQUIRES_SERVICES praenora.simulation@0.0` (above),
+then use it in three steps: a **session** opens a model; a module that runs the model many times
+**prepares** a **plan** and runs it with numbers; a module with an integrator of its own opens a
+**kernel**, the compiled model's C functions.
+
+```cpp
+#include <praenora/sdk/module.hpp>
+#include <praenora/sdk/simulation.h>
+
+namespace sdk = praenora::sdk;
+
+// A sink that keeps what the service writes.
+struct Text {
+    std::string text;
+    praenora_sink sink{this, [](void* self, const char* data, std::size_t size) -> praenora_status {
+        if (data == nullptr && size != 0) {
+            return PRAENORA_STATUS_INVALID_ARGUMENT;
+        }
+        try { // no exception may reach the provider
+            static_cast<Text*>(self)->text.append(data == nullptr ? "" : data, size);
+            return PRAENORA_STATUS_OK;
+        } catch (...) {
+            return PRAENORA_STATUS_RESOURCE_EXHAUSTED;
+        }
+    }};
+};
+
+// In the constructor (create): the table, once.
+table_ = static_cast<const praenora_simulation_v0*>(
+    host_.service(PRAENORA_SIMULATION_SERVICE, PRAENORA_SIMULATION_SERVICE_MAJOR));
+if (table_ == nullptr || table_->header.abi_major != PRAENORA_SIMULATION_SERVICE_MAJOR ||
+    table_->header.reserved != 0 || table_->header.struct_size < PRAENORA_SIMULATION_V0_BASE_SIZE) {
+    throw sdk::Error(PRAENORA_STATUS_UNSUPPORTED, "no usable praenora.simulation@0");
+}
+
+// In initialize: open the model and prepare a plan; the plan outlives the session.
+Text info, error;
+praenora_simulation_session* session = nullptr;
+praenora_status status = table_->open_session(table_->context, host_.api(), model, options,
+                                              &session, &error.sink);
+if (status != PRAENORA_STATUS_OK) throw sdk::Error(status, "open_session failed", error.text);
+status = table_->prepare(session, host_.api(), plan_json, &plan_, &info.sink, &error.sink);
+table_->close_session(session);
+if (status != PRAENORA_STATUS_OK) throw sdk::Error(status, "prepare failed", error.text);
+
+// In invoke: one run with this tick's numbers (inputs: the plan's parameters, then its initial
+// conditions); out has rows * columns values, as info says.
+std::int32_t outcome = PRAENORA_SIMULATION_RUN_OK;
+Text failure;
+status = table_->run(plan_, host_.api(), values.data(), values.size(), out.data(), out.size(),
+                     &outcome, &failure.sink, &error.sink);
+
+// In the destructor (destroy): close what is still open.
+table_->close_plan(plan_);
+```
+
+The fixture module `simulating-module`
+([`simulating_module.cpp`](../tests/fixtures/modules/simulating-module/simulating_module.cpp)) is a
+complete module that does this, kernel included, and ships test vectors that run it.
+
+- **Sessions.** `open_session(context, host, model, options, &session, error)` takes the model's
+  text (never a path) and `{"format": "<model format>"}`; `describe()` lists the formats and solver
+  methods the provider offers and its engine. Opening may compile the model, which takes time:
+  open sessions and prepare plans in `create` or `initialize`, not in `invoke`.
+  `describe_model` lists the model's `states`, `parameters` and `quantities`.
+- **SBML models.** The provider `roadrunner` (built with `PRAENORA_WITH_ROADRUNNER`) offers the
+  format `sbml`: the text of an SBML document of Level 1, 2 or 3. It refuses document type
+  declarations, Level 3 documents that require a package or declare `comp`, and models
+  libRoadRunner cannot simulate; which SBML elements become states, parameters and quantities, and
+  how its one method, `cvode`, maps the solver settings, is in
+  [specs/simulation-service.md](specs/simulation-service.md#the-roadrunner-provider).
+- **One time course.** `simulate(session, host, request, result, error)` takes a JSON request with
+  the field names of `ode-uq-spec`'s simulation configuration (`time_domain`,
+  `initial_conditions`, `parameter_values`, `solver`, `output`) and writes
+  `{"ok": true, "columns", "rows", "solver"}`. Every run starts from the model's original state.
+  Fields the service does not know are `INVALID_ARGUMENT` and features it does not map
+  `UNSUPPORTED`, with a JSON pointer in the error document's `details`; nothing is ignored.
+- **Many runs.** `prepare` fixes the time domain, solver, output and which parameters and initial
+  conditions are inputs, and writes the plan's `inputs`, `columns` and `rows`. `run` takes one set
+  of input values and fills `out` (`rows * columns` doubles, row-major); `run_batch` takes
+  `set_count` sets and fills `set_count` outputs and outcomes, in order. The counts must match
+  exactly. The numbers are those `simulate` would give for the same settings.
+- **Numerical failures are data.** A run that diverges, hits `max_steps` or produces a value that
+  is not finite does not fail the call: the status is OK, the outcome is
+  `PRAENORA_SIMULATION_RUN_FAILED`, the run's output is NaN, and `run` writes the failure document
+  (`details.reason` `integrator`, `step_limit` or `nonfinite`) to `failure_json` (which may be
+  NULL). A module fitting many parameter sets can treat such sets as data.
+- **Parameters and events.** Parameter values you set (`parameter_values`, a plan's parameter
+  inputs, `set_parameters`) take effect as the model's initial values: initial values defined from
+  parameters follow them, and initial conditions you set then replace state values. Level A applies
+  the model's events; `describe_model` says whether a model has any.
+- **Kernels.** For an integrator of your own, `open_kernel(session, host, {"parameters": [...],
+  "quantities": [...]}, &kernel, error)`: set `kernel.struct_size = sizeof kernel` first. Then
+  `kernel.rhs(kernel.model, t, y, dydt)`, `set_parameters`, `initial_state` and `quantities` work
+  on the compiled model, in the orders you chose, without logging or polling; their results depend
+  only on their arguments and the parameters you set. A kernel is the continuous right-hand side
+  only, so a model with events has none (`UNSUPPORTED`, `details.reason` `"events"`). Close it with
+  `close_kernel(&kernel)`.
+- **Lifetime.** You close every session, plan and kernel exactly once, before your `destroy`
+  returns. Plans and kernels keep the compiled model alive on their own, so a session can be closed
+  as soon as its plans and kernels exist.
+- **Threads.** A session or plan serves one call at a time; a call on one that is busy returns
+  `INVALID_STATE`. Different sessions, plans and kernels can be used at the same time from threads
+  of your own (joined before `destroy` returns); call a kernel's functions from one thread at a
+  time.
+- **Host, cancellation and logging.** Pass your host API (`host.api()` in the C++ adapter) to every
+  call that takes one: the service logs through it, with your step's attributes, and returns
+  `CANCELLED` when your call's deadline passes or a stop is requested; return then, too.
+- **Reproducibility.** The run record names the provider and its engine, so the fingerprint changes
+  with the engine. Record the `solver` settings the service reports with your results, and derive a
+  stochastic method's `seed` from your step's seed.
+- **Testing.** In this repository, the fixture provider `test-simulation` offers the service for
+  the toy model format `test-decay`, without an engine: `praenora modules check
+  <manifest> --provider-path <build>/test-providers/test-simulation` (with `--catalog-path` for
+  capabilities outside the built-in catalog) runs a module's vectors against it.
 
 ## The test kit
 

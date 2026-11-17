@@ -1,9 +1,10 @@
 # User guide
 
 This guide is for people who run workflows: it covers getting the `praenora` tool, its commands,
-running the example workflow, the files a run writes, watching a run's status, and what to do when
-something fails. How to write a workflow configuration is in [configuration.md](configuration.md);
-using the runtime from Python is in [python.md](python.md).
+running the example workflow, finding modules and service providers, the files a run writes,
+watching a run's status, and what to do when something fails. How to write a workflow
+configuration is in [configuration.md](configuration.md); using the runtime from Python is in
+[python.md](python.md).
 
 The commands below run from the repository root, against the `dev` build of
 [developer-guide.md](developer-guide.md#configure-build-and-test), and were run on macOS arm64.
@@ -41,11 +42,12 @@ cmake --install build/dev --prefix "${TMPDIR:-/tmp}/praenora-install" --componen
 | Command | Does |
 |---|---|
 | `praenora version` | Versions of the runtime, SDK, protocol (PMP), ABI and each document format; platform, compiler and build type. |
-| `praenora validate <config>` | Everything a run checks before its first tick, without running: the file, the catalog, the graph, the bindings, the modules (without loading them), the parameters and the input data. `--load` also loads each module library and checks its identity. |
+| `praenora validate <config>` | Everything a run checks before its first tick, without running: the file, the catalog, the graph, the bindings, the modules and the runtime services they require (without loading anything), the parameters and the input data. `--load` also starts the service providers of those services, and loads each module library and checks its identity. |
 | `praenora validate --document <file>` | Checks any Praenora document (a manifest, a catalog entry, test vectors, a run record...) against the schema of its kind. |
 | `praenora modules list` | Every module manifest on the module search paths. |
 | `praenora modules inspect <name>[@<version>]` | One module as discovery resolves it (its highest version for this platform by default); `--load` adds its `describe()` document and its library's SHA-256. |
-| `praenora modules check <manifest>` | The contract checks of a module ([module-developer-guide.md](module-developer-guide.md#contract-checks)). `--vectors F` uses other test vectors. |
+| `praenora modules check <manifest>` | The contract checks of a module ([module-developer-guide.md](module-developer-guide.md#contract-checks)), with the services its manifest declares served by their providers. `--vectors F` uses other test vectors. |
+| `praenora providers list` | Every service provider manifest on the provider search paths: the services each offers and whether the runtime can use it ([Finding service providers](#finding-service-providers)). |
 | `praenora graph <config>` or `--workflow <name>@<version>` | A workflow definition's schedule and connections: `--format text` (default), `json`, `dot` or `asyncapi`. |
 | `praenora run <config>` | Validates and runs a workflow. Options: `--ticks N`, `--seed S`, `--output-dir D`, `--overwrite`, `--trace`, `--status-file F`. |
 | `praenora status <file>` | Prints the status file a run keeps. |
@@ -59,6 +61,7 @@ Every command takes these options, before or after its arguments:
 |---|---|
 | `--json` | Standard output holds exactly one JSON document: `{"ok": true, "result": ...}` or `{"ok": false, "error": ..., "diagnostics": [...]}`. Messages still go to standard error. |
 | `--module-path P` | Search `P` for modules first (repeatable). |
+| `--provider-path P` | Search `P` for service providers first (repeatable). |
 | `--catalog-path P` | Add the catalog entries in `P` (repeatable). |
 | `--log-level L` | `trace`, `debug`, `info`, `warn`, `error`, `critical` or `off`. |
 | `--log-format F` | `text` or `json`. |
@@ -72,7 +75,7 @@ The exit code says what happened:
 | 0 | Success. |
 | 1 | A run or a check failed while executing (a step failed, an output was invalid, a contract check failed). |
 | 2 | The command line is wrong. |
-| 3 | Validation failed: the printed diagnostics say where. |
+| 3 | Validation failed: the printed diagnostics say where. `SERVICE_UNAVAILABLE`, when no usable service provider offers a service that a module requires, is one such failure. |
 | 4 | A module library could not be loaded or checked. |
 | 5 | A module call timed out or never returned. |
 | 70 | An internal error, usually a defect of the runtime. |
@@ -174,6 +177,55 @@ PRAENORA_MODULE_PATH=build/dev/modules ./build/dev/bin/praenora modules list
 itself. Discovery reads manifests only: no module code runs until a run starts, `--load` is given
 or the contract checks run.
 
+## Finding service providers
+
+Some modules use a runtime service, such as a simulation engine, that a **service provider**
+offers: a library shipped with the runtime, which the runtime loads only when a run,
+`validate --load` or the contract checks need one of its services, and then keeps loaded for the
+rest of the process ([specs/runtime-services.md](specs/runtime-services.md)). A module's manifest
+lists the services it requires. When no usable provider offers one of them, validation fails with
+`SERVICE_UNAVAILABLE` (exit code 3), located in the module's manifest, and the diagnostic's details
+name the service, the provider search paths and every provider that offers a service of that name
+but cannot serve it, with the reason.
+
+The runtime looks for provider manifests (`*.provider.json`) in each provider search path and its
+immediate subdirectories: the paths given with `--provider-path`, in order, then the entries of the
+environment variable `PRAENORA_PROVIDER_PATH` (`:`-separated, `;` on Windows), then the
+installation's provider directory, `<prefix>/lib/praenora/providers`
+([search order](specs/runtime-services.md#discovery)). The first manifest of a provider name for a
+platform wins. A provider is native code that runs with the tool's privileges, like a module, so put
+only providers you trust on these paths.
+
+`praenora providers list` shows what was found, in search order: each provider's name, version and
+platform, the services it offers (`<name>@<major>.<minor>`), its manifest, and whether this runtime
+can use it. A provider built for another platform, another runtime version or another provider
+interface is listed `unusable`, with the reason, and so is a manifest shadowed by an earlier one of
+the same name and platform, which is never used, naming the manifest that shadows it. Listing loads
+nothing. With the test providers of the `dev` build:
+
+```bash
+./build/dev/bin/praenora providers list --provider-path build/dev/test-providers/test-echo \
+    --provider-path tests/fixtures/configs/cli/providers
+```
+
+```text
+test-echo         0.1.0  macos-arm64   test.echo@0.0  .../build/dev/test-providers/test-echo/test-echo.provider.json               usable
+test-old-runtime  0.1.0  linux-x86_64  test.echo@0.0  .../tests/fixtures/configs/cli/providers/old-runtime.provider.json           unusable: built for linux-x86_64; this host is macos-arm64
+test-old-runtime  0.2.0  linux-x86_64  test.echo@0.0  .../tests/fixtures/configs/cli/providers/shadowed/old-runtime.provider.json  unusable: shadowed by '.../tests/fixtures/configs/cli/providers/old-runtime.provider.json', which comes first on the provider search path; it is never used
+```
+
+With `--json`, each provider is `{"name", "version", "manifest", "library", "platform": {"os",
+"arch"}, "services": [{"name", "major", "minor"}], "engine", "usable"}`, with `"problem"` for a
+provider that is not usable. A run records each service it uses, with its provider's identity and
+engine, in the run record, and they change the fingerprint
+([specs/reproducibility.md](specs/reproducibility.md)).
+
+A build with `-DPRAENORA_WITH_ROADRUNNER=ON` ([platforms.md](platforms.md#the-roadrunner-provider))
+holds the provider `roadrunner`, in its build tree and in its installation, where the tool finds it
+without a provider path. It offers `praenora.simulation@0.0` for models in the format `sbml`, the
+text of an SBML document of Level 1, 2 or 3; what it accepts and refuses is in
+[specs/simulation-service.md](specs/simulation-service.md#the-roadrunner-provider).
+
 ## What a run writes
 
 Without an output directory (`--output-dir`, or `outputs.directory` in the configuration) a run
@@ -181,7 +233,7 @@ writes nothing to disk. With one, it writes:
 
 | File | Content |
 |---|---|
-| `run-record.json` | The run record: the `reproducibility` section that the fingerprint hashes (versions, workflow and catalog digests, time base, seed, ticks, timeouts, input digests, and per step the module, its manifest and library digests, parameters and seed), and the `execution` section (start and finish times, status, ticks completed, the error of a failed run, overrides, platform, each output file's digest and message count, the final status snapshot). It is written when the run starts and rewritten when it ends. |
+| `run-record.json` | The run record: the `reproducibility` section that the fingerprint hashes (versions, workflow and catalog digests, time base, seed, ticks, timeouts, input digests, the runtime services of providers with each provider's identity, digests and engine, and per step the module, its manifest and library digests, parameters, seed and the services it may use), and the `execution` section (start and finish times, status, ticks completed, the error of a failed run, overrides, platform, each output file's digest and message count, the final status snapshot). It is written when the run starts and rewritten when it ends. |
 | `outputs/<output>.jsonl` | One envelope per line for each recorded workflow output (`outputs.record`, by default all of them). |
 | `trace/messages.jsonl` | With `--trace` (or `outputs.trace_messages: true`): every envelope into and out of a step, as `{"tick", "step", "direction", "port", "envelope"}`, plus the result's `diagnostics` when it has them. |
 | `status.json` | The status file, when it is configured inside the directory. |
@@ -283,17 +335,19 @@ praenora: /tmp/.../praenora-bad/workflow.yaml: validation failed: 1 error(s)
 The command exits with 3. With `--json`, standard output holds
 `{"ok": false, "error": ..., "diagnostics": [...]}`, whose `diagnostics` list holds the same
 diagnostics, each with its code, name, location (file, line, column, JSON pointer) and, when set,
-step and module.
+step, module and `details` (for example the service, the search paths and the providers a
+`SERVICE_UNAVAILABLE` considered). `run` and `graph` report an invalid configuration the same way.
 
 | Symptom | Likely cause and fix |
 |---|---|
 | `MODULE_NOT_FOUND`, exit 3 | No search path holds the module at that version. The message lists the searched paths and the versions found; add `--module-path` or set `PRAENORA_MODULE_PATH`, and check with `praenora modules list`. |
 | `PLATFORM_MISMATCH` | Only manifests for other platforms were found: build or install the module for this one. |
+| `SERVICE_UNAVAILABLE`, exit 3 | No usable provider offers a service that a module requires, at the major and at least the minor it asks for. The diagnostic's details list the provider search paths and each provider that offers the service's name but cannot serve it, with the reason; add `--provider-path` or set `PRAENORA_PROVIDER_PATH`, and check with `praenora providers list`. |
 | `PARAMETERS_INVALID` | A step's parameter breaks the module's parameter schema; `praenora modules inspect <name>@<version>` shows the module, and its manifest holds the schema. |
 | `SCHEMA_VIOLATION` | A misspelled key or a value of the wrong type, at the JSON pointer given. |
 | `TARGET_DATA_INVALID` | The input data: the message names the file and line ([configuration.md](configuration.md#observation-csv)). |
 | `IO_ERROR`, exit 74 | A missing or unreadable file or directory (the configuration, a manifest, a catalog directory), a file that cannot be written, or an output directory with an earlier run (add `--overwrite`). A missing data file is `TARGET_DATA_INVALID` instead (exit 3). |
-| `LIBRARY_LOAD_FAILED`, exit 4 | The operating system could not load the module library, for example because a library it needs is missing; the message holds the system's text. |
+| `LIBRARY_LOAD_FAILED`, exit 4 | The operating system could not load the module library, for example because a library it needs is missing; the message holds the system's text. For a service provider, located in its manifest, `details.reason` names the check that failed: `start` (the provider's own error in `details.cause`), `identity` (a stale provider manifest), `service`, `conflict` or `library`. |
 | `STEP_FAILED`, exit 1 | A module returned an error. Its own code and message are in the error's `cause`; its log records are on the logger `module.<step>`. |
 | `STEP_TIMEOUT`, `MODULE_UNRESPONSIVE`, exit 5 | A call ran past its deadline (`run.timeouts`, `steps.<step>.timeouts`); an unresponsive module ignored the cancellation and never returned. |
 | `RUN_STOPPED`, exit 130 | The run was stopped on request. |

@@ -1,0 +1,33 @@
+{
+  "kind": "provider-manifest",
+  "format_version": "0.1.0",
+  "provider": {
+    "name": "test-simulation",
+    "version": "1.2.3"
+  },
+  "runtime_version": "0.2.0",
+  "abi": {
+    "major": 0,
+    "minor": 0
+  },
+  "library": {
+    "path": "simulation.so"
+  },
+  "platform": {
+    "os": "macos",
+    "arch": "arm64"
+  },
+  "services": [
+    {
+      "name": "praenora.simulation",
+      "major": 0,
+      "minor": 0
+    },
+    {
+      "name": "test.echo",
+      "major": 1,
+      "minor": 3
+    }
+  ],
+  "engine": {}
+}

@@ -96,6 +96,11 @@ public:
         return api_->get_service(api_->context, name.data(), name.size(), major);
     }
 
+    // The host API itself, valid until the instance is destroyed: the argument `host` of service
+    // functions, such as the simulation service's (praenora/sdk/simulation.h), which log through
+    // it and poll its cancel flag.
+    const praenora_host_api* api() const noexcept { return api_; }
+
 private:
     bool covers(std::size_t offset, std::size_t size) const noexcept {
         return api_ != nullptr && api_->struct_size >= offset + size;

@@ -1,6 +1,6 @@
 # Threading and ownership
 
-- **Version:** ABI 0.0 and runtime 0.1.0
+- **Version:** ABI 0.0 and runtime 0.2.0
 - **Status:** Normative, MVP. Proposed
   ([ADR-0005](../adr/ADR-0005-ownership-and-allocation-across-the-abi.md),
   [ADR-0006](../adr/ADR-0006-threading-model.md)).
@@ -22,7 +22,7 @@ do with threads of its own, and how the public C++ API may be used from several 
 | Bytes passed to `sink->write` | module | until `write` returns | The host copies them before `write` returns, so the buffer may be reused at once. |
 | Instance (`praenora_instance*`) | module | from `create` until `destroy` | Allocated by `create` and freed by `destroy`, with the module's own allocator. |
 | Function table and `describe()` output | module | while the library is loaded | Static data; never changed. |
-| Service tables (`get_service`) | host | while the instance exists | Never freed by the module. |
+| Service tables (`get_service`) | host (a service provider's tables: the provider) | while the instance exists; a provider's tables until the process ends | Never freed by the module. A service's own objects follow the service's specification. |
 
 - Nothing else crosses the boundary: no `malloc`/`free` pairing between host and module, no
   `FILE*`, no C++ object, no exception and no `longjmp`.
@@ -57,7 +57,12 @@ runs the ticks, posts each call to the instance's worker and waits for it on a d
 ## What a module must do
 
 - The host callbacks (`log`, `log_enabled`, `cancel_requested`, `get_service`) are thread-safe. A
-  module MAY call them from any of its threads while the instance exists.
+  module MAY call them from any of its threads while the instance exists. Which threads may use a
+  service's table, and the objects it hands out, is the service's specification's to say (for the
+  simulation service: [simulation-service.md](simulation-service.md#threading)); a provider's engine
+  is shared by every module of the process that uses its services. Objects a service hands out to a
+  module (the simulation service's sessions, plans and kernels) are the module's to close before its
+  `destroy` returns, like its threads.
 - A module that starts threads MUST stop and join them, and finish any work it handed to other
   threads, before `destroy` returns. After `destroy` returns no thread of the module may touch the
   instance or its host API.
@@ -109,8 +114,8 @@ abandoned for the rest of the process:
   `diagnostics` call made while a failure is reported, leaves the run's ending as it was
   ([time-cancellation-timeouts.md](time-cancellation-timeouts.md#deadlines));
 - its worker thread is detached and keeps running the call; its library stays loaded (pinned);
-- its host API stays valid, but `get_service` returns NULL from then on, because the runtime's
-  service registry may go away;
+- its host API stays valid, but `get_service` returns NULL from then on for every service, provider
+  services included, because the runtime's service registry may go away;
 - it is never finalized or destroyed, and its memory is never freed.
 
 With `features.concurrency: "module"`, the run's other instances of the library that were created
@@ -125,7 +130,8 @@ not told ([Concurrency across instances](#concurrency-across-instances)). The ra
 
 | Thread | Name | Work |
 |---|---|---|
-| The caller's thread | the caller's | Validation, loading (including `describe()`), and the ticks of `Workflow::start()`, `tick()` and `run()`. |
+| The caller's thread | the caller's | Validation, loading (including `describe()`), and the ticks of `Workflow::start()`, `tick()` and `run()`. `Workflow::start()` (and `validate --load` and the contract checks) loads and starts the providers of the services on that thread, before any module instance is created. |
+| A service provider's own threads, if it starts any | the provider's | Whatever the provider does in the background. A provider is never stopped or unloaded: its threads MAY outlive every `Runtime` of the process ([runtime-services.md](runtime-services.md#provider-interface)). |
 | One worker per module instance | `praenora:<step>` | Every call into that instance. |
 | The status-file writer, when a status file is configured | `praenora:status` | Rewrites the status file ([observability.md](observability.md#status-file)). |
 | The CLI's signal watcher (`praenora run` only) | none | Turns SIGINT, SIGTERM or a Windows console event into `request_stop()`. |
@@ -152,4 +158,5 @@ not told ([Concurrency across instances](#concurrency-across-instances)). The ra
 - [ADR-0006](../adr/ADR-0006-threading-model.md): threading.
 - [ADR-0023](../adr/ADR-0023-public-cpp-api.md): the public C++ API.
 - [module-abi.md](module-abi.md): the ABI.
+- [runtime-services.md](runtime-services.md): service providers and their lifetime.
 - [module-developer-guide.md](../module-developer-guide.md#abi-rules): the rules for module authors.

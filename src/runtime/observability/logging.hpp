@@ -17,6 +17,8 @@
 #include <spdlog/logger.h>
 #include <spdlog/sinks/dist_sink.h>
 
+#include <cstdint>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -43,11 +45,18 @@ public:
     // Adds a sink (for example a test's capture sink) and gives it the hub's line format.
     void add_sink(spdlog::sink_ptr sink);
 
+    // Calls `callback` when the hub is destroyed, before its sinks are: for holders of the hub's
+    // loggers that outlive it (service providers, which live until the process ends), so they let
+    // go of the hub's sinks and its file. Thread-safe; callbacks must not throw.
+    void on_destroy(std::function<void()> callback);
+
     const LogOptions& options() const;
 
 private:
     LogOptions options_;
     std::shared_ptr<spdlog::sinks::dist_sink<std::mutex>> sinks_;
+    std::mutex on_destroy_mutex_;
+    std::vector<std::function<void()>> on_destroy_; // guarded by on_destroy_mutex_
 };
 
 // One attribute of a log event, for example {"tick", 3}.
@@ -63,6 +72,13 @@ void log_event(spdlog::logger& logger, LogLevel level, std::string_view message,
 
 // Sets the level of one logger, for example a step's `log_level`.
 void set_log_level(spdlog::logger& logger, LogLevel level);
+
+// The level of a PRAENORA_LOG_* value of the ABI (<praenora/sdk/abi.h>), as modules and providers
+// pass it: values below PRAENORA_LOG_TRACE count as trace, above PRAENORA_LOG_CRITICAL as critical.
+LogLevel log_level_from_abi(std::int32_t level) noexcept;
+
+// Whether `logger` records events at `level` (never at LogLevel::off).
+bool log_enabled(const spdlog::logger& logger, LogLevel level) noexcept;
 
 // "trace", "debug", "info", "warn", "error", "critical" or "off" (lower case only). Throws
 // praenora::Error(CONFIG_INVALID) for anything else.

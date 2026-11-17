@@ -12,6 +12,7 @@ namespace praenora::cli {
 int command_version(const std::vector<std::string>& args);
 int command_validate(const std::vector<std::string>& args);
 int command_modules(const std::vector<std::string>& args);
+int command_providers(const std::vector<std::string>& args);
 int command_graph(const std::vector<std::string>& args);
 int command_run(const std::vector<std::string>& args);
 int command_status(const std::vector<std::string>& args);
@@ -25,6 +26,7 @@ inline constexpr std::string_view kGlobalOptionsUsage =
     "                         {\"ok\": true, \"result\": ...} or\n"
     "                         {\"ok\": false, \"error\": ..., \"diagnostics\": [...]}\n"
     "  --module-path P        search P for modules first (repeatable)\n"
+    "  --provider-path P      search P for service providers first (repeatable)\n"
     "  --catalog-path P       add the catalog entries in P (repeatable)\n"
     "  --log-level L          trace, debug, info, warn, error, critical or off\n"
     "  --log-format F         text or json\n"

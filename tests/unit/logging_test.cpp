@@ -7,6 +7,7 @@
 
 #include <praenora/runtime/error.hpp>
 #include <praenora/runtime/options.hpp>
+#include <praenora/sdk/abi.h>
 
 #include <gtest/gtest.h>
 #include <nlohmann/json.hpp>
@@ -166,6 +167,27 @@ TEST(Logging, LevelFiltering) {
     const LogCapture nothing(off);
     log_event(*off.logger("praenora.runtime"), LogLevel::critical, "dropped");
     EXPECT_TRUE(nothing.lines().empty());
+}
+
+// The PRAENORA_LOG_* levels of the ABI, as modules and providers pass them.
+TEST(Logging, AbiLevelsMapToLogLevels) {
+    using praenora::detail::log_level_from_abi;
+    EXPECT_EQ(log_level_from_abi(PRAENORA_LOG_TRACE), LogLevel::trace);
+    EXPECT_EQ(log_level_from_abi(PRAENORA_LOG_DEBUG), LogLevel::debug);
+    EXPECT_EQ(log_level_from_abi(PRAENORA_LOG_INFO), LogLevel::info);
+    EXPECT_EQ(log_level_from_abi(PRAENORA_LOG_WARN), LogLevel::warn);
+    EXPECT_EQ(log_level_from_abi(PRAENORA_LOG_ERROR), LogLevel::error);
+    EXPECT_EQ(log_level_from_abi(PRAENORA_LOG_CRITICAL), LogLevel::critical);
+    // Below trace counts as trace, above critical as critical.
+    EXPECT_EQ(log_level_from_abi(-3), LogLevel::trace);
+    EXPECT_EQ(log_level_from_abi(PRAENORA_LOG_CRITICAL + 1), LogLevel::critical);
+
+    LogHub hub(quiet(LogFormat::text, LogLevel::warn));
+    const auto logger = hub.logger("provider.test");
+    EXPECT_FALSE(praenora::detail::log_enabled(*logger, LogLevel::info));
+    EXPECT_TRUE(praenora::detail::log_enabled(*logger, LogLevel::warn));
+    EXPECT_TRUE(praenora::detail::log_enabled(*logger, LogLevel::critical));
+    EXPECT_FALSE(praenora::detail::log_enabled(*logger, LogLevel::off));
 }
 
 TEST(Logging, DoesNotRegisterGlobalLoggers) {

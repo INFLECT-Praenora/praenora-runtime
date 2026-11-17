@@ -25,10 +25,20 @@ The MVP is complete: the runtime (validation, discovery, loading, the engine wit
 outputs and message trace, metrics, status and health), the module SDK, the protocol schemas and
 catalog, the C++ API, the `praenora` CLI, the Python bindings, the example modules and workflow,
 the contract checks, the install rules and CMake package, the performance probe, the tests and the
-documentation. It is verified on macOS arm64 with AppleClang (Debug, AddressSanitizer and
-ThreadSanitizer builds, and a Python wheel built offline). Linux x86-64 and Windows x86-64 have
+documentation. It is verified on macOS arm64 with AppleClang (Debug, Release, AddressSanitizer
+and ThreadSanitizer builds, and a Python wheel built offline). Linux x86-64 and Windows x86-64 have
 presets and portable code but are not yet verified; neither are fetch-mode downloads and a wheel
 build that downloads its build requirements, on any platform.
+
+Since the MVP: service providers (engines loaded on demand, one per process, listed by
+`praenora providers list`), module manifests 0.2 that declare the services a module requires, run
+records 0.2 that put each service's provider and engine into the fingerprint, and the simulation
+service `praenora.simulation@0` (`simulation.h`; level A simulates, level B hands out the compiled
+model's functions) with the fixture provider `test-simulation`. The optional provider `roadrunner`
+(libRoadRunner) is built only with `PRAENORA_WITH_ROADRUNNER=ON`; it is verified on macOS arm64
+with libRoadRunner 2.11.0 and LLVM 13.0.1 (every test of a Debug build; the labels `unit`,
+`contract`, `negative`, `lifecycle`, `integration` and `install` of a ThreadSanitizer build).
+Compiling module code through libRoadRunner (level C) is future work.
 
 ## Setup and commands
 
@@ -50,6 +60,10 @@ Python bindings SWIG 4.0+ and Python 3.10+ with headers.
 - Instead of installing packages, configure with `-DPRAENORA_FETCH_DEPENDENCIES=ON`: installed
   packages are still preferred and only missing ones are downloaded, at pinned commits. A default
   build never uses the network.
+- Optional, for the roadrunner provider only: an installed libRoadRunner 2.11 (its static library
+  `roadrunner-static` and the packages it links) and the LLVM 13 it was built with, never
+  downloaded; [docs/platforms.md](docs/platforms.md#the-roadrunner-provider) says what to install
+  and how CMake finds it.
 
 **Local presets.** Copy `CMakeUserPresets.json.example` to `CMakeUserPresets.json` (git-ignored)
 and edit its hidden `dev-local` preset: `CMAKE_PREFIX_PATH` (dependency prefixes, `;`-separated),
@@ -57,7 +71,11 @@ and edit its hidden `dev-local` preset: `CMAKE_PREFIX_PATH` (dependency prefixes
 `CMAKE_OSX_DEPLOYMENT_TARGET` only when your dependency binaries target a newer macOS than the
 project default of 11.0 (Homebrew builds for the running release); otherwise the linker warns
 about every such library. The `dev`, `dev-release`, `dev-asan` and `dev-tsan` presets inherit
-`macos-arm64-*`; on Linux or Windows, inherit `linux-x64-*` or `windows-x64-*` instead.
+`macos-arm64-*`; on Linux or Windows, inherit `linux-x64-*` or `windows-x64-*` instead. For the
+roadrunner provider, add a hidden `dev-roadrunner-local` preset (the libRoadRunner and LLVM
+prefixes in `CMAKE_PREFIX_PATH`, `LLVM_INSTALL_PREFIX`, `PRAENORA_WITH_ROADRUNNER=ON`) and the
+presets `dev-roadrunner` and `dev-roadrunner-tsan`, which inherit it before `dev-local`
+([docs/developer-guide.md](docs/developer-guide.md#the-roadrunner-provider)).
 
 **Configure, build, test.** Trees go to `build/<preset>`; installs go to `install/<preset>`.
 
@@ -75,22 +93,29 @@ cmake --install build/dev                      # into install/dev; --prefix <dir
 cmake --install build/dev --component Examples # the example modules, into lib/praenora/modules
 ctest --preset dev -L perf -V                  # the performance probe's two JSON reports
 ctest --preset dev -L docs -V                  # the documentation checked against the tree
+./build/dev/bin/praenora providers list --provider-path build/dev/test-providers/test-simulation
+ctest --preset dev-roadrunner                  # with the roadrunner provider (local presets)
+ctest --preset dev-roadrunner-tsan -L contract # its concurrency checks under ThreadSanitizer
 ```
 
 The Python line needs the interpreter the build found (`Python3_EXECUTABLE`): the extension is
 built for one Python version. An installation holds the `praenora` tool, the runtime library,
 the headers, the CMake package (`lib/cmake/Praenora`: `find_package(Praenora COMPONENTS Runtime
-ModuleSDK)`; `ModuleSDK` alone needs no other package) and the schemas and catalog
-(`share/praenora`); it can be moved. The example modules are installed only with
-`PRAENORA_INSTALL_EXAMPLES=ON` or `--component Examples`. A wheel build (scikit-build-core) has
-only the Python package's install rules.
+ModuleSDK)`; `ModuleSDK` alone needs no other package), the schemas and catalog
+(`share/praenora`) and, when built, the roadrunner provider (`lib/praenora/providers/roadrunner`);
+it can be moved. The example modules are installed only with `PRAENORA_INSTALL_EXAMPLES=ON` or
+`--component Examples`; the fixture providers of the tests (`build/<preset>/test-providers`) are
+never installed. A wheel build (scikit-build-core) has only the Python package's install rules.
 
 Project presets: `linux-x64-{debug,release,asan,tsan}`, `macos-arm64-{debug,release,asan,tsan}` and
 `windows-x64-{debug,release}`, each with configure, build and test presets. Labels: `unit`,
 `protocol`, `contract`, `negative`, `lifecycle`, `integration`, `cli`, `python`, `install`, `perf`,
-`docs`. The `cli` label holds the CLI driver tests, named `cli.<command>.<case>`, and the
-`CliTable.*` and `Frontend.*` unit tests of the tool's helpers and of what it shares with the Python
-extension (`ctest --preset dev -L cli`). The `python` label
+`docs`. The `contract` label also holds the tests of provider libraries as files,
+`providers.<provider>.exports` (the library exports only the provider entry point) and
+`providers.<provider>.processes` (two fresh processes print the same bytes), for `test-simulation`
+and, when it is built, `roadrunner`. The `cli` label holds the CLI driver tests, named
+`cli.<command>.<case>`, and the `CliTable.*` and `Frontend.*` unit tests of the tool's helpers and
+of what it shares with the Python extension (`ctest --preset dev -L cli`). The `python` label
 holds one CTest test, `python.unittest`, which runs the unittest suite of `tests/python` against the
 package in `build/<preset>/python`; with `PRAENORA_SANITIZERS` set it is registered but disabled,
 because an instrumented extension does not load into an interpreter that is not instrumented. So a
@@ -98,15 +123,19 @@ label-only run of a sanitizer tree (`ctest --preset dev-asan -L python`, or `dev
 and exits 8, since the presets set `noTestsAction: error`; a full run of those trees is unaffected.
 The `install` label holds `install.consumer`: its driver, `tests/install/run_install_test.cmake`,
 installs the build into `build/<preset>/tests/install/work`, builds the consumer projects next to it
-and lists every step it checks; builds without install rules (`PRAENORA_INSTALL=OFF`) do not have
-it. The `perf` label holds `perf.validation_strict` and `perf.validation_off`, which run
-`praenora_perf` for 2000 ticks and print its JSON report; they fail only when the probe fails or
-prints no report, never on timings. Both labels also pass in the sanitizer trees, whose flags reach
-the consumer builds. The `docs` label holds `docs.consistency`, the CMake script
-`tests/docs/check_docs.cmake`: every `ErrorCode` name is in `docs/specs/error-taxonomy.md`, every
-`spec/schemas/*.json` name in `docs/specs/protocol.md`, every ADR in `docs/adr/README.md`, every
-relative Markdown link of `README.md`, `AGENTS.md` and `docs/` resolves, and the open-questions
-register has its 26 rows. Build options are in `cmake/PraenoraOptions.cmake`;
+and lists every step it checks; with the roadrunner provider it also checks the installed provider,
+which the installed tool lists as usable before and after the installation is moved. Builds without
+install rules (`PRAENORA_INSTALL=OFF`) do not have it. The `perf` label holds
+`perf.validation_strict` and `perf.validation_off`, which run `praenora_perf` for 2000 ticks and
+print its JSON report; they fail only when the probe fails or prints no report, never on timings.
+Both labels also pass in the sanitizer trees, whose flags reach the consumer builds. The `docs`
+label holds `docs.consistency`, the CMake script `tests/docs/check_docs.cmake`: every `ErrorCode`
+name is in `docs/specs/error-taxonomy.md`, every `spec/schemas/*.json` name in
+`docs/specs/protocol.md`, every ADR in `docs/adr/README.md`, every relative Markdown link of
+`README.md`, `AGENTS.md` and `docs/` resolves, and the open-questions register has its 28 rows.
+Build options are in `cmake/PraenoraOptions.cmake`, among them `PRAENORA_WITH_ROADRUNNER` (OFF),
+which builds the roadrunner provider; with it, the cache variable `LLVM_INSTALL_PREFIX`
+(`cmake/PraenoraRoadrunner.cmake`) names the LLVM that libRoadRunner was built with;
 [docs/testing.md](docs/testing.md) has the details.
 
 ## Repository map
@@ -117,13 +146,20 @@ pyproject.toml                Python distribution praenora-runtime (scikit-build
 cmake/                        options, versions, compiler checks, warnings, sanitizers,
                               dependencies, praenora_add_module(), praenora_embed_resources(),
                               install rules and package configuration (PraenoraInstall.cmake,
-                              PraenoraConfig.cmake.in)
+                              PraenoraConfig.cmake.in); praenora_add_provider()
+                              (PraenoraProvider.cmake, not installed) and the roadrunner
+                              provider's dependencies (PraenoraRoadrunner.cmake)
 include/praenora/runtime/     public C++ API (runtime.hpp, workflow.hpp, version.hpp, error.hpp,
                               status.hpp, options.hpp; export.h is generated)
-include/praenora/sdk/         SDK: abi.h, status.h, module.hpp, testing.hpp (version.h generated)
+include/praenora/sdk/         SDK: abi.h, status.h, simulation.h (the simulation service),
+                              module.hpp, testing.hpp (version.h generated)
 src/runtime/                  runtime internals, one directory per component (api/, catalog/,
                               compat/, config/, core/, discovery/, document/, engine/, graph/,
-                              instance/, io/, loader/, observability/, platform/{posix,windows}/)
+                              instance/, io/, loader/, observability/, platform/{posix,windows}/,
+                              provider/ (provider manifests, index and loader; the internal
+                              provider interface provider_abi.h))
+src/providers/                service providers built with the runtime: roadrunner/
+                              (libRoadRunner; only with PRAENORA_WITH_ROADRUNNER=ON)
 src/sdk/                      Praenora::ModuleSDK target
 src/frontend/                 what the CLI and the Python extension share: frontend.hpp
                               (praenora::frontend; header-only, internal, never installed)
@@ -141,21 +177,26 @@ tests/                        unit/, protocol/, negative/, contract/, lifecycle/
                               suite of praenora.runtime), install/ (install test: its driver
                               run_install_test.cmake and the projects consumer-module/ and
                               consumer-app/), perf/ (performance probe praenora_perf and its
-                              driver run_perf.cmake), docs/ (documentation test
-                              check_docs.cmake), support/ (test helpers, and
-                              run_command.cmake, which the three drivers share);
-                              fixtures/: modules/ (fixture modules), documents/, catalog/,
-                              catalog-bad/, manifests/ (bad manifests, search-path layouts),
-                              configs/ (good, bad and CLI configurations), data/ (target data),
-                              golden/ (golden outputs)
+                              driver run_perf.cmake), providers/ (tests of provider libraries:
+                              check_exports.cmake, run_twice.cmake and praenora_simulation_print),
+                              docs/ (documentation test check_docs.cmake), support/ (test
+                              helpers, and run_command.cmake, which the CMake drivers share);
+                              fixtures/: modules/ (fixture modules), providers/ (fixture
+                              providers, praenora_add_fixture_provider()), models/ (sbml/ and
+                              test-decay/ models of the simulation service), documents/,
+                              catalog/, catalog-bad/, catalog-shared-id/, manifests/ (bad module
+                              and provider manifests, search-path layouts), configs/ (good, bad
+                              and CLI configurations), data/ (target data), golden/ (golden
+                              outputs)
 tools/                        developer scripts (generate_example_data.py)
 docs/                         index.md, the guides (architecture, user-guide, configuration,
                               developer-guide, module-developer-guide, testing, python,
                               platforms), specs/ (normative specifications), feasibility/
-                              (designs only), adr/ (decision records), open-questions.md
+                              (feasibility documents), adr/ (decision records),
+                              open-questions.md
 ```
 
-## Architecture in five bullets
+## Architecture in six bullets
 
 - The runtime compiles once into the OBJECT library `praenora_runtime_objects`, linked into the
   shared `praenora_runtime` (only the public API is exported) and into white-box test executables.
@@ -166,6 +207,12 @@ docs/                         index.md, the guides (architecture, user-guide, co
   function table returned by `praenora_module_get_api`.
 - Each module instance has its own worker thread and calls into it are serialized. The host
   enforces timeouts; cancellation is cooperative.
+- Heavy engines come from service providers: separately built `MODULE` libraries, found through
+  `*.provider.json` manifests on provider search paths and loaded on demand, when a run,
+  `validate --load` or the contract checks need one of their services; each is started once and
+  kept loaded, so a process holds one engine per provider. Modules declare the services they
+  require or can use in their manifests (PMM 0.2), reach them only through the host API's
+  `get_service` and never link an engine; each service a run uses enters its fingerprint.
 - A YAML workflow configuration pins a versioned workflow definition from the protocol catalog and
   binds its steps to modules; connections come from the definition, never from the YAML. Every
   document is validated against an embedded JSON Schema (draft-07) before anything runs.
@@ -231,12 +278,15 @@ docs/                         index.md, the guides (architecture, user-guide, co
   [configuration](docs/configuration.md), [developer guide](docs/developer-guide.md),
   [module developer guide](docs/module-developer-guide.md), [testing](docs/testing.md),
   [Python](docs/python.md), [platforms](docs/platforms.md).
-- Normative specifications: `docs/specs/` (ABI, protocol, manifest, workflow definitions,
-  compatibility, error taxonomy, threading and ownership, time and timeouts, observability,
-  reproducibility, the draft starting workflow), listed in [docs/index.md](docs/index.md).
-- Feasibility designs, nothing of which is built:
-  [WebAssembly](docs/feasibility/webassembly.md),
-  [libRoadRunner](docs/feasibility/libroadrunner.md),
-  [libAntimony](docs/feasibility/libantimony.md).
+- Normative specifications: `docs/specs/` (ABI, protocol, manifest, runtime services and
+  providers, the simulation service, workflow definitions, compatibility, error taxonomy, threading
+  and ownership, time and timeouts, observability, reproducibility, the draft starting workflow),
+  listed in [docs/index.md](docs/index.md); the two on services are
+  [runtime-services.md](docs/specs/runtime-services.md) and
+  [simulation-service.md](docs/specs/simulation-service.md).
+- Feasibility documents: [WebAssembly](docs/feasibility/webassembly.md) and
+  [libAntimony](docs/feasibility/libantimony.md) are designs, nothing of which is built;
+  [libRoadRunner](docs/feasibility/libroadrunner.md) holds the upstream facts behind the built
+  simulation service and its provider `roadrunner`, and the design of level C (future work).
 - [docs/adr/README.md](docs/adr/README.md): architecture decision records and their process.
 - [docs/open-questions.md](docs/open-questions.md): open-questions register.

@@ -8,20 +8,31 @@
 # are compiled with the project's warnings.
 
 # praenora_add_fixture_module(<name> SOURCES <source>... [LINK_LIBRARIES <library>...]
-#                             [CAPABILITIES <id@version>...] [TEST_VECTORS <file>])
-# Target <name> with '-' replaced by '_'; manifest template <name>/<name>.pmm.json.in. The
-# capabilities default to test.echo@0.1.0. TEST_VECTORS (relative to <name>/) is copied beside the
-# manifest, whose template names it with @PRAENORA_MODULE_TEST_VECTORS@.
+#                             [CAPABILITIES <id@version>...] [TEST_VECTORS <file>]
+#                             [REQUIRES_SERVICES <service>...] [OPTIONAL_SERVICES <service>...])
+# Target <name> with '-' replaced by '_'; manifest template <name>/<name>.pmm.json.in when that
+# file exists, otherwise the manifest praenora_add_module() generates. The capabilities default to
+# test.echo@0.1.0. TEST_VECTORS (relative to <name>/) is copied beside the manifest, whose template
+# names it with @PRAENORA_MODULE_TEST_VECTORS@. REQUIRES_SERVICES and OPTIONAL_SERVICES are passed
+# on to praenora_add_module().
 function(praenora_add_fixture_module name)
-    cmake_parse_arguments(PARSE_ARGV 1 arg "" "TEST_VECTORS" "SOURCES;LINK_LIBRARIES;CAPABILITIES")
+    cmake_parse_arguments(PARSE_ARGV 1 arg "" "TEST_VECTORS"
+        "SOURCES;LINK_LIBRARIES;CAPABILITIES;REQUIRES_SERVICES;OPTIONAL_SERVICES")
     string(REPLACE "-" "_" target "${name}")
-    set(link_libraries "")
+    set(options "")
     if(DEFINED arg_LINK_LIBRARIES)
-        set(link_libraries LINK_LIBRARIES ${arg_LINK_LIBRARIES})
+        list(APPEND options LINK_LIBRARIES ${arg_LINK_LIBRARIES})
     endif()
-    set(test_vectors "")
     if(DEFINED arg_TEST_VECTORS)
-        set(test_vectors TEST_VECTORS "${name}/${arg_TEST_VECTORS}")
+        list(APPEND options TEST_VECTORS "${name}/${arg_TEST_VECTORS}")
+    endif()
+    foreach(services IN ITEMS REQUIRES_SERVICES OPTIONAL_SERVICES)
+        if(DEFINED arg_${services})
+            list(APPEND options ${services} ${arg_${services}})
+        endif()
+    endforeach()
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${name}/${name}.pmm.json.in")
+        list(APPEND options MANIFEST_TEMPLATE "${name}/${name}.pmm.json.in")
     endif()
     set(capabilities test.echo@0.1.0)
     if(DEFINED arg_CAPABILITIES)
@@ -32,10 +43,8 @@ function(praenora_add_fixture_module name)
         VERSION 0.1.0
         CAPABILITIES ${capabilities}
         SOURCES ${arg_SOURCES}
-        MANIFEST_TEMPLATE "${name}/${name}.pmm.json.in"
         OUTPUT_DIRECTORY "${PRAENORA_TEST_MODULES_DIR}/${name}"
-        ${link_libraries}
-        ${test_vectors})
+        ${options})
     praenora_target_warnings(${target})
     add_dependencies(praenora_test_modules ${target})
 endfunction()
@@ -90,3 +99,32 @@ praenora_add_fixture_module(fx-nondeterministic
 praenora_add_fixture_module(fx-needs-parameter
     SOURCES fx-echo/fx_echo.cpp LINK_LIBRARIES nlohmann_json::nlohmann_json
     TEST_VECTORS invalid-vectors.json)
+
+# Modules that use runtime services, all built from fx-service's code (the services
+# test.echo@0.0, which the fixture provider test-echo offers, and test.other@1.2, which
+# test-reordered offers too): fx-service requires test.echo@0.0 and can use test.other@1.0
+# (manifest template with @PRAENORA_MODULE_REQUIRES_JSON@); fx-service-optional can use
+# test.echo@0.0; fx-service-minor requires test.echo@0.7, a minor no fixture provider offers (both
+# with the generated manifest); fx-service-format-0-1 has a manifest of format 0.1, which declares
+# no services.
+set(service_fixture SOURCES fx-service/fx_service.cpp LINK_LIBRARIES nlohmann_json::nlohmann_json)
+praenora_add_fixture_module(fx-service ${service_fixture}
+    REQUIRES_SERVICES test.echo@0.0 OPTIONAL_SERVICES test.other@1.0)
+praenora_add_fixture_module(fx-service-optional ${service_fixture}
+    OPTIONAL_SERVICES test.echo@0.0)
+praenora_add_fixture_module(fx-service-minor ${service_fixture}
+    REQUIRES_SERVICES test.echo@0.7)
+praenora_add_fixture_module(fx-service-format-0-1 ${service_fixture})
+# test_echo.h
+foreach(target IN ITEMS fx_service fx_service_optional fx_service_minor fx_service_format_0_1)
+    target_include_directories(${target} PRIVATE "${PROJECT_SOURCE_DIR}/tests/support")
+endforeach()
+
+# simulating-module requires the simulation service praenora.simulation@0.0, which the fixture
+# provider test-simulation offers for the toy model format "test-decay"; its test vectors run the
+# service through the contract checks.
+praenora_add_fixture_module(simulating-module
+    SOURCES simulating-module/simulating_module.cpp
+    LINK_LIBRARIES nlohmann_json::nlohmann_json
+    TEST_VECTORS vectors.json
+    REQUIRES_SERVICES praenora.simulation@0.0)

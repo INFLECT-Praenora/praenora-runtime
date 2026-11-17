@@ -1,0 +1,85 @@
+{
+  "kind": "module-test-vectors",
+  "format_version": "0.1.0",
+  "cases": [
+    {
+      "name": "plan-runs",
+      "capability": { "id": "test.echo", "version": "0.1.0" },
+      "ticks": [
+        {
+          "inputs": {},
+          "expect": {
+            "outputs": {
+              "out": {
+                "ok": true,
+                "columns": ["time", "x", "y", "total"],
+                "rows": [[0, 8, 3, 11], [1, 4, 3, 7], [2, 2, 3, 5]]
+              }
+            },
+            "tolerance": { "relative": 1e-12 }
+          }
+        },
+        {
+          "inputs": { "in": { "values": [0.6931471805599453, 16] } },
+          "expect": {
+            "outputs": {
+              "out": {
+                "ok": true,
+                "columns": ["time", "x", "y", "total"],
+                "rows": [[0, 16, 3, 19], [1, 8, 3, 11], [2, 4, 3, 7]]
+              }
+            },
+            "tolerance": { "relative": 1e-12 }
+          }
+        }
+      ]
+    },
+    {
+      "name": "kernel-rates",
+      "capability": { "id": "test.echo", "version": "0.1.0" },
+      "parameters": { "kernel": true },
+      "ticks": [
+        {
+          "inputs": {},
+          "expect": {
+            "outputs": {
+              "out": {
+                "ok": true,
+                "columns": ["time", "x", "y", "total"],
+                "rows": [[0, 8, 3, 11], [1, 4, 3, 7], [2, 2, 3, 5]],
+                "rates": [-5.545177444479562, 0]
+              }
+            },
+            "tolerance": { "relative": 1e-12 }
+          }
+        }
+      ]
+    },
+    {
+      "name": "numerical-failure",
+      "capability": { "id": "test.echo", "version": "0.1.0" },
+      "ticks": [
+        {
+          "inputs": { "in": { "values": [-1000, 8] } },
+          "expect": {
+            "outputs": {
+              "out": {
+                "ok": false,
+                "error": {
+                  "code": 11,
+                  "message": "praenora.simulation: x is not finite at time 1.0",
+                  "details": {
+                    "reason": "nonfinite",
+                    "service": "praenora.simulation",
+                    "column": "x",
+                    "time": 1
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

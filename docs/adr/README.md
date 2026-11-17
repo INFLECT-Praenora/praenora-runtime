@@ -50,3 +50,5 @@ Some ADRs have a split status, for example "Accepted (shape) / Proposed (details
 | [ADR-0023](ADR-0023-public-cpp-api.md) | Public C++ API: exceptions, pimpl, no third-party types in public headers | Proposed | 2026-11-10 |
 | [ADR-0024](ADR-0024-contract-checks-and-test-vectors.md) | Contract checks and test vectors as the module acceptance gate | Proposed | 2026-11-10 |
 | [ADR-0025](ADR-0025-webassembly-strategy.md) | WebAssembly strategy: separate runtime models, design only for the MVP | Proposed | 2026-11-10 |
+| [ADR-0026](ADR-0026-runtime-service-providers.md) | Runtime service providers: one engine per process, loaded on demand | Proposed | 2026-11-16 |
+| [ADR-0027](ADR-0027-simulation-service-v0.md) | Simulation service v0 and the libRoadRunner provider | Proposed | 2026-11-16 |

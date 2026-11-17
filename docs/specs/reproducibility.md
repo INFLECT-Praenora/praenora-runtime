@@ -1,6 +1,7 @@
 # Reproducibility
 
-- **Version:** runtime 0.1.0; document format `run-record` 0.1.0
+- **Version:** runtime 0.2.0; document format `run-record` 0.2.0 (records of format 0.1.x are still
+  read with the 0.1 schema)
 - **Status:** Normative, MVP. Proposed ([ADR-0016](../adr/ADR-0016-reproducibility.md)).
 - **Requirement keywords:** MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are used as described in
   [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119).
@@ -18,8 +19,9 @@ fingerprint = lowercase hex of SHA-256(canonical_json(reproducibility section))
 
 The reproducibility section is computed during validation, before any module is loaded. Two runs
 with the same fingerprint used the same runtime, ABI and protocol versions, the same catalog
-entries, the same semantic configuration, the same module manifests and library files, and the same
-input data. The first 16 hex digits of the fingerprint prefix every envelope id.
+entries, the same semantic configuration, the same module manifests and library files, the same
+service providers (manifests, library files and engines) for the same runtime services, and the
+same input data. The first 16 hex digits of the fingerprint prefix every envelope id.
 
 | Key | Content |
 |---|---|
@@ -31,17 +33,20 @@ input data. The first 16 hex digits of the fingerprint prefix every envelope id.
 | `ticks` | The tick count, after any override, or `null` when the run lasts until its replay inputs are exhausted. |
 | `timeouts` | The run's `{invoke, lifecycle, cancel_grace}`. |
 | `inputs` | `{<input>: {source, digest, columns?}}`: the source kind, the SHA-256 of the input file's bytes, and the column mapping when there is one. |
-| `steps` | `{<step>: {capability {id, version}, module {name, version, manifest_sha256, library_sha256, sdk_version}, parameters, seed, timeouts}}`, where `parameters` are the resolved parameters, `seed` the step seed and `timeouts` the step's effective timeouts. |
+| `services` | `{"<name>@<major>": {minor, provider {name, version, manifest_sha256, library_sha256}, engine}}` for every runtime service a provider serves to the run: the minor the provider offers, the provider's identity and digests, and the `engine` object of its manifest ([runtime-services.md](runtime-services.md#fingerprint)). `{}` when no step's module declares a service that resolved. |
+| `steps` | `{<step>: {capability {id, version}, module {name, version, manifest_sha256, library_sha256, sdk_version}, parameters, seed, timeouts, services}}`, where `parameters` are the resolved parameters, `seed` the step seed, `timeouts` the step's effective timeouts and `services` the sorted keys of `services` that the step's module may use. |
 
-A digest is the SHA-256 of a catalog entry's canonical JSON, of a file's bytes (manifests, libraries,
-input files). `sdk_version` is the one the manifest declares. Durations are written canonically (see
+A digest is the SHA-256 of a catalog entry's canonical JSON, of a file's bytes (module and provider
+manifests, libraries, input files). `sdk_version` is the one the manifest declares. Durations are
+written canonically (see
 [time-cancellation-timeouts.md](time-cancellation-timeouts.md#durations-in-the-configuration)).
 
 What changes the fingerprint, and what does not:
 
 - It changes with the seed, the tick count, any timeout, a parameter value, a module's manifest or
-  library file, an input file's bytes (re-encoding a file counts), a catalog entry the workflow uses,
-  and the runtime, ABI or PMP version.
+  library file, the services a module declares, a provider of the run's services (another
+  provider, or its manifest, library file or engine), an input file's bytes (re-encoding a file
+  counts), a catalog entry the workflow uses, and the runtime, ABI or PMP version.
 - It does not change with paths (of the configuration, the input files, the manifests and the
   libraries), with the `outputs` and `observability` settings, with step log levels, or with the
   wall-clock time: the same configuration and data at other paths give the same fingerprint.
@@ -81,8 +86,11 @@ documents passed to modules, the recorded outputs and the message trace.
 
 ## Run record
 
-A run record (`kind: run-record`, [`run-record.0.1.schema.json`](../../spec/schemas/run-record.0.1.schema.json))
-describes one run: `{kind, format_version, fingerprint, reproducibility, execution}`. The
+A run record (`kind: run-record`, [`run-record.0.2.schema.json`](../../spec/schemas/run-record.0.2.schema.json);
+the runtime writes format 0.2.0, and the 0.1 schema,
+[`run-record.0.1.schema.json`](../../spec/schemas/run-record.0.1.schema.json), stays for records of
+format 0.1.x, which have no `services`) describes one run:
+`{kind, format_version, fingerprint, reproducibility, execution}`. The
 `reproducibility` section is the one hashed; the `execution` section holds facts about the run:
 
 | Field | Content |
@@ -101,8 +109,8 @@ describes one run: `{kind, format_version, fingerprint, reproducibility, executi
 - The record is written when the run starts, before any module is loaded, and again when it ends,
   each time replacing the file atomically, as JSON indented by two spaces with a final newline.
   Without an output directory it is kept in memory only (`Workflow::run_record_json()`).
-- The record names no host and no user. It identifies each module by name, version and the digests
-  of its manifest and library, not by path.
+- The record names no host and no user. It identifies each module, and each provider, by name,
+  version and the digests of its manifest and library, not by path.
 - A writer MUST refuse a fingerprint that is not the hash of the record's reproducibility section.
 
 ## Output files
@@ -156,15 +164,25 @@ The contract checks' `invoke.determinism` check runs every test-vector case twic
 and requires byte-identical results ([ADR-0024](../adr/ADR-0024-contract-checks-and-test-vectors.md)).
 
 **Guarantee.** The same fingerprint on the same platform with the same runtime build gives
-byte-identical outputs and traces. Across platforms and compilers, results agree only within a
-numeric tolerance, because floating-point contraction and the math library differ. The example
-modules are compiled with `-ffp-contract=off` on GCC and Clang to narrow that gap, and the example's
-golden outputs are compared with a relative tolerance of 1e-9 and an absolute one of 1e-12.
+byte-identical outputs and traces. Results that modules compute with a runtime service of a provider
+are byte-identical only for the same engine identity: the same provider, library file and engine,
+which the fingerprint records (`services`). The roadrunner provider pins libRoadRunner's JIT backend
+to MCJit, without LLVM optimization passes, and records it in its engine object (`"jit": "mcjit"`,
+`"llvm_optimization": "none"`): libRoadRunner's other backend, LLJit, generates code for the host's
+CPU and fuses floating-point operations, so its results can differ between machines
+([simulation-service.md](simulation-service.md#the-roadrunner-provider)). Whether MCJit's code is
+the same on every CPU of one architecture is not yet verified. Across platforms and compilers,
+results agree only within a numeric tolerance, because floating-point contraction and the math
+library differ. The example modules are compiled with `-ffp-contract=off` on GCC and Clang to narrow
+that gap, and the example's golden outputs are compared with a relative tolerance of 1e-9 and an
+absolute one of 1e-12.
 
 ## References
 
 - [ADR-0016](../adr/ADR-0016-reproducibility.md): reproducibility.
 - [ADR-0020](../adr/ADR-0020-message-envelope-and-asyncapi.md): envelope ids, recorded outputs and the trace.
 - [ADR-0022](../adr/ADR-0022-target-data-intake.md): input data and its digests.
+- [ADR-0026](../adr/ADR-0026-runtime-service-providers.md): service providers and their engines in
+  the fingerprint.
 - [RFC 8785 (JSON Canonicalization Scheme)](https://www.rfc-editor.org/rfc/rfc8785).
 - [user-guide.md](../user-guide.md#what-a-run-writes): the files of a run.

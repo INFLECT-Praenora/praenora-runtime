@@ -11,6 +11,28 @@
 
 namespace praenora::detail {
 
+// A runtime service at a version: a name (a dotted identifier such as praenora.simulation) with a
+// major and a minor version. A provider offers services at their minor; a requirement asks for at
+// least its minor of its major.
+struct ServiceVersion {
+    std::string name;
+    std::uint32_t major = 0, minor = 0;
+};
+
+inline bool operator==(const ServiceVersion& a, const ServiceVersion& b) {
+    return a.name == b.name && a.major == b.major && a.minor == b.minor;
+}
+inline bool operator!=(const ServiceVersion& a, const ServiceVersion& b) { return !(a == b); }
+// By name, then major, then minor.
+bool operator<(const ServiceVersion& a, const ServiceVersion& b);
+
+// "<name>@<major>.<minor>", for example "praenora.simulation@0.0".
+std::string to_string(const ServiceVersion& service);
+
+// "<name>@<major>", for example "praenora.simulation@0": the key of a service in a run's
+// reproducibility section, whatever its minor.
+std::string service_key(const ServiceVersion& service);
+
 class ServiceRegistry {
 public:
     // Registers `table`, a C struct that starts with praenora_api_header, as service `name` at

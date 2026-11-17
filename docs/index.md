@@ -31,7 +31,13 @@
 - [specs/module-abi.md](specs/module-abi.md): the module ABI v0.
 - [specs/protocol.md](specs/protocol.md): the Praenora Module Protocol (PMP) 0.1: documents,
   envelope, module-ABI documents, catalog, execution semantics, CloudEvents mapping.
-- [specs/manifest.md](specs/manifest.md): the Praenora Module Manifest (PMM) 0.1.
+- [specs/manifest.md](specs/manifest.md): the Praenora Module Manifest (PMM) 0.2, with the
+  services a module requires.
+- [specs/runtime-services.md](specs/runtime-services.md): runtime services and service providers:
+  the provider manifest, the provider interface (internal), discovery, resolution and loading.
+- [specs/simulation-service.md](specs/simulation-service.md): the simulation service
+  `praenora.simulation@0`: sessions, simulate, plans and batches, kernels, threading, limits, and
+  the service checks.
 - [specs/workflow-definitions.md](specs/workflow-definitions.md): workflow definitions and
   capabilities, graph rules, the schedule.
 - [specs/compatibility-policy.md](specs/compatibility-policy.md): versions and the compatibility
@@ -53,12 +59,16 @@
 
 - [feasibility/webassembly.md](feasibility/webassembly.md): running the runtime as WebAssembly, or
   hosting WebAssembly modules.
-- [feasibility/libroadrunner.md](feasibility/libroadrunner.md): a simulation service backed by
-  libRoadRunner.
+- [feasibility/libroadrunner.md](feasibility/libroadrunner.md): the simulation service backed by
+  libRoadRunner: the options compared, upstream facts about libRoadRunner 2.11.0, the alignment
+  with `ode-uq-spec`, platforms and licensing, and compiling module code through libRoadRunner
+  (level C, future work).
 - [feasibility/libantimony.md](feasibility/libantimony.md): a model conversion service backed by
   libAntimony.
 
-These are designs only: nothing they propose exists in this version.
+The WebAssembly and libAntimony documents are designs only: nothing they propose exists in this
+version. Levels A and B of the simulation service are built
+([specs/simulation-service.md](specs/simulation-service.md)); level C is not.
 
 ## Decisions and open questions
 

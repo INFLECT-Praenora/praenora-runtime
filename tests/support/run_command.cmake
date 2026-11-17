@@ -1,6 +1,7 @@
 # Running commands in the CMake drivers of the tests (tests/cli/run_cli.cmake,
-# tests/install/run_install_test.cmake, tests/perf/run_perf.cmake), which include this file. Script
-# mode (cmake -P); it needs only CMake.
+# tests/install/run_install_test.cmake, tests/perf/run_perf.cmake,
+# tests/providers/check_exports.cmake, tests/providers/run_twice.cmake), which include this file.
+# Script mode (cmake -P); it needs only CMake.
 #
 # praenora_test_run(<prefix> <what> <command>...)
 #   Runs the command, its program first, and sets <prefix>_EXIT, <prefix>_OUT and <prefix>_ERR in

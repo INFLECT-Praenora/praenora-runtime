@@ -50,6 +50,8 @@ struct HostContext {
     std::atomic<std::uint64_t> tick{kNoTick};      // the tick of the invocation running, if any
     std::mutex services_mutex;
     const ServiceRegistry* services = nullptr;       // guarded; NULL once abandoned
+    ServiceRegistry provider_services;               // fixed; served only while `serving`
+    bool serving = true;                             // guarded; false once withdrawn
     praenora_instance* abandoned_instance = nullptr; // guarded; kept reachable once abandoned
 };
 
@@ -98,46 +100,6 @@ praenora_bytes bytes(const std::string& text) noexcept {
     return praenora_bytes{text.data(), text.size()};
 }
 
-// PRAENORA_LOG_* to LogLevel; levels below trace count as trace, above critical as critical.
-LogLevel level_from_abi(std::int32_t level) noexcept {
-    switch (level) {
-    case PRAENORA_LOG_TRACE:
-        return LogLevel::trace;
-    case PRAENORA_LOG_DEBUG:
-        return LogLevel::debug;
-    case PRAENORA_LOG_INFO:
-        return LogLevel::info;
-    case PRAENORA_LOG_WARN:
-        return LogLevel::warn;
-    case PRAENORA_LOG_ERROR:
-        return LogLevel::error;
-    case PRAENORA_LOG_CRITICAL:
-        return LogLevel::critical;
-    default:
-        return level < PRAENORA_LOG_TRACE ? LogLevel::trace : LogLevel::critical;
-    }
-}
-
-spdlog::level::level_enum spdlog_level(LogLevel level) noexcept {
-    switch (level) {
-    case LogLevel::trace:
-        return spdlog::level::trace;
-    case LogLevel::debug:
-        return spdlog::level::debug;
-    case LogLevel::info:
-        return spdlog::level::info;
-    case LogLevel::warn:
-        return spdlog::level::warn;
-    case LogLevel::error:
-        return spdlog::level::err;
-    case LogLevel::critical:
-        return spdlog::level::critical;
-    case LogLevel::off:
-        return spdlog::level::off;
-    }
-    return spdlog::level::off;
-}
-
 // The attributes of an event about this instance: run.fingerprint (when known), tick (during an
 // invocation), step and module.
 std::vector<LogAttribute> attributes_of(const HostContext& host) {
@@ -173,9 +135,9 @@ void PRAENORA_CALL host_log(void* context, std::int32_t level, const char* messa
     if (host == nullptr || host->logger == nullptr || (message == nullptr && size != 0)) {
         return;
     }
-    const LogLevel log_level = level_from_abi(level);
+    const LogLevel log_level = log_level_from_abi(level);
     try {
-        if (!host->logger->should_log(spdlog_level(log_level))) {
+        if (!log_enabled(*host->logger, log_level)) {
             return;
         }
         const std::string_view text =
@@ -189,7 +151,7 @@ void PRAENORA_CALL host_log(void* context, std::int32_t level, const char* messa
 std::int32_t PRAENORA_CALL host_log_enabled(void* context, std::int32_t level) noexcept {
     const HostContext* host = host_of(context);
     return host != nullptr && host->logger != nullptr &&
-                   host->logger->should_log(spdlog_level(level_from_abi(level)))
+                   log_enabled(*host->logger, log_level_from_abi(level))
                ? 1
                : 0;
 }
@@ -216,9 +178,13 @@ const void* PRAENORA_CALL host_get_service(void* context, const char* name, std:
     try {
         const void* table = nullptr;
         {
+            // The provider services the module declared first, then the built-in ones.
             const std::lock_guard<std::mutex> lock(host->services_mutex);
-            if (host->services != nullptr) {
-                table = host->services->find(service, major);
+            if (host->serving) {
+                table = host->provider_services.find(service, major);
+                if (table == nullptr && host->services != nullptr) {
+                    table = host->services->find(service, major);
+                }
             }
         }
         if (host->logger != nullptr && host->logger->should_log(spdlog::level::debug)) {
@@ -309,6 +275,7 @@ ModuleInstance::ModuleInstance(std::shared_ptr<LoadedModule> module, InstanceOpt
     host_->run_fingerprint = options_.run_fingerprint;
     host_->logger = options_.logger;
     host_->services = options_.services;
+    host_->provider_services = options_.provider_services;
     praenora_host_api& api = host_->api;
     api.struct_size = static_cast<std::uint32_t>(sizeof(praenora_host_api));
     api.abi_major = PRAENORA_ABI_MAJOR;
@@ -452,9 +419,9 @@ CallResult ModuleInstance::run(Claim& claim, const char* call_name,
 void ModuleInstance::abandon(const char* call_name) noexcept {
     state_.store(StepState::unresponsive);
     module_->pin();
+    stop_serving(); // the registry may go away before the module stops using it
     {
         const std::lock_guard<std::mutex> lock(host_->services_mutex);
-        host_->services = nullptr; // the registry may go away before the module stops using it
         host_->abandoned_instance = instance_;
     }
     keep_forever(host_);
@@ -653,10 +620,13 @@ void ModuleInstance::request_cancel() noexcept {
     }
 }
 
-void ModuleInstance::withdraw_services() noexcept {
+void ModuleInstance::withdraw_services() noexcept { stop_serving(); }
+
+void ModuleInstance::stop_serving() noexcept {
     // The lock that get_service() takes: a lookup running now finishes with the registry first.
     const std::lock_guard<std::mutex> lock(host_->services_mutex);
     host_->services = nullptr;
+    host_->serving = false;
 }
 
 StepState ModuleInstance::state() const noexcept { return state_.load(); }

@@ -440,6 +440,17 @@ TEST(Adapter, HostChecksStructSizeBeforeEachCallback) {
     EXPECT_EQ(logs.back().message, "message");
 }
 
+TEST(Adapter, HostGivesTheHostApiForServiceCalls) {
+    // Service functions take the instance's host API (for example the simulation service's
+    // simulate()), so a module passes it on.
+    FakeHost fake;
+    const sdk::Host host(fake.api());
+    EXPECT_EQ(host.api(), fake.api());
+    const sdk::Host copy = host;
+    EXPECT_EQ(copy.api(), fake.api());
+    EXPECT_EQ(sdk::Host(nullptr).api(), nullptr);
+}
+
 TEST(Adapter, ErrorCarriesCodeMessageAndDetails) {
     const sdk::Error error(PRAENORA_STATUS_NOT_FOUND, "missing", R"({"path":"a"})");
     EXPECT_EQ(error.code(), PRAENORA_STATUS_NOT_FOUND);

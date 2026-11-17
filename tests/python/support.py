@@ -1,10 +1,11 @@
 """What the tests of tests/python share: the environment that CTest sets for python.unittest,
 the paths of the fixtures, and a way to keep the runtime's log records out of the test output.
 
-CTest's environment names the fixture modules (PRAENORA_TEST_MODULES_DIR), the test catalog
-(PRAENORA_TEST_CATALOG_DIR), the example configuration (PRAENORA_EXAMPLE_CONFIG) and, when the
-examples are built, the example modules (PRAENORA_EXAMPLE_MODULES_DIR). It sets
-PRAENORA_LOG_LEVEL to off, so the runtime logs nothing unless a test asks for it.
+CTest's environment names the fixture modules (PRAENORA_TEST_MODULES_DIR), the fixture service
+providers (PRAENORA_TEST_PROVIDERS_DIR), the test catalog (PRAENORA_TEST_CATALOG_DIR), the example
+configuration (PRAENORA_EXAMPLE_CONFIG) and, when the examples are built, the example modules
+(PRAENORA_EXAMPLE_MODULES_DIR). It sets PRAENORA_LOG_LEVEL to off, so the runtime logs nothing
+unless a test asks for it.
 """
 
 import contextlib
@@ -27,6 +28,7 @@ def environment(name):
 
 
 TEST_MODULES = environment("PRAENORA_TEST_MODULES_DIR")
+TEST_PROVIDERS = environment("PRAENORA_TEST_PROVIDERS_DIR")
 TEST_CATALOG = environment("PRAENORA_TEST_CATALOG_DIR")
 EXAMPLE_CONFIG = environment("PRAENORA_EXAMPLE_CONFIG")
 EXAMPLE_MODULES = os.environ.get("PRAENORA_EXAMPLE_MODULES_DIR", "")
@@ -37,6 +39,17 @@ FIXTURE_PATHS = {"module_paths": [TEST_MODULES], "catalog_paths": [TEST_CATALOG]
 # A configuration of the test workflow test.single whose fx-slow step sets sleep_ms below its
 # minimum: PARAMETERS_INVALID at /steps/a/parameters/sleep_ms.
 BAD_PARAMETERS_CONFIG = FIXTURES / "configs" / "cli" / "bad-parameters" / "workflow.yaml"
+# The fixture provider test-echo, which serves the test service test.echo@0, as a provider search
+# path.
+TEST_ECHO_PROVIDER = str(pathlib.Path(TEST_PROVIDERS, "test-echo"))
+# A configuration of test.single whose fx-service step requires test.echo@0: SERVICE_UNAVAILABLE
+# at /requires/services/0 of fx-service's manifest without a provider of it, valid with
+# TEST_ECHO_PROVIDER.
+SERVICE_CONFIG = FIXTURES / "configs" / "cli" / "service" / "workflow.yaml"
+# A provider search path that holds the manifest of a provider built for runtime 0.0.1, which no
+# runtime of this repository can use, and in its subdirectory shadowed/ another version of it, which
+# the first shadows.
+UNUSABLE_PROVIDERS = FIXTURES / "configs" / "cli" / "providers"
 
 
 @contextlib.contextmanager

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SBML Level 1 Version 2: x decays, dx/dt = -k_x * x, in a compartment of volume 1. -->
+<sbml xmlns="http://www.sbml.org/sbml/level1" level="1" version="2">
+  <model name="decay_l1v2">
+    <listOfCompartments>
+      <compartment name="cell" volume="1"/>
+    </listOfCompartments>
+    <listOfSpecies>
+      <species name="x" compartment="cell" initialAmount="10"/>
+    </listOfSpecies>
+    <listOfParameters>
+      <parameter name="k_x" value="0.5"/>
+    </listOfParameters>
+    <listOfReactions>
+      <reaction name="rx" reversible="false">
+        <listOfReactants>
+          <speciesReference species="x" stoichiometry="1"/>
+        </listOfReactants>
+        <kineticLaw formula="k_x * x"/>
+      </reaction>
+    </listOfReactions>
+  </model>
+</sbml>
