@@ -17,10 +17,9 @@ import time
 import unittest
 
 import praenora.runtime as pr
-import support
 from support import (BAD_PARAMETERS_CONFIG, EXAMPLE_CONFIG, EXAMPLE_MODULES, FIXTURE_PATHS,
                      FIXTURES, SERVICE_CONFIG, TEST_CATALOG, TEST_ECHO_PROVIDER, TEST_MODULES,
-                     needs_examples)
+                     needs_examples, with_captured_stderr)
 
 # How long a thread waits for the run it watches before it gives up.
 PATIENCE_S = 60
@@ -70,16 +69,12 @@ class WorkflowTestCase(unittest.TestCase):
 
 class ExampleWorkflowTest(WorkflowTestCase):
     """Runs of the example workflow. Its configuration sets the predict step's log level to
-    debug, which outranks the run's level (and so PRAENORA_LOG_LEVEL): these tests keep the
-    process's standard error, where the runtime logs, out of the test output."""
-
-    def setUp(self):
-        super().setUp()
-        capture = support.captured_stderr()
-        self.stderr = capture.__enter__()
-        self.addCleanup(capture.__exit__, None, None, None)
+    debug, which outranks the run's level (and so PRAENORA_LOG_LEVEL): each test runs with the
+    process's standard error, where the runtime logs, sent to a temporary file
+    (with_captured_stderr), so the records stay out of the test output."""
 
     @needs_examples
+    @with_captured_stderr
     def test_workflow_context_manager_runs_three_ticks(self):
         with pr.Workflow(EXAMPLE_CONFIG, module_paths=[EXAMPLE_MODULES]) as workflow:
             self.assertEqual(workflow.state, "created")
@@ -106,6 +101,7 @@ class ExampleWorkflowTest(WorkflowTestCase):
         workflow.close()  # idempotent
 
     @needs_examples
+    @with_captured_stderr
     def test_status_and_metrics_shapes(self):
         with pr.Workflow(EXAMPLE_CONFIG, module_paths=[EXAMPLE_MODULES]) as workflow:
             summary = workflow.run(ticks=2)
@@ -141,6 +137,7 @@ class ExampleWorkflowTest(WorkflowTestCase):
             self.assertEqual(workflow.status()["workflow"]["state"], "completed")
 
     @needs_examples
+    @with_captured_stderr
     def test_run_record_fingerprint_is_64_hex(self):
         with pr.Workflow(EXAMPLE_CONFIG, module_paths=[EXAMPLE_MODULES]) as workflow:
             self.assertRegex(workflow.fingerprint, r"^[0-9a-f]{64}$")
@@ -158,6 +155,7 @@ class ExampleWorkflowTest(WorkflowTestCase):
             self.assertNotEqual(other.fingerprint, workflow.fingerprint)
 
     @needs_examples
+    @with_captured_stderr
     def test_run_options(self):
         output_dir = self.directory / "run"
         status_file = self.directory / "status" / "status.json"

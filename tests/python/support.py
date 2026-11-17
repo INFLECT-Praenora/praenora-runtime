@@ -9,6 +9,7 @@ unless a test asks for it.
 """
 
 import contextlib
+import functools
 import os
 import pathlib
 import sys
@@ -81,3 +82,20 @@ def captured_stderr():
             sys.stderr.flush()
             os.dup2(saved, 2)
             os.close(saved)
+
+
+def with_captured_stderr(test):
+    """Decorates the test method `test` to run inside captured_stderr(), with self.stderr set to
+    the function that returns what was written. The capture ends when the method returns or raises,
+    before unittest reports the outcome: from Python 3.11 on, unittest writes a failed test's FAIL
+    or ERROR as soon as the exception leaves the method, before tearDown and the cleanups run, so a
+    capture that they end would hold that word. A failed subtest's word, which unittest writes
+    when the subtest ends, would still land in the capture."""
+
+    @functools.wraps(test)
+    def run_captured(self, *args, **kwargs):
+        with captured_stderr() as written:
+            self.stderr = written
+            return test(self, *args, **kwargs)
+
+    return run_captured
