@@ -35,9 +35,11 @@ install(EXPORT PraenoraModuleSDKTargets
     NAMESPACE Praenora::
     DESTINATION "${_praenora_package_dir}")
 
+# No check_required_components(): PraenoraConfig.cmake.in says why it sets Praenora_FOUND itself.
 configure_package_config_file("${CMAKE_CURRENT_LIST_DIR}/PraenoraConfig.cmake.in"
     "${PROJECT_BINARY_DIR}/cmake/PraenoraConfig.cmake"
-    INSTALL_DESTINATION "${_praenora_package_dir}")
+    INSTALL_DESTINATION "${_praenora_package_dir}"
+    NO_CHECK_REQUIRED_COMPONENTS_MACRO)
 # While the version is 0.y, a change of y may break compatibility.
 write_basic_package_version_file("${PROJECT_BINARY_DIR}/cmake/PraenoraConfigVersion.cmake"
     VERSION "${PROJECT_VERSION}"

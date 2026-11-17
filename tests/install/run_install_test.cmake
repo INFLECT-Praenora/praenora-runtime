@@ -35,7 +35,10 @@
 #      (one read in the installed PraenoraConfig.cmake or PraenoraModule.cmake fails; each
 #      configuration's output is kept in <WORK_DIR>/<consumer>-configure.log), and built, each
 #      against <prefix>;<PREFIX_PATH>; each must have found Praenora in <prefix>. A project that
-#      requires an unknown component must fail to configure, with a reason that names it.
+#      requires an unknown component must fail to configure, with a reason that names it, also
+#      when the component is named like a CMake false constant (Off, Frobnicator-NOTFOUND); one
+#      that names an unknown optional component must find Praenora, with the components it
+#      requires and no other, and one that names no component must get both.
 #      consumer-module then installs its module into <WORK_DIR>/module-prefix through the
 #      installed praenora_add_module() (INSTALL_DESTINATION): manifest and library side by side.
 #   3. consumer-app runs with the installed module's directory and CATALOG_DIR: exit 0, and
@@ -389,30 +392,66 @@ foreach(consumer IN ITEMS consumer-module consumer-app)
     message(STATUS "step 2: ${consumer} built against ${package_dir}")
 endforeach()
 # A project that requires an unknown component fails to configure, and the reason the package
-# gives names that component and the package's components.
-set(unknown_dir "${WORK_DIR}/unknown-component")
-file(WRITE "${unknown_dir}/CMakeLists.txt" "cmake_minimum_required(VERSION 3.24)\n"
-    "project(praenora_unknown_component LANGUAGES NONE)\n"
-    "find_package(Praenora 0.2 REQUIRED COMPONENTS Runtime Frobnicator)\n")
-praenora_test_run(UNKNOWN "step 2: an unknown component"
-    "${CMAKE_COMMAND}" -S "${unknown_dir}" -B "${unknown_dir}/build" -C "${settings_file}"
+# gives names that component and the package's components. The unknown component is the last one
+# each project names. Off and Frobnicator-NOTFOUND are named like CMake false constants: if()
+# reads a variable that holds just Off, or a list that ends in -NOTFOUND, as false, and takes an
+# argument that ends in -NOTFOUND for a false constant without reading the variable it names.
+foreach(components IN ITEMS "Runtime Frobnicator" "Off" "Runtime Frobnicator-NOTFOUND")
+    string(REGEX MATCH "[^ ]+$" unknown "${components}")
+    set(unknown_dir "${WORK_DIR}/unknown-component-${unknown}")
+    file(WRITE "${unknown_dir}/CMakeLists.txt" "cmake_minimum_required(VERSION 3.24)\n"
+        "project(praenora_unknown_component LANGUAGES NONE)\n"
+        "find_package(Praenora 0.2 REQUIRED COMPONENTS ${components})\n")
+    praenora_test_run(UNKNOWN "step 2: an unknown component (${components})"
+        "${CMAKE_COMMAND}" -S "${unknown_dir}" -B "${unknown_dir}/build" -C "${settings_file}"
+        ${generator_args})
+    # CMake wraps the reason's lines.
+    string(REGEX REPLACE "[ \t\r\n]+" " " unknown_output "${UNKNOWN_OUT}${UNKNOWN_ERR}")
+    string(FIND "${unknown_output}" "Reason given by package: " reason_position)
+    if(reason_position EQUAL -1)
+        set(unknown_reason "")
+    else()
+        string(SUBSTRING "${unknown_output}" ${reason_position} -1 unknown_reason)
+    endif()
+    if(UNKNOWN_EXIT STREQUAL "0" OR NOT unknown_reason MATCHES "${unknown}"
+       OR NOT unknown_reason MATCHES "Runtime" OR NOT unknown_reason MATCHES "ModuleSDK")
+        set(problem "it did not fail with a reason that names the component ${unknown} and the ")
+        string(APPEND problem "components Runtime and ModuleSDK")
+        praenora_test_fail("step 2: requiring ${components}" "${problem}"
+            "${CMAKE_COMMAND};-S;${unknown_dir}" "${UNKNOWN_EXIT}" "${UNKNOWN_OUT}"
+            "${UNKNOWN_ERR}")
+    endif()
+    message(STATUS "step 2: requiring ${components}: ${unknown} is not found, and the reason "
+        "names it")
+endforeach()
+# A project that names an unknown optional component finds Praenora, with the components it
+# requires and no other.
+set(optional_dir "${WORK_DIR}/unknown-optional-component")
+file(WRITE "${optional_dir}/CMakeLists.txt" "cmake_minimum_required(VERSION 3.24)\n"
+    "project(praenora_unknown_optional_component LANGUAGES NONE)\n"
+    "find_package(Praenora 0.2 REQUIRED COMPONENTS Runtime\n"
+    "    OPTIONAL_COMPONENTS Frobnicator-NOTFOUND)\n"
+    "if(NOT TARGET Praenora::Runtime OR TARGET Praenora::ModuleSDK\n"
+    "   OR Praenora_Frobnicator-NOTFOUND_FOUND)\n"
+    "    message(FATAL_ERROR \"expected Praenora::Runtime alone and no Frobnicator-NOTFOUND\")\n"
+    "endif()\n")
+_run(OPTIONAL "step 2: an unknown optional component"
+    "${CMAKE_COMMAND}" -S "${optional_dir}" -B "${optional_dir}/build" -C "${settings_file}"
     ${generator_args})
-# CMake wraps the reason's lines.
-string(REGEX REPLACE "[ \t\r\n]+" " " unknown_output "${UNKNOWN_OUT}${UNKNOWN_ERR}")
-string(FIND "${unknown_output}" "Reason given by package: " reason_position)
-if(reason_position EQUAL -1)
-    set(unknown_reason "")
-else()
-    string(SUBSTRING "${unknown_output}" ${reason_position} -1 unknown_reason)
-endif()
-if(UNKNOWN_EXIT STREQUAL "0" OR NOT unknown_reason MATCHES "Frobnicator"
-   OR NOT unknown_reason MATCHES "Runtime" OR NOT unknown_reason MATCHES "ModuleSDK")
-    set(problem "it did not fail with a reason that names the component Frobnicator and the ")
-    string(APPEND problem "components Runtime and ModuleSDK")
-    praenora_test_fail("step 2: requiring an unknown component" "${problem}"
-        "${CMAKE_COMMAND};-S;${unknown_dir}" "${UNKNOWN_EXIT}" "${UNKNOWN_OUT}" "${UNKNOWN_ERR}")
-endif()
-message(STATUS "step 2: an unknown component is not found, and the reason names it")
+message(STATUS "step 2: requiring Runtime, with the optional component Frobnicator-NOTFOUND: "
+    "Praenora is found, with Praenora::Runtime alone")
+# A project that names no component gets both.
+set(none_dir "${WORK_DIR}/no-component")
+file(WRITE "${none_dir}/CMakeLists.txt" "cmake_minimum_required(VERSION 3.24)\n"
+    "project(praenora_no_component LANGUAGES NONE)\n"
+    "find_package(Praenora 0.2 REQUIRED)\n"
+    "if(NOT TARGET Praenora::Runtime OR NOT TARGET Praenora::ModuleSDK)\n"
+    "    message(FATAL_ERROR \"expected Praenora::Runtime and Praenora::ModuleSDK\")\n"
+    "endif()\n")
+_run(NONE "step 2: no component"
+    "${CMAKE_COMMAND}" -S "${none_dir}" -B "${none_dir}/build" -C "${settings_file}"
+    ${generator_args})
+message(STATUS "step 2: naming no component gives Praenora::Runtime and Praenora::ModuleSDK")
 # consumer-module installs its module with the installed praenora_add_module()
 # (INSTALL_DESTINATION), into a prefix of its own: its manifest and library, side by side.
 set(module_prefix "${WORK_DIR}/module-prefix")
