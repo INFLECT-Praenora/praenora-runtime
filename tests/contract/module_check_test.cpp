@@ -11,12 +11,14 @@
 #include "loader/library_gate.hpp"
 #include "loader/loaded_module.hpp"
 #include "module_fixtures.hpp"
+#include "provider_fixtures.hpp"
 #include "test_support.hpp"
 #include "validation_fixtures.hpp"
 
 #include <praenora/runtime/error.hpp>
 #include <praenora/runtime/options.hpp>
 #include <praenora/runtime/runtime.hpp>
+#include <praenora/sdk/version.h>
 
 #include <gtest/gtest.h>
 #include <nlohmann/json.hpp>
@@ -189,6 +191,38 @@ TEST(ModuleCheck, IdentityMismatchFailsDescribeIdentity) {
     // describe() reports version 9.9.9; the manifest says 0.1.0.
     EXPECT_TRUE(contains(identity.message, "9.9.9")) << identity.message;
     EXPECT_TRUE(contains(identity.message, "0.1.0")) << identity.message;
+    expect_skipped_from(report, "lifecycle.create_destroy", "describe.identity");
+}
+
+TEST(ModuleCheck, DescribeIdentityNamesTheSdkVersion) {
+    const Runtime runtime(check_options());
+    const ModuleCheckReport report = runtime.check_module(utf8(fixture_manifest("fx-echo")));
+    const CheckResult& identity = check_of(report, "describe.identity");
+    EXPECT_EQ(identity.status, "pass") << shown(report);
+    EXPECT_TRUE(contains(identity.message, "SDK " PRAENORA_SDK_VERSION_STRING)) << identity.message;
+}
+
+TEST(ModuleCheck, SdkVersionMismatchFailsDescribeIdentity) {
+    // The manifest a module had before its library was rebuilt against another SDK.
+    const ScratchDir dir;
+    const fs::path manifest = praenora::test::copy_fixture_module(
+        "fx-echo", dir.path(), [](json& document) { document["sdk_version"] = "9.9.9"; });
+    const Runtime runtime(check_options());
+    const ModuleCheckReport report = runtime.check_module(utf8(manifest));
+    EXPECT_EQ(ids_of(report), kCheckIds);
+    EXPECT_FALSE(report.passed());
+    const auto statuses = statuses_of(report);
+    for (const char* id :
+         {"manifest.schema", "manifest.semantics", "library.digest", "library.load",
+          "library.entry_point", "api.header", "api.required_functions", "describe.schema"}) {
+        EXPECT_EQ(statuses.at(id), "pass") << id << "\n" << shown(report);
+    }
+    const CheckResult& identity = check_of(report, "describe.identity");
+    EXPECT_EQ(identity.status, "fail");
+    EXPECT_TRUE(contains(identity.message,
+                         "sdk_version (manifest 9.9.9, describe() " PRAENORA_SDK_VERSION_STRING
+                         ")"))
+        << identity.message;
     expect_skipped_from(report, "lifecycle.create_destroy", "describe.identity");
 }
 

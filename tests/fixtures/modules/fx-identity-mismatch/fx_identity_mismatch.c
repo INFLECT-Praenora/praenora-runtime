@@ -1,5 +1,5 @@
-/* fx-identity-mismatch: describe() reports version 9.9.9 while the manifest says 0.1.0; name, ABI
- * and capabilities agree. C99. */
+/* fx-identity-mismatch: describe() reports version 9.9.9 while the manifest says 0.1.0; name, ABI,
+ * SDK version and capabilities agree. C99. */
 #include "../common/c_fixture.h"
 
 static const char describe_json[] = C_FIXTURE_DESCRIBE_JSON("9.9.9");

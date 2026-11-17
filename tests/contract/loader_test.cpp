@@ -1,6 +1,7 @@
 // The loader: shared libraries, the entry point, function-table validation, the describe()
 // identity cross-check and library digests, with the fixture modules.
 #include "core/paths.hpp"
+#include "core/semver.hpp"
 #include "core/sha256.hpp"
 #include "discovery/manifest.hpp"
 #include "document/yaml_loader.hpp"
@@ -15,6 +16,7 @@
 
 #include <praenora/runtime/error.hpp>
 #include <praenora/sdk/abi.h>
+#include <praenora/sdk/version.h>
 
 #include <gtest/gtest.h>
 #include <nlohmann/json.hpp>
@@ -27,6 +29,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace fs = std::filesystem;
 using praenora::Error;
@@ -37,6 +40,7 @@ using praenora::detail::LibraryGate;
 using praenora::detail::load_manifest;
 using praenora::detail::LoadedModule;
 using praenora::detail::ModuleManifest;
+using praenora::detail::parse_semver;
 using praenora::detail::SharedLibrary;
 using praenora::test::fixture_manifest;
 using praenora::test::ScopedEnvironment;
@@ -275,6 +279,84 @@ TEST(Loader, RejectsIdentityMismatch) {
     EXPECT_TRUE(contains(failure.message, "9.9.9")) << failure.message;
     // Only the version differs, so no other field is named.
     EXPECT_FALSE(contains(failure.message, "capabilities")) << failure.message;
+}
+
+// A manifest that names another SDK than the one describe() reports is a stale manifest beside a
+// library rebuilt against another SDK: refused like any other identity mismatch.
+TEST(Loader, RejectsSdkVersionMismatch) {
+    ModuleManifest manifest = load_manifest(fixture_manifest("fx-echo"));
+    manifest.sdk_version = parse_semver("9.9.9");
+    try {
+        static_cast<void>(LoadedModule::load(manifest));
+        ADD_FAILURE() << "a manifest naming SDK 9.9.9 was accepted";
+    } catch (const Error& error) {
+        const std::string message = error.what();
+        EXPECT_EQ(error.code(), ErrorCode::MODULE_IDENTITY_MISMATCH) << message;
+        EXPECT_TRUE(contains(
+            message, "sdk_version (manifest 9.9.9, describe() " PRAENORA_SDK_VERSION_STRING ")"))
+            << message;
+        // Only the SDK version differs, so no other field is named.
+        EXPECT_FALSE(contains(message, "capabilities")) << message;
+        EXPECT_EQ(nlohmann::json::parse(error.details_json()),
+                  nlohmann::json::parse(
+                      R"({"differences":[{"field":"sdk_version",)"
+                      R"("manifest":"9.9.9","describe":")" PRAENORA_SDK_VERSION_STRING R"("}]})"));
+        EXPECT_EQ(error.location().file, praenora::detail::path_to_utf8(manifest.manifest_path));
+    }
+}
+
+// SDK versions are compared by SemVer precedence, as module versions are: build metadata does not
+// count, a pre-release does.
+TEST(Loader, ComparesSdkVersionsByPrecedence) {
+    ModuleManifest manifest = load_manifest(fixture_manifest("fx-echo"));
+    manifest.sdk_version = parse_semver(PRAENORA_SDK_VERSION_STRING "+local.7");
+    EXPECT_EQ(load_failure(manifest).code, ErrorCode::OK);
+
+    manifest.sdk_version = parse_semver(PRAENORA_SDK_VERSION_STRING "-rc.1");
+    const auto failure = load_failure(manifest);
+    EXPECT_EQ(failure.code, ErrorCode::MODULE_IDENTITY_MISMATCH) << failure.message;
+    EXPECT_TRUE(contains(failure.message, "sdk_version (manifest " PRAENORA_SDK_VERSION_STRING
+                                          "-rc.1, describe() " PRAENORA_SDK_VERSION_STRING ")"))
+        << failure.message;
+}
+
+// The SDK version decides no compatibility: a module that reports another SDK than the one it is
+// built with, in both documents, loads.
+TEST(Loader, AcceptsAnotherSdkVersionThatBothDocumentsReport) {
+    const auto module = load_fixture("fx-other-sdk");
+    EXPECT_EQ(module->describe().at("sdk_version"), "0.0.1");
+    EXPECT_EQ(praenora::detail::to_string(module->manifest().sdk_version), "0.0.1");
+}
+
+TEST(Loader, RejectsUnusableDescribeSdkVersion) {
+    // The SDK version matches the schema's pattern, but its minor number overflows 64 bits.
+    const auto failure = fixture_load_failure("fx-sdk-overflow");
+    EXPECT_EQ(failure.code, ErrorCode::MODULE_IDENTITY_MISMATCH) << failure.message;
+    EXPECT_TRUE(contains(failure.message, "sdk_version '0.99999999999999999999.0'"))
+        << failure.message;
+}
+
+// Every differing field is named, in the order of the describe() document's fields.
+TEST(Loader, NamesDifferencesInTheOrderOfTheDescribeDocument) {
+    ModuleManifest manifest = load_manifest(fixture_manifest("fx-echo"));
+    manifest.name = "fx-other";
+    manifest.version = parse_semver("9.9.9");
+    manifest.abi_major = 7;
+    manifest.sdk_version = parse_semver("9.9.9");
+    manifest.capabilities = {{"test.other", parse_semver("1.0.0")}};
+    try {
+        static_cast<void>(LoadedModule::load(manifest));
+        ADD_FAILURE() << "a manifest that disagrees with describe() was accepted";
+    } catch (const Error& error) {
+        EXPECT_EQ(error.code(), ErrorCode::MODULE_IDENTITY_MISMATCH) << error.what();
+        const nlohmann::json details = nlohmann::json::parse(error.details_json());
+        std::vector<std::string> fields;
+        for (const auto& difference : details.at("differences")) {
+            fields.push_back(difference.at("field").get<std::string>());
+        }
+        EXPECT_EQ(fields, (std::vector<std::string>{"name", "version", "abi.major", "sdk_version",
+                                                    "capabilities"}));
+    }
 }
 
 TEST(Loader, VerifiesLibraryDigest) {

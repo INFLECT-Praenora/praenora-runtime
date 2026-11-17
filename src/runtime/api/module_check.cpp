@@ -420,8 +420,8 @@ private:
         case Check::identity:
             return "describe() agrees with the manifest: " +
                    identity(manifest.name, manifest.version) + ", ABI major " +
-                   std::to_string(manifest.abi_major) + ", " +
-                   std::to_string(manifest.capabilities.size()) + " capabilit" +
+                   std::to_string(manifest.abi_major) + ", SDK " + to_string(manifest.sdk_version) +
+                   ", " + std::to_string(manifest.capabilities.size()) + " capabilit" +
                    (manifest.capabilities.size() == 1 ? "y" : "ies");
         }
         return "passed";

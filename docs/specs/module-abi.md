@@ -101,7 +101,7 @@ in the module's manifest (file and JSON pointer); the codes are explained in
 | 6 | `header.reserved` is 0 and `header.struct_size` is at least `PRAENORA_MODULE_API_V0_BASE_SIZE`. | `API_TABLE_INVALID` |
 | 7 | No required function pointer is NULL. | `API_TABLE_INVALID`, naming the functions |
 | 8 | `describe()` returns OK and writes at most 1 MiB of JSON that satisfies the `pmp-describe` schema, with versions that are usable semantic versions. | `MODULE_IDENTITY_MISMATCH` |
-| 9 | The `describe()` document agrees with the manifest on `name`, `version`, `abi.major` and the set of capabilities. | `MODULE_IDENTITY_MISMATCH`, naming every differing field |
+| 9 | The `describe()` document agrees with the manifest on `name`, `version`, `abi.major`, `sdk_version` and the set of capabilities. | `MODULE_IDENTITY_MISMATCH`, naming every differing field |
 
 The host copies the module's table into a table of its own `praenora_module_api_v0` size, in whole
 function pointers: functions beyond the module's `struct_size`, and one that `struct_size` covers

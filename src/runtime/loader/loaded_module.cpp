@@ -167,6 +167,11 @@ void check_identity(const ModuleManifest& manifest, const nlohmann::json& descri
     if (!abi_major.is_number_unsigned() || abi_major.get<std::uint64_t>() != manifest.abi_major) {
         differ("abi.major", std::to_string(manifest.abi_major), abi_major.dump());
     }
+    const SemVer sdk_version =
+        describe_version(describe.at("sdk_version").get<std::string>(), "sdk_version", fail);
+    if (sdk_version != manifest.sdk_version) {
+        differ("sdk_version", to_string(manifest.sdk_version), to_string(sdk_version));
+    }
     std::vector<CapabilityRef> described;
     for (const auto& capability : describe.at("capabilities")) {
         const std::string id = capability.at("id").get<std::string>();

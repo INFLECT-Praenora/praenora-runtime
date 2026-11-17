@@ -37,8 +37,9 @@ same input data. The first 16 hex digits of the fingerprint prefix every envelop
 | `steps` | `{<step>: {capability {id, version}, module {name, version, manifest_sha256, library_sha256, sdk_version}, parameters, seed, timeouts, services}}`, where `parameters` are the resolved parameters, `seed` the step seed, `timeouts` the step's effective timeouts and `services` the sorted keys of `services` that the step's module may use. |
 
 A digest is the SHA-256 of a catalog entry's canonical JSON, of a file's bytes (module and provider
-manifests, libraries, input files). `sdk_version` is the one the manifest declares. Durations are
-written canonically (see
+manifests, libraries, input files). `sdk_version` is the one the manifest declares; a module whose
+`describe()` reports another is refused when it is loaded
+([manifest.md](manifest.md#identity-check)). Durations are written canonically (see
 [time-cancellation-timeouts.md](time-cancellation-timeouts.md#durations-in-the-configuration)).
 
 What changes the fingerprint, and what does not:

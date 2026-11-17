@@ -419,8 +419,9 @@ and expand `PRAENORA_SDK_DEFINE_MODULE(ClassName)` once in the library, at names
   outside 1 to 99 and below 10000), `std::bad_alloc` becomes `RESOURCE_EXHAUSTED`, and anything else
   `INTERNAL` with `what()` as the message. The adapter writes the error document.
 - `describe()` reports `PRAENORA_MODULE_NAME`, `PRAENORA_MODULE_VERSION` and
-  `PRAENORA_MODULE_CAPABILITIES`, which `praenora_add_module()` defines from its arguments, so the
-  library and its manifest cannot disagree.
+  `PRAENORA_MODULE_CAPABILITIES`, which `praenora_add_module()` defines from its arguments, and the
+  SDK's `PRAENORA_SDK_VERSION_STRING`, the version `praenora_add_module()` writes into the manifest,
+  so the library and its manifest cannot disagree.
 - The adapter parses no JSON: parse the create and initialize documents yourself for the parameters
   and the seed ([specs/protocol.md](specs/protocol.md#create-document)).
 - Outputs are written to the sinks in pieces of 4096 bytes; a refused write ends the call with the
@@ -431,7 +432,10 @@ module: its table and entry point are in
 [`fx-minimal-c/fx_minimal_c.c`](../tests/fixtures/modules/fx-minimal-c/fx_minimal_c.c) and its
 functions in [`common/c_fixture.c`](../tests/fixtures/modules/common/c_fixture.c), both under
 `tests/fixtures/modules/`. `PRAENORA_MODULE_IMPLEMENTATION`, which `praenora_add_module()` defines,
-makes `abi.h` declare the entry point.
+makes `abi.h` declare the entry point. Its `describe()` reports `PRAENORA_MODULE_NAME`,
+`PRAENORA_MODULE_VERSION` and `PRAENORA_MODULE_CAPABILITIES`, and `PRAENORA_SDK_VERSION_STRING`
+(`praenora/sdk/version.h`) as its `sdk_version`, as
+[`common/c_fixture.h`](../tests/fixtures/modules/common/c_fixture.h) does.
 
 ## The manifest
 
@@ -712,7 +716,7 @@ capabilities when they are not in the built-in catalog.
 | `api.header` | The table's header is valid for ABI 0. |
 | `api.required_functions` | Every required function is set. |
 | `describe.schema` | `describe()` writes a valid `pmp-describe` document. |
-| `describe.identity` | It agrees with the manifest: name, version, ABI major, capabilities. |
+| `describe.identity` | It agrees with the manifest: name, version, ABI major, SDK version, capabilities. |
 | `lifecycle.create_destroy` | An instance can be created and destroyed. |
 | `lifecycle.full` | An instance can be created, initialized, finalized and destroyed. |
 | `invoke.result_schema` | Every result of the vectors is valid: declared ports only, every required one, each datum valid for its message type. |
@@ -766,7 +770,7 @@ check tests in part:
 | The module's (`VERSION`) | Semantic versioning: before 1.0, a change of the minor may break users and a change of the patch must not. Configurations pin an exact version, so a new version is adopted by editing configurations. |
 | ABI (`abi`) | The module's ABI major must equal the runtime's; any minor is accepted. A module built with this SDK declares ABI 0.0. |
 | PMP (`pmp_version`) | Must be in the runtime's compatibility class (0.1.x) and not newer than the runtime's. |
-| SDK (`sdk_version`) | Informational: reported by `describe()` and recorded in the run record. |
+| SDK (`sdk_version`) | Decides no compatibility. The manifest and `describe()` must report the same version (build metadata aside), or the module is refused when it is loaded; the run record holds the manifest's. |
 | Capabilities | Exact: a module implements `example.estimate@0.1.0` or it does not. A new capability version means a new module version that declares it. |
 
 `praenora_add_module()` writes the ABI, PMP and SDK versions of the SDK it builds with, so

@@ -20,7 +20,7 @@ and identity.
 | Item | Scheme | Current | Declared in | Rule the runtime enforces |
 |---|---|---|---|---|
 | Runtime package | SemVer | 0.2.0 | `project(VERSION)` in the top-level `CMakeLists.txt` | None; reported by `praenora version` and recorded in the run record. |
-| Module SDK | SemVer | 0.2.0 | `cmake/PraenoraVersions.cmake`, published in the generated `praenora/sdk/version.h` | None; informational. Manifests and `describe()` report it; the run record holds the manifest's. |
+| Module SDK | SemVer | 0.2.0 | `cmake/PraenoraVersions.cmake`, published in the generated `praenora/sdk/version.h` | None for compatibility. A module's manifest and `describe()` report it and agree on it ([manifest.md](manifest.md#identity-check)); the run record holds the manifest's. |
 | Module ABI | `major.minor` | 0.0 | [`abi.h`](../../include/praenora/sdk/abi.h); the table header; the manifest's `abi` | The major is equal; the minor is negotiated. |
 | Protocol (PMP) | SemVer | 0.1.0 | `cmake/PraenoraVersions.cmake`; `pmp_version` in manifests and ABI documents | Same compatibility class and not newer than the runtime's. |
 | Document formats, one per kind | SemVer | `module-manifest` and `run-record` 0.2.0, every other kind 0.1.0 | `PRAENORA_FORMAT_VERSIONS` in `cmake/PraenoraVersions.cmake`; `format_version` in each document | The runtime has a schema for the version's major and minor. |
@@ -116,8 +116,8 @@ Once versions are bumped again, a published entry is never changed; a change is 
 - A manifest's `platform.os` and `platform.arch` MUST equal the host's (`PLATFORM_MISMATCH`). The
   host platform is the one the runtime was compiled for: os `linux`, `macos` or `windows`, arch
   `x86_64` or `arm64`.
-- `describe()` MUST agree with the manifest on name, version, ABI major and capabilities
-  ([manifest.md](manifest.md#identity-check)).
+- `describe()` MUST agree with the manifest on name, version, ABI major, SDK version and
+  capabilities ([manifest.md](manifest.md#identity-check)).
 
 ### Service providers
 
