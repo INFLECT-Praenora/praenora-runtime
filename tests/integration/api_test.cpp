@@ -1,7 +1,8 @@
 // The public C++ API (praenora/runtime/runtime.hpp and workflow.hpp), through the shared library
 // only: version facts, validation reports, opening a workflow, listing and inspecting modules, the
-// workflow's states, concurrent control calls and closing. The workflows and modules are the test
-// catalog's and the fixture modules (tests/fixtures/catalog and tests/fixtures/modules).
+// workflow's states, concurrent control calls and closing, and the placeholders that the files of
+// a failed run name its directories by. The workflows and modules are the test catalog's and the
+// fixture modules (tests/fixtures/catalog and tests/fixtures/modules).
 #include <praenora/runtime/error.hpp>
 #include <praenora/runtime/options.hpp>
 #include <praenora/runtime/runtime.hpp>
@@ -11,11 +12,12 @@
 #include <praenora/sdk/abi.h>
 #include <praenora/sdk/version.h>
 
+#include "directory_checks.hpp"
 #include "json_compare.hpp"
 #include "module_fixtures.hpp"
 #include "provider_fixtures.hpp"
-#include "temp_dir.hpp"
 #include "scoped_environment.hpp"
+#include "temp_dir.hpp"
 #include "test_support.hpp"
 
 #include <gtest/gtest.h>
@@ -34,6 +36,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <thread>
 #include <tuple>
 #include <utility>
@@ -57,6 +60,9 @@ using praenora::ValidationReport;
 using praenora::Workflow;
 using praenora::WorkflowOptions;
 using praenora::WorkflowState;
+using praenora::test::directory_forms;
+using praenora::test::expect_names_none;
+using praenora::test::named_path;
 using praenora::test::ScopedEnvironment;
 using praenora::test::ScratchDir;
 using praenora::test::write_text_file;
@@ -1439,4 +1445,250 @@ TEST(Api, RunSimulatesThroughTheSimulationService) {
     // The module passes its contract checks, which run its test vectors through the service.
     const praenora::ModuleCheckReport checks = runtime.check_module(manifest);
     EXPECT_TRUE(checks.passed()) << checks.to_json();
+}
+
+// The files that a failed run writes for others to read, the run record and the status file, name
+// the directories the run knows by placeholders in their error records, while what stays in the
+// process (the thrown error, Workflow::status()) keeps the absolute paths. HOME is the scratch
+// directory, so every directory of these runs lies in the home directory too: a path that a more
+// specific directory missed would show as <home>, so no record may hold <home>.
+namespace {
+
+// What a failed run wrote: its run record (the file, which must equal run_record_json()) and its
+// status file, read once the workflow is closed, so the status file shows the end of the run.
+struct FailedRunFiles {
+    json record, status;
+};
+
+FailedRunFiles files_of_failed_run(Workflow& workflow, const fs::path& out,
+                                   const fs::path& status_file) {
+    workflow.close();
+    FailedRunFiles files;
+    files.record = json::parse(read_text(out / "run-record.json"));
+    EXPECT_EQ(files.record, json::parse(workflow.run_record_json()));
+    files.status = json::parse(Runtime::read_status_file(utf8(status_file)));
+    EXPECT_EQ(files.record.at("execution").at("status"), "failed");
+    EXPECT_EQ(files.status.at("workflow").at("state"), "failed");
+    // The status file's error record is the run's, as the run record holds it.
+    EXPECT_EQ(files.status.at("workflow").at("last_error"),
+              files.record.at("execution").at("error"));
+    EXPECT_EQ(files.record.at("execution").at("final_status").at("workflow").at("last_error"),
+              files.record.at("execution").at("error"));
+    // Every path of these records lies in a directory more specific than the home directory.
+    EXPECT_FALSE(contains(files.record.dump(), "<home>")) << files.record.dump();
+    EXPECT_FALSE(contains(files.status.dump(), "<home>")) << files.status.dump();
+    return files;
+}
+
+} // namespace
+
+TEST(Api, FailedRunFilesNameNoDirectory_WhenALibraryCannotBeOpened) {
+    ScratchDir dir;
+    const ScopedEnvironment home("HOME", utf8(dir.path()));
+    // A copy of fx-echo whose library is a text file: validation passes, opening it fails.
+    const fs::path modules = dir.path() / "modules";
+    const fs::path manifest =
+        praenora::test::copy_fixture_module("fx-echo", modules / "fx-echo", [](json& document) {
+            document["library"]["path"] = "not-a-library.bin";
+        });
+    const fs::path library = modules / "fx-echo" / "not-a-library.bin";
+    write_text_file(library, "This is a text file, not a module library.\n");
+    RuntimeOptions options = fixture_options();
+    options.module_paths = {utf8(modules), PRAENORA_TEST_MODULES_DIR};
+    const Runtime runtime(options);
+    const fs::path config_dir = dir.path() / "config";
+    const fs::path out = dir.path() / "out";
+    const fs::path status_file = dir.path() / "status" / "status.json";
+    WorkflowOptions run_options;
+    run_options.output_dir = utf8(out);
+    run_options.status_file = utf8(status_file);
+    const auto workflow = runtime.open(
+        write_config(config_dir, "test.single", "run: { ticks: 1 }\n", step("a", "fx-echo")),
+        run_options);
+    const Error error = error_of([&] { workflow->run(); });
+    ASSERT_EQ(error.code(), ErrorCode::LIBRARY_LOAD_FAILED) << error.to_json();
+
+    // In the process: the absolute paths, the operating system's text included.
+    const StatusSnapshot status = workflow->status();
+    ASSERT_TRUE(status.last_error.has_value());
+    const std::string prefix = "cannot load module library '" + utf8(library) + "': ";
+    EXPECT_TRUE(contains(status.last_error->message, prefix)) << status.last_error->message;
+    EXPECT_EQ(status.last_error->location.file, utf8(manifest));
+    EXPECT_TRUE(contains(error.what(), prefix)) << error.what();
+
+    // In the files: placeholders.
+    const FailedRunFiles files = files_of_failed_run(*workflow, out, status_file);
+    const std::vector<std::string> forms =
+        directory_forms({dir.path(), modules, config_dir, out, status_file.parent_path(),
+                         praenora::test::utf8_path(PRAENORA_TEST_MODULES_DIR)});
+    expect_names_none(files.record, forms);
+    expect_names_none(files.status, forms);
+    const json& recorded = files.record.at("execution").at("error");
+    const std::string message = recorded.at("message").get<std::string>();
+    EXPECT_EQ(message.rfind("cannot load module library '" +
+                                named_path("<modules:caller:0>", modules, library) + "': ",
+                            0),
+              0u)
+        << message;
+    EXPECT_EQ(recorded.at("location").at("file"),
+              named_path("<modules:caller:0>", modules, manifest));
+#ifdef __APPLE__
+    // dyld names the library a second time behind the OS cryptex's prefix, which is kept.
+    if (contains(status.last_error->message, "'/System/Volumes/Preboot/Cryptexes/OS/")) {
+        EXPECT_TRUE(contains(message, "'/System/Volumes/Preboot/Cryptexes/OS" +
+                                          named_path("<modules:caller:0>", modules, library) + "'"))
+            << message;
+    }
+#endif
+}
+
+TEST(Api, FailedRunFilesNameNoDirectory_WhenAnOutputCannotBeWritten) {
+    ScratchDir dir;
+    const ScopedEnvironment home("HOME", utf8(dir.path()));
+    // A file where the run's outputs directory goes: the outputs cannot be written.
+    const fs::path out = dir.path() / "out";
+    write_text_file(out / "outputs", "a file, not a directory\n");
+    const Runtime runtime(fixture_options());
+    const fs::path config_dir = dir.path() / "config";
+    const fs::path status_file = out / "status.json";
+    WorkflowOptions run_options;
+    run_options.output_dir = utf8(out);
+    run_options.status_file = utf8(status_file);
+    const auto workflow = runtime.open(
+        write_config(config_dir, "test.single", "run: { ticks: 1 }\n", step("a", "fx-echo")),
+        run_options);
+    const Error error = error_of([&] { workflow->run(); });
+    ASSERT_EQ(error.code(), ErrorCode::IO_ERROR) << error.to_json();
+    const StatusSnapshot status = workflow->status();
+    ASSERT_TRUE(status.last_error.has_value());
+    EXPECT_EQ(status.last_error->location.file, utf8(out / "outputs"));
+    EXPECT_TRUE(contains(status.last_error->message, "'" + utf8(out / "outputs") + "'"))
+        << status.last_error->message;
+
+    const FailedRunFiles files = files_of_failed_run(*workflow, out, status_file);
+    const std::vector<std::string> forms = directory_forms(
+        {dir.path(), config_dir, out, praenora::test::utf8_path(PRAENORA_TEST_MODULES_DIR)});
+    expect_names_none(files.record, forms);
+    expect_names_none(files.status, forms);
+    const json& recorded = files.record.at("execution").at("error");
+    const std::string outputs = named_path("<output>", out, out / "outputs");
+    EXPECT_EQ(recorded.at("location").at("file"), outputs);
+    EXPECT_TRUE(contains(recorded.at("message").get<std::string>(), "'" + outputs + "'"))
+        << recorded.dump();
+}
+
+TEST(Api, FailedRunFilesNameNoDirectory_WhenAProviderConflicts) {
+    ScratchDir dir;
+    const ScopedEnvironment home("HOME", utf8(dir.path()));
+    // Two copies of test-conflict, each a library of its own.
+    const fs::path first = dir.path() / "providers a";
+    const fs::path second = dir.path() / "providers b";
+    const fs::path loaded_manifest =
+        praenora::test::copy_fixture_provider("test-conflict", first / "test-conflict");
+    const fs::path manifest =
+        praenora::test::copy_fixture_provider("test-conflict", second / "test-conflict");
+    const fs::path loaded_library =
+        first / "test-conflict" /
+        json::parse(read_text(loaded_manifest)).at("library").at("path").get<std::string>();
+    const fs::path config_dir = dir.path() / "config";
+    const std::string config =
+        write_config(config_dir, "test.single", "run: { ticks: 1 }\n", step("a", "fx-service"));
+
+    // A first run loads test-conflict from the first copy, and the process keeps it. A provider
+    // stays loaded for the life of the process, so this needs a process in which no earlier test
+    // loaded test-conflict: CTest runs each test in a process of its own, but a run of several
+    // tests in one process (--gtest_repeat, say) may meet an earlier copy, and is skipped then.
+    {
+        WorkflowOptions first_run;
+        first_run.output_dir = utf8(dir.path() / "first run");
+        const Runtime loading(provider_path_options({utf8(first)}));
+        const auto loads = loading.open(config, first_run);
+        try {
+            ASSERT_EQ(loads->run().final_state, WorkflowState::completed);
+        } catch (const Error& error) {
+            const json details = json::parse(error.details_json(), nullptr, false);
+            if (error.code() == ErrorCode::LIBRARY_LOAD_FAILED && details.is_object() &&
+                details.value("reason", "") == "conflict") {
+                GTEST_SKIP() << "test-conflict was loaded earlier in this process: "
+                             << error.what();
+            }
+            FAIL() << error.to_json();
+        }
+    }
+
+    // A second run finds the second copy first: another library of a provider the process holds.
+    const Runtime runtime(provider_path_options({utf8(second), utf8(first)}));
+    const fs::path out = dir.path() / "out";
+    const fs::path status_file = dir.path() / "status.json";
+    WorkflowOptions run_options;
+    run_options.output_dir = utf8(out);
+    run_options.status_file = utf8(status_file);
+    const auto workflow = runtime.open(config, run_options);
+    const Error error = error_of([&] { workflow->run(); });
+    ASSERT_EQ(error.code(), ErrorCode::LIBRARY_LOAD_FAILED) << error.to_json();
+    ASSERT_EQ(json::parse(error.details_json()).at("reason"), "conflict") << error.to_json();
+    const StatusSnapshot status = workflow->status();
+    ASSERT_TRUE(status.last_error.has_value());
+    EXPECT_EQ(status.last_error->location.file, utf8(manifest));
+    EXPECT_EQ(json::parse(status.last_error->details_json).at("loaded").at("library"),
+              utf8(loaded_library));
+
+    const FailedRunFiles files = files_of_failed_run(*workflow, out, status_file);
+    const std::vector<std::string> forms =
+        directory_forms({dir.path(), first, second, config_dir, out});
+    expect_names_none(files.record, forms);
+    expect_names_none(files.status, forms);
+    const json& recorded = files.record.at("execution").at("error");
+    EXPECT_EQ(recorded.at("location").at("file"),
+              named_path("<providers:caller:0>", second, manifest));
+    EXPECT_EQ(recorded.at("details").at("loaded").at("manifest"),
+              named_path("<providers:caller:1>", first, loaded_manifest));
+    EXPECT_EQ(recorded.at("details").at("loaded").at("library"),
+              named_path("<providers:caller:1>", first, loaded_library));
+    EXPECT_TRUE(contains(recorded.at("message").get<std::string>(),
+                         "'" + named_path("<providers:caller:1>", first, loaded_library) + "'"))
+        << recorded.dump();
+}
+
+// The configuration's directory: a status file there that cannot be written (a directory is in
+// its way) is the workflow's last error, which the final status of the run record holds, named
+// by <configuration>. The run itself completes.
+TEST(Api, RunRecordNamesTheConfigurationDirectory_WhenTheStatusFileCannotBeWritten) {
+    ScratchDir dir;
+    const ScopedEnvironment home("HOME", utf8(dir.path()));
+    const Runtime runtime(fixture_options());
+    const fs::path config_dir = dir.path() / "config";
+    const std::string config =
+        write_config(config_dir, "test.single", "run: { ticks: 1 }\n", step("a", "fx-echo"));
+    const fs::path status_file = config_dir / "status.json";
+    fs::create_directories(status_file / "in the way");
+    const fs::path out = dir.path() / "out";
+    WorkflowOptions options;
+    options.output_dir = utf8(out);
+    options.status_file = utf8(status_file);
+    const auto workflow = runtime.open(config, options);
+    EXPECT_EQ(workflow->run().final_state, WorkflowState::completed);
+    workflow->close();
+
+    // In the process: the absolute path.
+    const StatusSnapshot status = workflow->status();
+    ASSERT_TRUE(status.last_error.has_value());
+    EXPECT_EQ(status.last_error->code, ErrorCode::IO_ERROR);
+    EXPECT_TRUE(contains(status.last_error->message, "'" + utf8(status_file) + "'"))
+        << status.last_error->message;
+
+    // In the run record: the placeholder of the configuration's directory.
+    const json record = json::parse(read_text(out / "run-record.json"));
+    EXPECT_EQ(record, json::parse(workflow->run_record_json()));
+    EXPECT_EQ(record.at("execution").at("status"), "completed");
+    EXPECT_TRUE(record.at("execution").at("error").is_null());
+    const json& last_error =
+        record.at("execution").at("final_status").at("workflow").at("last_error");
+    EXPECT_TRUE(contains(last_error.at("message").get<std::string>(),
+                         "'" + named_path("<configuration>", config_dir, status_file) + "'"))
+        << last_error.dump();
+    expect_names_none(record,
+                      directory_forms({dir.path(), config_dir, out,
+                                       praenora::test::utf8_path(PRAENORA_TEST_MODULES_DIR)}));
+    EXPECT_FALSE(contains(record.dump(), "<home>")) << record.dump();
 }

@@ -557,6 +557,9 @@ private:
         result.reproducibility = reproducibility(result);
         result.fingerprint = sha256_hex(canonical_json(result.reproducibility));
         result.manifest_locations = manifest_locations(result);
+        // The search list that resolve_modules() used.
+        result.module_search_paths =
+            (local_index_ ? *local_index_ : context_.modules).scanned_search_paths();
         result.config = std::move(config_);
         return result;
     }

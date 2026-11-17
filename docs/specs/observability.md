@@ -135,8 +135,68 @@ from a copy of the metrics, so it never waits for a module call.
   that is not a JSON object is kept as `{"text": ...}`). Every key is always written. A record
   that does not come from an error, such as `RUN_STOPPED`, has a null `location` and null
   `details`. A step's last error stays until a later error replaces it; a stop sets no error.
+- The error records of the snapshots that stay in the process (`Workflow::status()`,
+  `status_json()`, `StatusSnapshot::to_json()`, Python `Workflow.status()`) hold absolute paths.
+  Those of the status file, and of the run record, name the directories the run knows by
+  placeholders ([below](#known-directories-in-the-files-of-a-run)).
 - Instants are RFC 3339 strings, and an unset instant is `null` (except `generated_at`, which is
   always set). The document is compact JSON.
+
+### Known directories in the files of a run
+
+The status file and the run record ([reproducibility.md](reproducibility.md#run-record)) are
+written for others to read. In their error records, every directory that the run knows is named by
+a placeholder, so they name neither the machine's directories nor, through the home directory, the
+user. What stays in the process (the thrown `praenora::Error`, `RunSummary`, the snapshots above,
+the CLI's error output and the logs) keeps absolute paths.
+
+| Placeholder | Directory |
+|---|---|
+| `<output>` | The run's output directory. |
+| `<configuration>` | The directory of the configuration file. |
+| `<modules:ORIGIN:INDEX>`, `<modules:installation>` | A module search path of the run, named as the run record's `execution.manifests` names it ([reproducibility.md](reproducibility.md#where-a-manifest-was-found)): ORIGIN `caller`, `configuration` or `environment` and INDEX its position among the non-empty entries of its origin, or the installation's directory. |
+| `<providers:ORIGIN:INDEX>`, `<providers:installation>` | A provider search path, named the same way. |
+| `<home>` | The user's home directory: `HOME` (when it is unset or empty, the user's entry in the password database) on POSIX systems, `USERPROFILE` on Windows. |
+
+- The directories are fixed when the workflow is opened. Each matches in its lexical, normalized
+  form, without a trailing separator, and in its form with symbolic links resolved (on macOS
+  `/var/folders/...` and `/private/var/folders/...`); both give its placeholder. A root directory
+  (`/`, `C:\`) and an empty or relative path are never matched, so a home directory that is unset,
+  empty, relative or a root is skipped.
+- A directory is replaced, and the rest of the path kept (`<output>/run-record.json`,
+  `<modules:caller:0>/fx-echo/fx-echo.pmm.json`, `<home>/data/x.csv`), only where it is a whole
+  path: preceded by the start of the string or by a character that does not continue a path
+  segment, and followed by the end of the string, a separator, a character that does not continue
+  a path segment, or a run of `.` that is followed by the end of the string or by a character that
+  neither continues a segment nor is a separator, as at the end of a sentence. ASCII letters and
+  digits, `.`, `_`, `-`, `~`, bytes outside ASCII and separators continue a segment; every other
+  character does not, among them quotes, whitespace, `(`, `)`, `,`, `:`, `;`, `=`, `[` and `]`.
+  So `/out` is replaced in `'/out/x'` and in `written to /out.`, but not in `/out2`, `/out-old`,
+  `/out.d`, `/out./x`, `/out...x` or `/a/out`.
+- On macOS, a directory that directly follows `/System/Volumes/Preboot/Cryptexes/<one segment>`,
+  that prefix itself beginning at such a boundary, is replaced too, and the prefix is kept: dyld
+  (macOS 13 and later) names a library it could not open a second time behind the OS cryptex's
+  prefix, as in `'/System/Volumes/Preboot/Cryptexes/OS<modules:caller:0>/fx/lib.dylib' (no such
+  file)`.
+- Where several directories match at one place, the longest wins (an output directory in the home
+  directory gives `<output>`). Of the placeholders of one directory, the first in the table's order
+  wins, the search paths in search order.
+- A string is scanned from left to right, and replaced text is never scanned again.
+- On Windows `/` and `\` are both separators, either matching the other, and letters are compared
+  without regard to ASCII case.
+- Directories are replaced in the parts of an error record that can name files: its `message`,
+  the `file` of its `location`, and every string of its `details` and of its `cause`, however
+  deeply nested. Its `name`, `code`, `tick` and `at` and the `pointer` of its `location` (a JSON
+  pointer, which can read like a path under a directory at the root, as `/library/path` does
+  under a search path `/library`) are left as they are, and so are object keys and values that are
+  not strings. Nothing outside the error records changes.
+- This is best effort: a path under none of these directories is written as it is, for example a
+  data file under `/scratch/<user>` or a user name that a module writes into its error document.
+  The boundary rules have two edges: a directory whose name extends a known one by a character
+  that does not continue a segment and more is taken for the known one (`/runs/out (old)` gives
+  `<output> (old)` for the output directory `/runs/out`), and so is a directory literally named
+  like a known one followed by dots, at the end of a text or before a character that ends a path
+  (a quote, a space, a parenthesis): `/runs/out.` gives `<output>.`.
 
 ## Health
 
@@ -163,6 +223,9 @@ writer keeps a status snapshot there for other processes:
   file, so a reader never sees a partial document. The data is not flushed to the disk.
 - A failed write never stops the run: it becomes the workflow's last error (`IO_ERROR`), which makes
   the health `degraded`, and the writer keeps going.
+- Its error records name the run's directories by placeholders
+  ([above](#known-directories-in-the-files-of-a-run)), so they differ from those of
+  `Workflow::status_json()`, which keep absolute paths.
 - `praenora status <file> [--json]` and `Runtime::read_status_file()` read it; a file of another kind
   is `DOCUMENT_KIND_MISMATCH`. A network endpoint is future work (OQ-9).
 

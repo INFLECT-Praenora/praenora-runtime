@@ -1,7 +1,8 @@
 # praenora_test_support: helpers for every test executable (test_support.hpp; json_compare.hpp,
 # JSON comparison with a tolerance; scoped_environment.hpp, environment variables set for a scope;
 # the header-only temp_dir.hpp, temporary directories, module_fixtures.hpp for tests that use the
-# fixture modules and provider_fixtures.hpp for tests that use the fixture providers). It uses
+# fixture modules, provider_fixtures.hpp for tests that use the fixture providers and
+# directory_checks.hpp for tests of the directories that the files of a run name). It uses
 # only the standard library, nlohmann/json and GoogleTest, so black-box tests (linked to the
 # shared library) can use it too.
 # Its compile definitions give tests the locations of sources, fixtures and built modules.
@@ -13,6 +14,7 @@ add_library(praenora_test_support STATIC
     temp_dir.hpp
     module_fixtures.hpp
     provider_fixtures.hpp
+    directory_checks.hpp
     scoped_environment.hpp
     scoped_environment.cpp)
 target_include_directories(praenora_test_support PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")

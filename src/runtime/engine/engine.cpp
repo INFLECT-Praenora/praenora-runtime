@@ -330,7 +330,7 @@ void Engine::open_output(std::int64_t started_at) {
         const std::lock_guard<std::mutex> lock(mutex_);
         record_.emplace(dir ? *dir : fs::path(), workflow_.reproducibility, workflow_.fingerprint,
                         workflow_.manifest_locations, workflow_.config.overrides,
-                        settings_.validate_payloads);
+                        settings_.validate_payloads, settings_.path_anchors);
         record_->write_started(started_at);
     }
     if (dir) {

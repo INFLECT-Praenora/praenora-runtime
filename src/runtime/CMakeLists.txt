@@ -65,6 +65,7 @@ add_library(praenora_runtime_objects OBJECT
     document/yaml_loader.cpp
     observability/logging.cpp
     observability/metrics.cpp
+    observability/path_anchors.cpp
     observability/status_file.cpp
     observability/status_json.cpp
     provider/provider_index.cpp

@@ -27,6 +27,10 @@ ErrorRecord error_record_of(const Error& error, std::optional<std::uint64_t> tic
 // for any other text, and null when details_json is empty or an empty object.
 nlohmann::json error_record_json(const ErrorRecord& record);
 
+// The status-snapshot document of `snapshot`, which StatusSnapshot::to_json() writes as compact
+// JSON (bytes that are not UTF-8 replaced).
+nlohmann::json status_snapshot_json(const StatusSnapshot& snapshot);
+
 } // namespace praenora::detail
 
 #endif // PRAENORA_RUNTIME_OBSERVABILITY_STATUS_JSON_HPP

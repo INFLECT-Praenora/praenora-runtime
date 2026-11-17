@@ -166,7 +166,10 @@ Notes on the table:
   manifest declares them ([module-abi.md](module-abi.md#status-codes-and-errors)). A service
   provider that does not load when the run starts fails it with the provider loader's error and
   details, located in the provider's manifest and naming no step
-  ([runtime-services.md](runtime-services.md#runs-and-checks)).
+  ([runtime-services.md](runtime-services.md#runs-and-checks)). In the run record and the status
+  file, the error record names the run's directories by placeholders
+  ([observability.md](observability.md#known-directories-in-the-files-of-a-run)); the thrown error,
+  the run summary and `Workflow::status()` keep absolute paths.
 - **Python.** The bindings raise `praenora.runtime.PraenoraError` with the same code, name,
   category, message, location and details.
 

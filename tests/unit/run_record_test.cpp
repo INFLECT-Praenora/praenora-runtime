@@ -1,7 +1,8 @@
 // The files of a run's output directory: the run record (run-record.json, written when the run
-// starts and again when it ends), the recorded workflow outputs (outputs/<output>.jsonl), the
-// message trace (trace/messages.jsonl), and the preparation of the directory, which refuses an
-// earlier run unless asked to overwrite it.
+// starts and again when it ends, its error records naming the directories the run knows by
+// placeholders), the recorded workflow outputs (outputs/<output>.jsonl), the message trace
+// (trace/messages.jsonl), and the preparation of the directory, which refuses an earlier run unless
+// asked to overwrite it.
 #include "io/output_recorder.hpp"
 #include "io/run_record.hpp"
 #include "io/trace_writer.hpp"
@@ -14,7 +15,9 @@
 #include "document/json_util.hpp"
 #include "document/schema_registry.hpp"
 #include "observability/metrics.hpp"
+#include "observability/path_anchors.hpp"
 
+#include "directory_checks.hpp"
 #include "module_fixtures.hpp"
 #include "test_support.hpp"
 #include "validation_fixtures.hpp"
@@ -29,6 +32,7 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <sstream>
 #include <stdexcept>
@@ -53,6 +57,7 @@ using praenora::detail::RunRecordWriter;
 using praenora::detail::sha256_hex;
 using praenora::detail::TraceWriter;
 using praenora::detail::ValidatedWorkflow;
+using praenora::test::named_path;
 using praenora::test::ScratchDir;
 using praenora::test::write_text_file;
 
@@ -72,8 +77,8 @@ std::string read_file(const fs::path& file) {
 }
 
 // A validated test.single workflow (fx-echo, a json-document input), for a real reproducibility
-// section and fingerprint.
-ValidatedWorkflow validated_single(const fs::path& dir) {
+// section and fingerprint; `parameters`, when given, are step a's (a YAML flow mapping).
+ValidatedWorkflow validated_single(const fs::path& dir, const std::string& parameters = "") {
     write_text_file(dir / "source.json", "{\"value\": 1}");
     auto result = praenora::test::validate_text(
         dir, "kind: workflow-config\n"
@@ -83,7 +88,8 @@ ValidatedWorkflow validated_single(const fs::path& dir) {
              "inputs:\n"
              "  source: { source: json-document, path: source.json }\n"
              "steps:\n"
-             "  a: { module: { name: fx-echo, version: \"0.1.0\" } }\n");
+             "  a: { module: { name: fx-echo, version: \"0.1.0\" }" +
+                 (parameters.empty() ? std::string() : ", parameters: " + parameters) + " }\n");
     if (!result.workflow) {
         ADD_FAILURE() << result.report.to_text();
         throw std::runtime_error("validation failed");
@@ -504,4 +510,153 @@ TEST(RunRecord, SaysWhereEachManifestWasFoundWithoutAnAbsolutePath) {
         EXPECT_EQ(text.find(modules), std::string::npos) << where << ": " << text;
         EXPECT_EQ(text.find(scratch), std::string::npos) << where << ": " << text;
     });
+}
+
+namespace {
+
+// The final status of a failed test.single run whose workflow and step a have `error` as their
+// last error.
+std::string failed_status_json(const ValidatedWorkflow& workflow, const ErrorRecord& error) {
+    MetricsRegistry metrics;
+    metrics.set_run_info("test.single", "0.1.0", workflow.fingerprint);
+    metrics.register_step("a", "fx-echo", "0.1.0");
+    metrics.mark_started(kStartedAt);
+    metrics.set_step_error("a", error);
+    metrics.set_last_error(error);
+    metrics.set_workflow_state(WorkflowState::failed);
+    return metrics.snapshot().to_json();
+}
+
+// `record` with its error records (execution.error and the last errors of final_status) null.
+json without_error_records(json record) {
+    json& execution = record.at("execution");
+    execution["error"] = nullptr;
+    execution["final_status"]["workflow"]["last_error"] = nullptr;
+    for (json& step : execution["final_status"]["steps"]) {
+        step["last_error"] = nullptr;
+    }
+    return record;
+}
+
+} // namespace
+
+// The error records of the run record name the directories the run knows by placeholders: the
+// output directory, the configuration's directory, the module search paths and the home
+// directory, in the record kept (current()) and in the file alike. Nothing else changes; a writer
+// without anchors keeps the absolute paths.
+TEST(RunRecord, ErrorRecordsNameKnownDirectoriesByPlaceholders) {
+    ScratchDir dir;
+    const fs::path out = dir.path() / "out";
+    const fs::path home = dir.path() / "home";
+    const fs::path data = home / "data" / "x.csv";
+    // Step a's parameter names a file in the home directory: the reproducibility section keeps it
+    // as it is, since only the error records name directories by placeholders.
+    const ValidatedWorkflow workflow =
+        validated_single(dir.path(), "{ note: " + json(path_to_utf8(data)).dump() + " }");
+    const fs::path configuration = workflow.config.file.parent_path();
+    ASSERT_FALSE(workflow.module_search_paths.empty());
+    const praenora::detail::SearchPath& modules = workflow.module_search_paths.front();
+    ASSERT_EQ(modules.path,
+              praenora::test::utf8_path(PRAENORA_TEST_MODULES_DIR).lexically_normal());
+    ASSERT_EQ(modules.origin, praenora::detail::SearchPathOrigin::caller);
+    praenora::detail::RunDirectories directories;
+    directories.output = out;
+    directories.configuration = configuration;
+    directories.modules = workflow.module_search_paths;
+    directories.home = home;
+    const auto anchors = std::make_shared<const praenora::detail::PathAnchors>(directories);
+
+    const fs::path outputs = out / "outputs";
+    const fs::path library = modules.path / "fx-echo" / "fx-echo.so";
+    const fs::path config_file = configuration / "workflow.yaml";
+    ErrorRecord error;
+    error.code = ErrorCode::IO_ERROR;
+    error.message = "cannot create directory '" + path_to_utf8(outputs) +
+                    "': File exists (library '" + path_to_utf8(library) + "')";
+    error.at_unix_ns = kStartedAt;
+    error.cause_json = json({{"code", 11},
+                             {"message", "bad row in " + path_to_utf8(data)},
+                             {"details", {{"files", {path_to_utf8(data), 2}}}}})
+                           .dump();
+    error.location.file = path_to_utf8(config_file);
+    error.location.pointer = "/outputs/directory";
+    error.details_json =
+        json({{"library", path_to_utf8(library)}, {"home", path_to_utf8(home)}}).dump();
+    RunSummary failure;
+    failure.final_state = WorkflowState::failed;
+    failure.fingerprint = workflow.fingerprint;
+    failure.error = error;
+    const std::string status = failed_status_json(workflow, error);
+    const std::vector<OutputRecorder::FileInfo> files = {
+        file_info("result", "outputs/result.jsonl", "lines", 0)};
+    const OutputRecorder::FileInfo trace = file_info("", "trace/messages.jsonl", "trace", 0);
+
+    RunRecordWriter writer(out, workflow.reproducibility, workflow.fingerprint,
+                           workflow.manifest_locations, {}, true, anchors);
+    writer.write_started(kStartedAt);
+    writer.write_final(failure, kStartedAt + 1, files, status, trace);
+    const json record = json::parse(read_file(out / "run-record.json"));
+    EXPECT_EQ(record, writer.current());
+    EXPECT_EQ(issues_of(record), "");
+
+    const std::string modules_library = named_path("<modules:caller:0>", modules.path, library);
+    const json expected_error = {
+        {"code", static_cast<std::int32_t>(ErrorCode::IO_ERROR)},
+        {"name", "IO_ERROR"},
+        {"message", "cannot create directory '" + named_path("<output>", out, outputs) +
+                        "': File exists (library '" + modules_library + "')"},
+        {"tick", nullptr},
+        {"at", "2023-11-14T22:13:20.123456789Z"},
+        {"cause",
+         {{"code", 11},
+          {"message", "bad row in " + named_path("<home>", home, data)},
+          {"details", {{"files", {named_path("<home>", home, data), 2}}}}}},
+        {"location",
+         {{"file", named_path("<configuration>", configuration, config_file)},
+          {"pointer", "/outputs/directory"}}},
+        {"details", {{"library", modules_library}, {"home", "<home>"}}}};
+    const json& execution = record.at("execution");
+    EXPECT_EQ(execution.at("error"), expected_error);
+    EXPECT_EQ(execution.at("final_status").at("workflow").at("last_error"), expected_error);
+    EXPECT_EQ(execution.at("final_status").at("steps").at(0).at("last_error"), expected_error);
+
+    // A writer without anchors writes the same record with the absolute paths.
+    RunRecordWriter plain(dir.path() / "plain", workflow.reproducibility, workflow.fingerprint,
+                          workflow.manifest_locations, {}, true);
+    plain.write_started(kStartedAt);
+    plain.write_final(failure, kStartedAt + 1, files, status, trace);
+    const json& plain_error = plain.current().at("execution").at("error");
+    EXPECT_EQ(plain_error.at("message"), error.message);
+    EXPECT_EQ(plain_error.at("location").at("file"), error.location.file);
+    EXPECT_EQ(plain_error.at("details"), json::parse(error.details_json));
+    EXPECT_EQ(plain_error.at("cause"), json::parse(error.cause_json));
+    EXPECT_EQ(plain.current().at("execution").at("final_status").at("workflow").at("last_error"),
+              plain_error);
+    // Nothing but the error records differs: the reproducibility section and the fingerprint
+    // above all.
+    EXPECT_EQ(without_error_records(record), without_error_records(plain.current()));
+    EXPECT_EQ(record.at("reproducibility"), workflow.reproducibility);
+    EXPECT_EQ(record.at("fingerprint"), workflow.fingerprint);
+    EXPECT_EQ(execution.at("manifests"), workflow.manifest_locations);
+    // The parameter's path stays absolute in the reproducibility section, in the record kept as in
+    // the file, and the fingerprint is still the hash of that section.
+    for (const json* kept : {&record, &writer.current()}) {
+        EXPECT_EQ(kept->at("reproducibility").at("steps").at("a").at("parameters").at("note"),
+                  path_to_utf8(data));
+        EXPECT_EQ(kept->at("fingerprint"), workflow.fingerprint);
+        EXPECT_EQ(sha256_hex(canonical_json(kept->at("reproducibility"))), workflow.fingerprint);
+    }
+
+    // No anchored directory is left in the execution section, as given or with links resolved.
+    std::vector<std::string> directory_texts;
+    for (const fs::path& directory : {dir.path(), modules.path}) {
+        directory_texts.push_back(path_to_utf8(directory));
+        directory_texts.push_back(path_to_utf8(fs::weakly_canonical(directory)));
+    }
+    for_each_string(
+        execution, "/execution", [&](const std::string& where, const std::string& text) {
+            for (const std::string& directory : directory_texts) {
+                EXPECT_EQ(text.find(directory), std::string::npos) << where << ": " << text;
+            }
+        });
 }

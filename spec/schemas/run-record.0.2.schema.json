@@ -272,7 +272,7 @@
         },
         "final_status": {
           "type": "object",
-          "description": "The final status snapshot (a status-snapshot document), written when the run ends."
+          "description": "The final status snapshot (a status-snapshot document), written when the run ends. Its error records name the run's directories by placeholders, as execution.error does."
         },
         "ticks_completed": {
           "$ref": "#/definitions/count"
@@ -449,6 +449,7 @@
     },
     "error_record": {
       "type": "object",
+      "description": "An error record of the run. Its strings (message, location.file, and every string of details and cause) name each directory the run knows by a placeholder, the rest of a path kept: <output>, <configuration>, <modules:ORIGIN:INDEX> or <modules:installation>, <providers:ORIGIN:INDEX> or <providers:installation>, <home>.",
       "required": [
         "code",
         "name",

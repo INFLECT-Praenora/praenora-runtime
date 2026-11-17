@@ -233,7 +233,7 @@ writes nothing to disk. With one, it writes:
 
 | File | Content |
 |---|---|
-| `run-record.json` | The run record: the `reproducibility` section that the fingerprint hashes (versions, workflow and catalog digests, time base, seed, ticks, timeouts, input digests, the runtime services of providers with each provider's identity, digests and engine, and per step the module, its manifest and library digests, parameters, seed and the services it may use), and the `execution` section (start and finish times, status, ticks completed, the error of a failed run, overrides, platform, where each module and provider manifest was found (relative to its search path, never as an absolute path), each output file's digest and message count, the final status snapshot). It is written when the run starts and rewritten when it ends. |
+| `run-record.json` | The run record: the `reproducibility` section that the fingerprint hashes (versions, workflow and catalog digests, time base, seed, ticks, timeouts, input digests, the runtime services of providers with each provider's identity, digests and engine, and per step the module, its manifest and library digests, parameters, seed and the services it may use), and the `execution` section (start and finish times, status, ticks completed, the error of a failed run (naming the run's directories by placeholders such as `<output>` and `<home>`), overrides, platform, where each module and provider manifest was found (relative to its search path, never as an absolute path), each output file's digest and message count, the final status snapshot). It is written when the run starts and rewritten when it ends. |
 | `outputs/<output>.jsonl` | One envelope per line for each recorded workflow output (`outputs.record`, by default all of them). |
 | `trace/messages.jsonl` | With `--trace` (or `outputs.trace_messages: true`): every envelope into and out of a step, as `{"tick", "step", "direction", "port", "envelope"}`, plus the result's `diagnostics` when it has them, and the runtime services each call into a step's module looked up, as `{"tick", "step", "phase", "service", "major", "provided", "count"}`. |
 | `status.json` | The status file, when it is configured inside the directory. |
@@ -288,6 +288,13 @@ stopped, or when the status file could not be written, and `healthy` otherwise. 
 `praenora status` prints `{"ok": true, "result": <the snapshot>}`, as every command wraps its
 result; the snapshot's fields are specified in
 [specs/observability.md](specs/observability.md#status-snapshot).
+
+The status file and the run record are written for others to read, so their error records name the
+directories the run knows by placeholders: `<output>`, `<configuration>`, `<modules:caller:0>` and
+the other search paths, and `<home>`. `praenora status` then shows, for example, the last error
+`IO_ERROR: cannot create directory '<output>/outputs': File exists`. The tool's own error output and
+the logs keep the absolute paths. The placeholders and the rules are in
+[specs/observability.md](specs/observability.md#known-directories-in-the-files-of-a-run).
 
 ## Stopping a run
 

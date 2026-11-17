@@ -93,7 +93,9 @@ void prepare_output_dir(const fs::path& dir, bool overwrite) {
 }
 
 RunRecordWriter::RunRecordWriter(fs::path output_dir, json reproducibility, std::string fingerprint,
-                                 json manifests, RunOverrides overrides, bool strict_validation) {
+                                 json manifests, RunOverrides overrides, bool strict_validation,
+                                 std::shared_ptr<const PathAnchors> anchors)
+    : anchors_(std::move(anchors)) {
     if (sha256_hex(canonical_json(reproducibility)) != fingerprint) {
         throw Error(ErrorCode::INVALID_ARGUMENT,
                     "run record: the fingerprint is not the hash of the reproducibility section");
@@ -154,6 +156,15 @@ void RunRecordWriter::write_final(const RunSummary& summary, std::int64_t finish
                     "run record: a run cannot end in state " + to_string(summary.final_state));
     }
     json final_status = status_object(final_status_json);
+    json error = summary.error ? error_record_json(*summary.error) : json(nullptr);
+    if (anchors_) {
+        // The record is written for others to read: the directories the run knows are named by
+        // their placeholders, in its error records only.
+        if (error.is_object()) {
+            anchors_->apply_to_error_record(error);
+        }
+        anchors_->apply_to_status_snapshot(final_status);
+    }
     json files = json::object();
     for (const OutputRecorder::FileInfo& info : outputs) {
         files[info.port] = file_json(info);
@@ -162,7 +173,7 @@ void RunRecordWriter::write_final(const RunSummary& summary, std::int64_t finish
     execution["status"] = to_string(summary.final_state);
     execution["finished_at"] = format_rfc3339_utc(finished_unix_ns);
     execution["ticks_completed"] = summary.ticks_completed;
-    execution["error"] = summary.error ? error_record_json(*summary.error) : json(nullptr);
+    execution["error"] = std::move(error);
     execution["outputs"] = std::move(files);
     if (trace) {
         execution["trace"] = file_json(*trace);

@@ -81,6 +81,14 @@ std::optional<std::string> environment_variable(const char* name) {
     }
 }
 
+std::optional<std::filesystem::path> home_directory() {
+    const auto profile = environment_variable("USERPROFILE");
+    if (!profile || profile->empty()) {
+        return std::nullopt;
+    }
+    return std::filesystem::path(widen(*profile));
+}
+
 std::optional<std::filesystem::path> runtime_binary_path() {
     HMODULE module = nullptr;
     if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |

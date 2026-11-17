@@ -97,6 +97,7 @@ ProviderIndex ProviderIndex::scan(const std::vector<fs::path>& search_paths) {
 ProviderIndex ProviderIndex::scan(const std::vector<SearchPath>& search_paths) {
     ProviderIndex index;
     index.search_paths_ = paths_of(search_paths);
+    index.scanned_search_paths_ = search_paths;
     std::set<fs::path> seen;
     for (const auto& search_path : search_paths) {
         for (const auto& file :
@@ -213,5 +214,9 @@ std::string ProviderIndex::unresolved_details(const ServiceVersion& requirement,
 }
 
 const std::vector<fs::path>& ProviderIndex::search_paths() const { return search_paths_; }
+
+const std::vector<SearchPath>& ProviderIndex::scanned_search_paths() const {
+    return scanned_search_paths_;
+}
 
 } // namespace praenora::detail

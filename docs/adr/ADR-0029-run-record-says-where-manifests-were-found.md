@@ -77,6 +77,11 @@ fingerprint: the same configuration and data at other paths give the same finger
 - What a location does not give is the search path's value: a reader resolves `origin` and
   `index` against the run's caller paths, configuration and environment. On the machine itself,
   `praenora modules inspect` and `praenora providers list` show absolute paths.
+- Later: [ADR-0034](ADR-0034-error-records-in-files-name-directories-by-placeholders.md) answers
+  the question left open here: in the run record and the status file, error records name the run's
+  directories (output, configuration, module and provider search paths, as `<modules:ORIGIN:INDEX>`
+  and `<providers:ORIGIN:INDEX>` after the origins and indexes above, and home) by placeholders.
+  The decision on `execution.manifests` stands.
 
 ## Alternatives considered
 

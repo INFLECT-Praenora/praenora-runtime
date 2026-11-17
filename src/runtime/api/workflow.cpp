@@ -4,7 +4,9 @@
 #include "core/paths.hpp"
 #include "core/time.hpp"
 #include "io/run_record.hpp"
+#include "observability/path_anchors.hpp"
 #include "observability/status_json.hpp"
+#include "platform/platform.hpp"
 
 #include <praenora/runtime/error.hpp>
 #include <praenora/runtime/status.hpp>
@@ -13,6 +15,7 @@
 
 #include <chrono>
 #include <filesystem>
+#include <memory>
 #include <optional>
 #include <string>
 #include <utility>
@@ -52,6 +55,15 @@ Workflow::Impl::Impl(std::shared_ptr<const detail::RuntimeContext> runtime_conte
     }
     const std::optional<std::filesystem::path> status_path = workflow.config.status_file;
     const std::chrono::nanoseconds status_interval = workflow.config.status_interval;
+    // The run's directories, which the error records of the run record and of the status file name
+    // by placeholders; the home directory as it is when the workflow is opened.
+    detail::RunDirectories directories;
+    directories.output = output_dir;
+    directories.configuration = workflow.config.file.parent_path();
+    directories.modules = workflow.module_search_paths;
+    directories.providers = context->providers.scanned_search_paths();
+    directories.home = detail::home_directory();
+    const auto anchors = std::make_shared<const detail::PathAnchors>(directories);
     // Nothing that can fail may run after an earlier run is removed: refuse it first, without
     // changing anything; remove it (with overwrite) only after the log hub and the engine exist.
     if (output_dir) {
@@ -63,6 +75,7 @@ Workflow::Impl::Impl(std::shared_ptr<const detail::RuntimeContext> runtime_conte
     settings.logs = logs.get();
     settings.metrics = &metrics;
     settings.services = &context->services;
+    settings.path_anchors = anchors;
     // Called on the control thread (or by the engine's destructor); never from request_stop().
     settings.on_state_change = [this] {
         if (detail::StatusFileWriter* writer = status_target.load()) {
@@ -76,7 +89,14 @@ Workflow::Impl::Impl(std::shared_ptr<const detail::RuntimeContext> runtime_conte
 
     if (status_path) {
         status_file = std::make_unique<detail::StatusFileWriter>(
-            *status_path, status_interval, [this] { return metrics.snapshot().to_json(); },
+            *status_path, status_interval,
+            [this, anchors] {
+                // Written for others to read: its error records name the run's directories by
+                // their placeholders. status() and status_json() keep the absolute paths.
+                nlohmann::json snapshot = detail::status_snapshot_json(metrics.snapshot());
+                anchors->apply_to_status_snapshot(snapshot);
+                return snapshot.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
+            },
             [this](const Error& error) {
                 // A write that failed degrades the run's health.
                 metrics.set_last_error(

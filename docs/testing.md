@@ -63,7 +63,7 @@ The suites of the GoogleTest labels name the components they test:
 
 | Label | Suites |
 |---|---|
-| `unit` | `Adapter`, `Config`, `Csv`, `Duration`, `Error`, `ErrorTaxonomy`, `Fingerprint`, `Health`, `Json`, `JsonDocument`, `JsonNear`, `Locale`, `Logging`, `Metrics`, `MetricsJson`, `ObservationCsv`, `OutputDir`, `OutputRecorder`, `Paths`, `ProviderAbi`, `Resources`, `RunRecord`, `RuntimeContext`, `Schema`, `SchemaRegistry`, `SdkAbi`, `Seed`, `SemVer`, `Sha256`, `SimulationAbi`, `StatusFile`, `StatusJson`, `StatusNames`, `TestKit`, `Time`, `TraceWriter`, `ValidationReport`, `Version`, `Yaml` |
+| `unit` | `Adapter`, `Config`, `Csv`, `Duration`, `Error`, `ErrorTaxonomy`, `Fingerprint`, `Health`, `Json`, `JsonDocument`, `JsonNear`, `Locale`, `Logging`, `Metrics`, `MetricsJson`, `ObservationCsv`, `OutputDir`, `OutputRecorder`, `PathAnchors`, `Paths`, `Platform`, `ProviderAbi`, `Resources`, `RunRecord`, `RuntimeContext`, `Schema`, `SchemaRegistry`, `SdkAbi`, `Seed`, `SemVer`, `Sha256`, `SimulationAbi`, `StatusFile`, `StatusJson`, `StatusNames`, `TestKit`, `Time`, `TraceWriter`, `ValidationReport`, `Version`, `Yaml` |
 | `protocol` | `Catalog`, `Graph`, `GraphExport`, `Schemas` |
 | `contract` | `Discovery`, `Engine`, `Envelope`, `Instance`, `Loader`, `Manifest`, `ModuleCheck`, `ProviderDiscovery`, `ProviderIndex`, `ProviderLoader`, `ProviderManifest`, `ServiceRun`, `Services`, the parameterized `SimulationService` (the service checks: `<Provider>/SimulationService.<Check>/<ParameterSet>`), and, with the roadrunner provider, `RoadrunnerProvider` |
 | `negative` | `Compat`, `Config`, `ConfigBadFixtures`, `Graph`, `Manifest`, `ProviderLoadFailure`, `ProviderManifest`, `ServiceValidation`, `Validation` |

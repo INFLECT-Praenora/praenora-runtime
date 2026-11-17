@@ -188,7 +188,8 @@ public:
     std::unique_ptr<Workflow> open(const std::string& config_path,
                                    const WorkflowOptions& options = {}) const;
 
-    // Reads a status file that a run writes (the status-snapshot document) and returns its text.
+    // Reads a status file that a run writes (the status-snapshot document, whose error records name
+    // the run's directories by placeholders) and returns its text.
     // Throws praenora::Error: IO_ERROR when it cannot be read, PARSE_ERROR when it is not JSON,
     // DOCUMENT_KIND_MISMATCH when its kind is not "status-snapshot".
     static std::string read_status_file(const std::string& path);

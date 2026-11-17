@@ -71,11 +71,14 @@ public:
 
     // The paths given to scan().
     const std::vector<std::filesystem::path>& search_paths() const;
+    // The same, with their origins and indexes (SearchPath), as scan() was given them.
+    const std::vector<SearchPath>& scanned_search_paths() const;
 
 private:
     void add(ModuleManifest manifest);
 
     std::vector<std::filesystem::path> search_paths_;
+    std::vector<SearchPath> scanned_search_paths_;
     std::vector<ModuleManifest> manifests_;
     std::vector<Diagnostic> diagnostics_;
 };

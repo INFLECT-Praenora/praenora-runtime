@@ -79,7 +79,7 @@ without the `{"ok": true, "result": ...}` around it.
 | `catalog_entry(id, version, *, catalog_paths=None)` | One entry's document. |
 | `list_schemas()` | The embedded schemas, `["<kind>@<major>.<minor>", ...]`. |
 | `schema(kind, format_version=None)` | One schema, of the highest version by default. |
-| `read_status(path)` | The status-snapshot document of a status file. |
+| `read_status(path)` | The status-snapshot document of a status file, whose error records name the run's directories by placeholders ([observability.md](specs/observability.md#known-directories-in-the-files-of-a-run)). |
 
 ## Workflow
 
@@ -102,10 +102,10 @@ take the names of the tool's options in any case; `None` leaves a setting to the
 | `run(ticks=None)` | Starts the run if needed, then runs ticks until it is finished, or until `ticks` more ran: `{"state", "ticks_completed", "fingerprint"}`. It returns for a completed or stopped run, and raises the failure of a failed one, again on every later call. |
 | `request_stop()` | Asks the run to stop: the call in progress is asked to cancel and no further call starts. Safe from any thread. |
 | `close()` | Ends a ready or running run as `stopped`, finalizes, destroys and unloads its modules, and refuses later control calls. Idempotent. |
-| `status()` | The status snapshot (`{"kind", "format_version", "generated_at", "runtime_version", "pid", "workflow", "steps"}`). |
+| `status()` | The status snapshot (`{"kind", "format_version", "generated_at", "runtime_version", "pid", "workflow", "steps"}`), its error records with absolute paths. |
 | `metrics()` | `{"metrics": [...]}`: the metric points, such as `praenora.step.invocations`. |
 | `latest_outputs()` | The newest envelope of each workflow output, `{"<output>": envelope}`. |
-| `run_record()` | The run record as last written; `None` before the run starts. |
+| `run_record()` | The run record as last written, the same document as its file, whose error records name the run's directories by placeholders such as `<output>`; `None` before the run starts. |
 | `state`, `fingerprint` | Properties: the state name and the run fingerprint. |
 
 ## Errors

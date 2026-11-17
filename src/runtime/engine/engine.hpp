@@ -130,6 +130,7 @@
 #include "loader/loaded_module.hpp"
 #include "observability/logging.hpp"
 #include "observability/metrics.hpp"
+#include "observability/path_anchors.hpp"
 
 #include <praenora/runtime/error.hpp>
 #include <praenora/runtime/options.hpp>
@@ -163,6 +164,9 @@ struct EngineSettings {
     // "strict" validation: input data and module outputs against their message types, envelopes
     // against pmp-envelope. false ("off") is for performance measurements; the run record says so.
     bool validate_payloads = true;
+    // The directories of the run that the error records of its run record name by placeholders
+    // (RunRecordWriter). With none, they keep their absolute paths.
+    std::shared_ptr<const PathAnchors> path_anchors;
     // Called on the control thread after each change of the workflow state, for example to have a
     // status file rewritten. Exceptions it throws are ignored.
     std::function<void()> on_state_change;

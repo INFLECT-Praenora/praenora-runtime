@@ -75,6 +75,10 @@ rebuilds the error from the record and so lost the location and details as well
   record. Without memory for serializing them, the record goes without details and the metrics
   are still updated; the step is marked failed even when describing the failure runs out of memory
   altogether, so it shows `failed` either way.
+- Later: [ADR-0034](ADR-0034-error-records-in-files-name-directories-by-placeholders.md) splits
+  error records by audience: in the files of a run (the run record and the status file) their
+  message, location file, details and cause name the run's directories by placeholders, while the
+  records in memory (`RunSummary`, `Workflow::status()`, `status_json()`) keep absolute paths.
 
 ## Alternatives considered
 

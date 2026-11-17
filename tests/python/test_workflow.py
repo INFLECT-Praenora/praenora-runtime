@@ -310,6 +310,35 @@ class WorkflowErrorTest(WorkflowTestCase):
                 workflow.run()
             self.assertEqual(again.exception.message, caught.exception.message)
 
+    def test_failed_run_files_name_directories_by_placeholders(self):
+        # A file where the run's outputs directory goes: the outputs cannot be written.
+        out = self.directory / "out"
+        out.mkdir()
+        (out / "outputs").write_text("a file, not a directory\n", encoding="utf-8")
+        status_file = self.directory / "status.json"
+        config = write_config(self.directory / "config", "test.single", "run: { ticks: 1 }\n",
+                              step("a", "fx-echo"))
+        outputs = str(out / "outputs")
+        named = "<output>" + outputs[len(str(out)):]
+        with pr.Workflow(config, **FIXTURE_PATHS, output_dir=out,
+                         status_file=status_file) as workflow:
+            with self.assertRaises(pr.PraenoraError) as caught:
+                workflow.run()
+            self.assertEqual(caught.exception.name, "IO_ERROR")
+            # What stays in the process names the directory.
+            self.assertEqual(caught.exception.location["file"], outputs)
+            self.assertEqual(workflow.status()["workflow"]["last_error"]["location"]["file"],
+                             outputs)
+            # The run record names it by its placeholder, as its file does.
+            recorded = workflow.run_record()["execution"]["error"]
+            self.assertEqual(recorded["location"]["file"], named)
+            self.assertIn(f"'{named}'", recorded["message"])
+            self.assertNotIn(str(self.directory), json.dumps(workflow.run_record()))
+        with open(out / "run-record.json", encoding="utf-8") as file:
+            self.assertEqual(json.load(file)["execution"]["error"], recorded)
+        # So does the status file, written for the last time when the workflow was closed.
+        self.assertEqual(pr.read_status(status_file)["workflow"]["last_error"], recorded)
+
 
 class SecondThreadTest(WorkflowTestCase):
     """The calls into the runtime release the GIL: another Python thread runs, and may query or

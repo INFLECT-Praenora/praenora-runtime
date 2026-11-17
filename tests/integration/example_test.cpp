@@ -3,9 +3,9 @@
 // (examples/workflows/estimate-predict) and its golden outputs
 // (tests/fixtures/golden/example.estimate-predict). Covers the expectations of the example
 // (12 ticks, feedback from tick 1 on, golden outputs), determinism, what changes the run
-// fingerprint and what does not, the run record and the status file on disk, an output directory
-// that holds an earlier run, paths with spaces and non-ASCII characters, status queries during a
-// run and a stop request (with the test catalog's test.chain and fixture modules).
+// fingerprint and what does not, the run record (of a failed run too) and the status file on disk,
+// an output directory that holds an earlier run, paths with spaces and non-ASCII characters, status
+// queries during a run and a stop request (with the test catalog's test.chain and fixture modules).
 //
 // The golden files are refreshed only on request: PRAENORA_UPDATE_GOLDEN=1 makes
 // Example.OutputsMatchGolden write them instead of comparing. Their envelopes hold sixteen zeros
@@ -17,6 +17,7 @@
 #include <praenora/runtime/status.hpp>
 #include <praenora/runtime/workflow.hpp>
 
+#include "directory_checks.hpp"
 #include "json_compare.hpp"
 #include "module_fixtures.hpp"
 #include "temp_dir.hpp"
@@ -57,6 +58,9 @@ using praenora::ValidationReport;
 using praenora::Workflow;
 using praenora::WorkflowOptions;
 using praenora::WorkflowState;
+using praenora::test::directory_forms;
+using praenora::test::expect_names_none;
+using praenora::test::named_path;
 using praenora::test::ScratchDir;
 using praenora::test::utf8_path;
 using praenora::test::write_text_file;
@@ -375,10 +379,8 @@ TEST(Example, RunRecordValidatesAgainstSchema) {
         "services": {}})"));
     // No absolute path anywhere in the record of a run without an error: it names neither the
     // directories of the modules, the configuration and the output nor the user.
-    for (const std::string& path :
-         {utf8(utf8_path(PRAENORA_EXAMPLE_MODULES_DIR)), utf8(example_dir()), utf8(dir.path())}) {
-        EXPECT_FALSE(contains(record.dump(), path)) << path;
-    }
+    expect_names_none(record, directory_forms({utf8_path(PRAENORA_EXAMPLE_MODULES_DIR),
+                                               example_dir(), dir.path()}));
 
     // The same check catches a record that breaks the schema.
     json broken = record;
@@ -389,6 +391,35 @@ TEST(Example, RunRecordValidatesAgainstSchema) {
     EXPECT_EQ(refused.diagnostics.front().code, ErrorCode::SCHEMA_VIOLATION) << refused.to_text();
     EXPECT_EQ(refused.diagnostics.front().location.pointer, "/execution/status")
         << refused.to_text();
+}
+
+// Nor in the record of a failed run: its error records name the directories the run knows by
+// placeholders, here the output directory, which cannot receive the outputs.
+TEST(Example, FailedRunRecordHoldsNoAbsolutePath) {
+    ScratchDir dir;
+    const Runtime runtime(example_options());
+    const fs::path out = dir.path() / "out";
+    write_text_file(out / "outputs", "a file, not a directory\n");
+    WorkflowOptions options;
+    options.output_dir = utf8(out);
+    const std::unique_ptr<Workflow> workflow = runtime.open(example_config(), options);
+    const Error error = error_of([&] { workflow->run(); });
+    ASSERT_EQ(error.code(), ErrorCode::IO_ERROR) << error.to_json();
+    EXPECT_EQ(error.location().file, utf8(out / "outputs"));
+    workflow->close();
+
+    const fs::path file = out / "run-record.json";
+    const ValidationReport report = runtime.validate_document(utf8(file));
+    EXPECT_TRUE(report.ok()) << report.to_text();
+    const json record = json::parse(read_file(file));
+    const json& execution = record.at("execution");
+    EXPECT_EQ(execution.at("status"), "failed");
+    const std::string outputs = named_path("<output>", out, out / "outputs");
+    EXPECT_EQ(execution.at("error").at("location").at("file"), outputs);
+    EXPECT_TRUE(contains(execution.at("error").at("message").get<std::string>(), outputs))
+        << execution.at("error").dump();
+    expect_names_none(record, directory_forms({utf8_path(PRAENORA_EXAMPLE_MODULES_DIR),
+                                               example_dir(), dir.path()}));
 }
 
 TEST(Example, StatusFileWritten) {

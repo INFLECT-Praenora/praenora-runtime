@@ -254,7 +254,8 @@ def schema(kind, format_version=None):
 
 
 def read_status(path):
-    """The status file that a run keeps (its status_file): the status-snapshot document."""
+    """The status file that a run keeps (its status_file): the status-snapshot document. Its error
+    records name the run's directories by placeholders such as <output> and <home>."""
     return _decoded(_bindings.read_status_json, _path(path))
 
 
@@ -336,7 +337,8 @@ class Workflow:
         return _decoded(self._handle.run, max_ticks)
 
     def status(self):
-        """The run's status: the status-snapshot document."""
+        """The run's status: the status-snapshot document, its error records with absolute
+        paths."""
         return _decoded(self._handle.status)
 
     def metrics(self):
@@ -348,7 +350,9 @@ class Workflow:
         return _decoded(self._handle.latest_outputs)
 
     def run_record(self):
-        """The run record as last written; None before the run starts."""
+        """The run record as last written, the same document as its file; None before the run
+        starts. Its error records name the run's directories by placeholders such as <output>
+        and <home>."""
         return _decoded(self._handle.run_record)
 
     def request_stop(self):

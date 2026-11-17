@@ -100,26 +100,33 @@ format 0.1.x, which have no `services` and whose error records have no `location
 | `status` | `running` from the start, then `completed`, `stopped` or `failed`. |
 | `started_at`, `finished_at` | Wall-clock instants (`finished_at` is null until the end). |
 | `ticks_completed` | The ticks completed. |
-| `error` | The failure of a failed run, a `RUN_STOPPED` record for a stopped one, null otherwise: an error record of the status snapshot ([observability.md](observability.md#status-snapshot)), so a failure keeps its location and details. |
+| `error` | The failure of a failed run, a `RUN_STOPPED` record for a stopped one, null otherwise: an error record of the status snapshot ([observability.md](observability.md#status-snapshot)), so a failure keeps its location and details, with the run's directories named by placeholders ([observability.md](observability.md#known-directories-in-the-files-of-a-run)). |
 | `platform` | `{os, arch, compiler, build_type}` of the runtime build. |
 | `overrides` | The run settings the caller overrode (`seed`, `ticks`); `{}` when none. |
 | `validation` | `strict`, or `off` for a performance measurement. |
 | `manifests` | Where each manifest of the run was found ([below](#where-a-manifest-was-found)): `{steps {<step>: location}, services {"<name>@<major>": location}}`, for the module manifest of every step and the provider manifest of every service in the reproducibility section. |
 | `outputs` | `{<output>: {file, sha256, messages}}` for every recorded output, written at the end. |
 | `trace` | `{file, sha256, messages}` of the message trace, written at the end when tracing is on; `messages` counts its envelopes ([observability.md](observability.md#message-trace)). |
-| `final_status` | The final status snapshot ([observability.md](observability.md#status-snapshot)), written at the end. |
+| `final_status` | The final status snapshot ([observability.md](observability.md#status-snapshot)), written at the end, its error records naming the run's directories by placeholders. |
 
 - The record is written when the run starts, before any module is loaded, and again when it ends,
   each time replacing the file atomically, as JSON indented by two spaces with a final newline.
   Without an output directory it is kept in memory only (`Workflow::run_record_json()`).
 - The record names no host and no user. It identifies each module, and each provider, by name,
   version and the digests of its manifest and library, and says where its manifest was found only
-  relative to a search path that it names by origin and index (`manifests`). The runtime writes no
-  absolute path into the record except in two places: error records (`error`, and those in
-  `final_status`), whose `location`, `message`, `details` and `cause` can name a file by its
-  absolute path, and the values it copies from the configuration and from manifests (parameters
-  and their defaults, a provider's `engine` object), which hold whatever those documents hold,
-  paths included.
+  relative to a search path that it names by origin and index (`manifests`). Its error records
+  (`error`, and the `last_error`s of `final_status`) name every directory that the run knows (its
+  output directory, the configuration's directory, its module and provider search paths and the
+  home directory) by a placeholder, in their `message`, `location.file`, `details` and `cause`:
+  `<output>/outputs`, `<modules:caller:0>/fx-echo/fx-echo.pmm.json`, `<home>/data/x.csv`
+  ([observability.md](observability.md#known-directories-in-the-files-of-a-run) has the
+  placeholders and the rules). `Workflow::run_record_json()` returns the same document as the file;
+  the run summary and `Workflow::status()` keep absolute paths. An error record still holds a path
+  under none of these directories as it is written, and the values that the runtime copies from the
+  configuration and from manifests (parameters and their defaults, a provider's `engine` object)
+  hold whatever those documents hold, paths included; otherwise the runtime writes no absolute path
+  into the record. Neither the placeholders nor anything else in the error records enters the
+  reproducibility section, so they never change the fingerprint.
 - A writer MUST refuse a fingerprint that is not the hash of the record's reproducibility section.
 
 ### Where a manifest was found

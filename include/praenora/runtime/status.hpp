@@ -70,7 +70,8 @@ struct StatusSnapshot {
     std::optional<ErrorRecord> last_error;
     std::vector<StepStatus> steps;
 
-    // The snapshot as a `status-snapshot` document.
+    // The snapshot as a `status-snapshot` document, its error records as they are, with absolute
+    // paths. (The status file names the run's directories in them by placeholders.)
     PRAENORA_RUNTIME_API std::string to_json() const;
 };
 

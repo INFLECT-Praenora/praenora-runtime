@@ -75,9 +75,9 @@ The runtime's internals live in `src/runtime/`, one directory per component, in 
 | `graph/` | Validating a workflow definition's graph and computing its schedule. |
 | `engine/` | Running ticks: routing messages, building envelopes, checking results, failure handling. |
 | `io/` | Input sources (observation CSV replay, JSON documents), output files, the message trace, the run record. |
-| `observability/` | Logging, metrics, status snapshots, health and the status-file writer. |
+| `observability/` | Logging, metrics, status snapshots, health, the status-file writer, and the path anchors that name a run's directories by placeholders in the error records of the run record and the status file. |
 | `api/` | The public `Runtime` and `Workflow`, the validation sequence, graph export and the contract checks. |
-| `platform/` | Operating-system calls: environment variables, the runtime's own location, shared libraries. |
+| `platform/` | Operating-system calls: environment variables, the user's home directory, the runtime's own location, shared libraries. |
 
 Outside the runtime:
 

@@ -149,6 +149,7 @@ praenora_add_gtest(praenora_unit_tests LABEL unit WHITEBOX
         unit/locale_test.cpp
         unit/runtime_context_test.cpp
         unit/run_record_test.cpp
+        unit/path_anchors_test.cpp
         unit/library_gate_test.cpp
     LINK Praenora::ModuleSDK)
 # sdk_abi_c99_check.c, simulation_c99_check.c and provider_abi_c99_check.c prove that the SDK's C

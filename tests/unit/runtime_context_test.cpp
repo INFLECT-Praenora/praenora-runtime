@@ -1,7 +1,8 @@
 // The runtime context built from the runtime options: its catalog (built-in entries, the caller's
 // catalog paths, PRAENORA_CATALOG_PATH), its module index, which keeps the caller's module paths
 // first when a configuration adds search paths of its own, and its provider index, which searches
-// the caller's provider paths first.
+// the caller's provider paths first; and the search paths, with their origins and indexes, that
+// the indexes and the validated workflow keep.
 #include "api/validation.hpp"
 #include "core/paths.hpp"
 #include "core/semver.hpp"
@@ -51,6 +52,17 @@ std::string path_list(const std::vector<std::string>& entries) {
     return list;
 }
 
+// Each search path of `paths` as "<origin>:<index>:<path>" ("<origin>:<path>" without an index).
+std::vector<std::string> described(const std::vector<praenora::detail::SearchPath>& paths) {
+    std::vector<std::string> texts;
+    for (const auto& path : paths) {
+        texts.push_back(praenora::detail::to_string(path.origin) + ":" +
+                        (path.index ? std::to_string(*path.index) + ":" : std::string()) +
+                        path_to_utf8(path.path));
+    }
+    return texts;
+}
+
 // A configuration of test.single whose step `a` uses `module`, with its own module search path
 // "config mods".
 std::string config_with_search_path(const std::string& module) {
@@ -88,11 +100,39 @@ TEST(RuntimeContext, ModuleSearchOrderKeepsTheCallersPaths) {
               praenora::detail::paths_of(
                   praenora::detail::module_search_paths(options.module_paths, {}, true)));
 
+    EXPECT_EQ(described(context.modules.scanned_search_paths()),
+              described(praenora::detail::module_search_paths(options.module_paths, {}, true)));
+
     // The caller's module is still found when the configuration adds a search path.
     const auto found = validate_text(dir.path(), config_with_search_path("fx-echo"), {}, context);
     ASSERT_TRUE(found.workflow.has_value()) << found.report.to_text();
     EXPECT_EQ(found.workflow->steps.at(0).manifest->manifest_path,
               praenora::test::fixture_manifest("fx-echo"));
+    // The validated workflow keeps the search paths that validation used, with their origins and
+    // indexes: here the list rebuilt with the configuration's path.
+    std::vector<std::string> used = {
+        "caller:0:" + path_to_utf8(utf8_path(PRAENORA_TEST_MODULES_DIR).lexically_normal()),
+        "configuration:0:" + path_to_utf8(dir.path() / "config mods"),
+        "environment:0:" + path_to_utf8(environment_dir)};
+    if (const auto installation = praenora::detail::installation_module_dir()) {
+        used.push_back("installation:" + path_to_utf8(installation->lexically_normal()));
+    }
+    EXPECT_EQ(described(found.workflow->module_search_paths), used);
+    // Without search paths of the configuration's own, those of the context's index.
+    write_text_file(dir.path() / "plain" / "source.json", "{}");
+    const auto plain = validate_text(dir.path() / "plain",
+                                     "kind: workflow-config\n"
+                                     "format_version: \"0.1.0\"\n"
+                                     "workflow: { name: test.single, version: \"0.1.0\" }\n"
+                                     "run: { ticks: 1 }\n"
+                                     "inputs:\n"
+                                     "  source: { source: json-document, path: source.json }\n"
+                                     "steps:\n"
+                                     "  a: { module: { name: fx-echo, version: \"0.1.0\" } }\n",
+                                     {}, context);
+    ASSERT_TRUE(plain.workflow.has_value()) << plain.report.to_text();
+    used.erase(used.begin() + 1);
+    EXPECT_EQ(described(plain.workflow->module_search_paths), used);
 
     // The search order: the caller's paths, the configuration's, PRAENORA_MODULE_PATH, then the
     // installation's directory.
@@ -177,6 +217,14 @@ TEST(RuntimeContext, ProviderSearchOrderPutsTheCallersPathsFirst) {
     EXPECT_EQ(context.providers.search_paths(),
               praenora::detail::paths_of(
                   praenora::detail::provider_search_paths(options.provider_paths, true)));
+    // With their origins and indexes, as the run's anchors name them.
+    std::vector<std::string> scanned = {"caller:0:" + path_to_utf8(expected[0]),
+                                        "caller:1:" + path_to_utf8(expected[1]),
+                                        "environment:0:" + path_to_utf8(expected[2])};
+    if (expected.size() > 3) {
+        scanned.push_back("installation:" + path_to_utf8(expected[3]));
+    }
+    EXPECT_EQ(described(context.providers.scanned_search_paths()), scanned);
 
     // Without the environment the caller's paths stay first, and PRAENORA_PROVIDER_PATH is left
     // out.

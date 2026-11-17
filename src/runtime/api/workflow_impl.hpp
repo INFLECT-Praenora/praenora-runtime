@@ -24,10 +24,11 @@ namespace praenora {
 // whether or not close() ran: the context outlives the validated workflow inside the engine (which
 // points into its catalog) and the instances (which use its services); the logs and the metrics
 // outlive the engine and the status-file writer, whose producer and error handler use only the
-// metrics; the writer, and `status_target` through which the engine's state changes notify it,
-// outlive the engine, so a state change the engine's destructor makes (shutting down a run that is
-// still ready or running) still reaches the status file, and the writer's last write, in its own
-// destructor, shows the final state.
+// metrics (and the run's path anchors, which the producer holds a share of); the writer, and
+// `status_target` through which the engine's state changes notify it, outlive the engine, so a
+// state change the engine's destructor makes (shutting down a run that is still ready or running)
+// still reaches the status file, and the writer's last write, in its own destructor, shows the
+// final state.
 struct Workflow::Impl {
     // Prepares the run of `workflow`, validated against `context`, so that nothing that can fail
     // runs after an earlier run in the output directory is removed: check_output_dir() first
@@ -36,8 +37,10 @@ struct Workflow::Impl {
     // steps with the metrics), then prepare_output_dir() with `overwrite` (which removes an earlier
     // run), and, last, the status-file writer, whose first write is in its constructor, so a status
     // file inside the directory is never written before the earlier run is refused, nor removed
-    // afterwards. Throws praenora::Error: IO_ERROR from the output directory or the log file, and
-    // the engine's errors.
+    // afterwards. Before all that, it fixes the run's path anchors (detail::PathAnchors): its
+    // directories and the home directory as they are now, which the error records of the run
+    // record and of the status file name by placeholders. Throws praenora::Error: IO_ERROR from
+    // the output directory or the log file, and the engine's errors.
     Impl(std::shared_ptr<const detail::RuntimeContext> runtime_context,
          detail::ValidatedWorkflow workflow, const LogOptions& logging, bool overwrite);
     Impl(const Impl&) = delete;

@@ -72,7 +72,8 @@ praenora_add_fixture_provider(test-missing-service
 praenora_add_fixture_provider(test-reordered
     SOURCES ${variant} DEFINITIONS FIXTURE_REORDERED
     SERVICES test.echo@0.0 test.other@1.2)
-# Correct providers, each used by one test of what a library that failed a check leaves behind.
+# Correct providers, each used by one test of what a library that failed a check leaves behind;
+# test-conflict also by the integration test of a provider conflict's error record.
 praenora_add_fixture_provider(test-conflict SOURCES ${variant})
 praenora_add_fixture_provider(test-retry SOURCES ${variant})
 # A correct provider used only by the test that a run starts its providers before any module.

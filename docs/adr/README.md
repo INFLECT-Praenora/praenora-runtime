@@ -58,3 +58,4 @@ Some ADRs have a split status, for example "Accepted (shape) / Proposed (details
 | [ADR-0031](ADR-0031-raise-the-reserved-error-codes.md) | Raise MESSAGE_TYPE_INCOMPATIBLE and TARGET_DATA_UNAVAILABLE | Proposed | 2026-11-17 |
 | [ADR-0032](ADR-0032-service-lookups-in-the-message-trace.md) | Service lookups in the message trace | Proposed | 2026-11-17 |
 | [ADR-0033](ADR-0033-describe-and-manifest-agree-on-the-sdk-version.md) | describe() and the manifest agree on the SDK version | Proposed | 2026-11-17 |
+| [ADR-0034](ADR-0034-error-records-in-files-name-directories-by-placeholders.md) | Error records in the files of a run name known directories by placeholders | Proposed | 2026-11-17 |

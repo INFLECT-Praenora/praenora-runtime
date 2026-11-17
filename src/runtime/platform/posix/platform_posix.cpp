@@ -3,13 +3,16 @@
 
 #include <dlfcn.h>
 #include <pthread.h>
+#include <pwd.h>
 #include <unistd.h>
 
 #include <algorithm>
+#include <cerrno>
 #include <cstddef>
 #include <cstdlib>
 #include <cstring>
 #include <system_error>
+#include <vector>
 
 namespace praenora::detail {
 
@@ -17,6 +20,9 @@ namespace {
 
 // An object inside the runtime's binary, whose address dladdr() maps back to that binary.
 const char kRuntimeMarker = 0;
+
+// The largest buffer home_directory() offers getpwuid_r() for one password database entry.
+constexpr std::size_t kMaxPasswordEntryBytes = std::size_t(1) << 20;
 
 } // namespace
 
@@ -26,6 +32,27 @@ std::optional<std::string> environment_variable(const char* name) {
         return std::nullopt;
     }
     return std::string(value);
+}
+
+std::optional<std::filesystem::path> home_directory() {
+    if (const auto home = environment_variable("HOME"); home && !home->empty()) {
+        return std::filesystem::path(*home);
+    }
+    // The user's entry in the password database. The buffer grows until the entry fits.
+    const long suggested = sysconf(_SC_GETPW_R_SIZE_MAX);
+    std::vector<char> buffer(suggested > 0 ? static_cast<std::size_t>(suggested) : 1024);
+    passwd entry{};
+    passwd* found = nullptr;
+    int result = 0;
+    while ((result = getpwuid_r(getuid(), &entry, buffer.data(), buffer.size(), &found)) ==
+               ERANGE &&
+           buffer.size() < kMaxPasswordEntryBytes) {
+        buffer.resize(buffer.size() * 2);
+    }
+    if (result != 0 || found == nullptr || found->pw_dir == nullptr || found->pw_dir[0] == '\0') {
+        return std::nullopt;
+    }
+    return std::filesystem::path(found->pw_dir);
 }
 
 std::optional<std::filesystem::path> runtime_binary_path() {

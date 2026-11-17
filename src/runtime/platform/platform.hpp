@@ -14,6 +14,12 @@ namespace praenora::detail {
 // reads the wide environment, so values outside the ANSI code page survive.)
 std::optional<std::string> environment_variable(const char* name);
 
+// The user's home directory: on POSIX systems HOME, or, when it is unset or empty, the home
+// directory of the user's entry in the password database (getpwuid_r()); on Windows USERPROFILE.
+// nullopt when there is none. The value is returned as it is found, so it may be relative or a
+// root directory (PathAnchors skips such a home).
+std::optional<std::filesystem::path> home_directory();
+
 // The absolute path of the binary that holds the runtime's code: the shared library
 // praenora_runtime, or the executable when the runtime's objects are linked into it. Found with
 // dladdr() or GetModuleHandleExW(); nullopt when the platform cannot tell.

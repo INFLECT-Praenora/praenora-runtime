@@ -79,6 +79,7 @@ ModuleIndex ModuleIndex::scan(const std::vector<fs::path>& search_paths) {
 ModuleIndex ModuleIndex::scan(const std::vector<SearchPath>& search_paths) {
     ModuleIndex index;
     index.search_paths_ = paths_of(search_paths);
+    index.scanned_search_paths_ = search_paths;
     std::set<fs::path> seen;
     for (const auto& search_path : search_paths) {
         for (const auto& file :
@@ -192,5 +193,9 @@ std::vector<const ModuleManifest*> ModuleIndex::entries() const {
 }
 
 const std::vector<fs::path>& ModuleIndex::search_paths() const { return search_paths_; }
+
+const std::vector<SearchPath>& ModuleIndex::scanned_search_paths() const {
+    return scanned_search_paths_;
+}
 
 } // namespace praenora::detail

@@ -76,11 +76,17 @@ public:
     void close() noexcept;
 
     WorkflowState state() const noexcept;
+    // The status snapshot, and status() as a status-snapshot document. Their error records hold
+    // absolute paths; those of the status file, written for others to read, name the run's
+    // directories by placeholders (<output>, <configuration>, <modules:caller:0>, <home>, ...;
+    // docs/specs/observability.md).
     StatusSnapshot status() const;
-    std::string status_json() const;         // status() as a status-snapshot document
+    std::string status_json() const;
     std::string metrics_json() const;        // OpenTelemetry-style metric points of status()
     std::string latest_outputs_json() const; // {"<output>": its newest envelope}; {} at first
-    std::string run_record_json() const;     // the run record as last written; null before start
+    // The run record as last written, the same document as run-record.json, its error records
+    // naming the run's directories by placeholders like the status file's; null before start.
+    std::string run_record_json() const;
     const std::string& fingerprint() const noexcept; // the run fingerprint (SHA-256, hex)
     // The run's output directory as an absolute UTF-8 path (WorkflowOptions::output_dir, else the
     // configuration's outputs.directory), or empty when the run writes no files.

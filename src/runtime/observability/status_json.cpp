@@ -90,11 +90,9 @@ json error_record_json(const ErrorRecord& record) {
             {"details", object_or_text(record.details_json, false)}};
 }
 
-} // namespace detail
-
-std::string StatusSnapshot::to_json() const {
+json status_snapshot_json(const StatusSnapshot& snapshot) {
     json steps_json = json::array();
-    for (const StepStatus& step : steps) {
+    for (const StepStatus& step : snapshot.steps) {
         steps_json.push_back({{"step", step.step},
                               {"module_name", step.module_name},
                               {"module_version", step.module_version},
@@ -113,32 +111,38 @@ std::string StatusSnapshot::to_json() const {
                               {"last_success_at", instant(step.last_success_at_unix_ns)},
                               {"last_error", error_record(step.last_error)}});
     }
-    const json workflow = {{"name", workflow_name},
-                           {"version", workflow_version},
-                           {"fingerprint", fingerprint},
-                           {"state", praenora::to_string(state)},
-                           {"health", praenora::to_string(health)},
-                           {"started_at", instant(started_at_unix_ns)},
-                           {"uptime_ns", uptime_ns},
-                           {"ticks_completed", ticks_completed},
-                           {"current_tick", current_tick ? json(*current_tick) : json(nullptr)},
-                           {"logical_time", logical_time ? json(*logical_time) : json(nullptr)},
-                           {"last_tick_duration_ns", last_tick_duration_ns},
-                           {"last_error", error_record(last_error)}};
+    const json workflow = {
+        {"name", snapshot.workflow_name},
+        {"version", snapshot.workflow_version},
+        {"fingerprint", snapshot.fingerprint},
+        {"state", praenora::to_string(snapshot.state)},
+        {"health", praenora::to_string(snapshot.health)},
+        {"started_at", instant(snapshot.started_at_unix_ns)},
+        {"uptime_ns", snapshot.uptime_ns},
+        {"ticks_completed", snapshot.ticks_completed},
+        {"current_tick", snapshot.current_tick ? json(*snapshot.current_tick) : json(nullptr)},
+        {"logical_time", snapshot.logical_time ? json(*snapshot.logical_time) : json(nullptr)},
+        {"last_tick_duration_ns", snapshot.last_tick_duration_ns},
+        {"last_error", error_record(snapshot.last_error)}};
     const VersionInfo versions = version_info();
-    json generated_at = instant(generated_at_unix_ns);
+    json generated_at = instant(snapshot.generated_at_unix_ns);
     if (generated_at.is_null()) {
-        generated_at = detail::format_rfc3339_utc(0); // required: never null
+        generated_at = format_rfc3339_utc(0); // required: never null
     }
-    const json document = {{"kind", "status-snapshot"},
-                           {"format_version", versions.formats.at("status-snapshot")},
-                           {"generated_at", std::move(generated_at)},
-                           {"runtime_version", runtime_version},
-                           {"pid", pid},
-                           {"workflow", workflow},
-                           {"steps", std::move(steps_json)}};
+    return {{"kind", "status-snapshot"},
+            {"format_version", versions.formats.at("status-snapshot")},
+            {"generated_at", std::move(generated_at)},
+            {"runtime_version", snapshot.runtime_version},
+            {"pid", snapshot.pid},
+            {"workflow", workflow},
+            {"steps", std::move(steps_json)}};
+}
+
+} // namespace detail
+
+std::string StatusSnapshot::to_json() const {
     // Messages may come from modules: bytes that are not UTF-8 are replaced, not refused.
-    return document.dump(-1, ' ', false, json::error_handler_t::replace);
+    return detail::status_snapshot_json(*this).dump(-1, ' ', false, json::error_handler_t::replace);
 }
 
 } // namespace praenora

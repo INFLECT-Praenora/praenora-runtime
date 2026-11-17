@@ -92,6 +92,10 @@ struct ValidatedWorkflow {
     // each location {search_path {origin, index (absent for the installation's directory)},
     // file (relative to the search path, '/'-separated)}.
     nlohmann::json manifest_locations;
+    // The module search paths that resolved the steps' modules, in search order, with their
+    // origins and indexes: those of the context's index (RuntimeContext::modules), or the list
+    // rebuilt with the configuration's modules.search_paths when it names any.
+    std::vector<SearchPath> module_search_paths;
     // The runtime services that providers serve to the run, by "<name>@<major>": every service
     // that some step's module declares and that resolved. One provider serves a name and major to
     // the whole run.

@@ -242,6 +242,7 @@
     },
     "error_record": {
       "type": "object",
+      "description": "The last error of the workflow or of a step. In a status file, its strings (message, location.file, and every string of details and cause) name each directory the run knows by a placeholder, the rest of a path kept: <output>, <configuration>, <modules:ORIGIN:INDEX> or <modules:installation>, <providers:ORIGIN:INDEX> or <providers:installation>, <home>; in a snapshot taken in the process they hold absolute paths.",
       "required": [
         "code",
         "name",
