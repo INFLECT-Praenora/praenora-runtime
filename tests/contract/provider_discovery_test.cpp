@@ -35,6 +35,7 @@ using praenora::Severity;
 using praenora::detail::installation_module_dir;
 using praenora::detail::installation_provider_dir;
 using praenora::detail::load_provider_manifest;
+using praenora::detail::paths_of;
 using praenora::detail::provider_problem;
 using praenora::detail::provider_search_paths;
 using praenora::detail::ProviderIndex;
@@ -174,7 +175,9 @@ TEST(ProviderDiscovery, SearchOrderExplicitThenEnvironmentThenInstallation) {
     const ScopedEnvironment variable("PRAENORA_PROVIDER_PATH",
                                      path_list({utf8(from_environment), "", utf8(first)}));
 
-    const auto paths = provider_search_paths({utf8(first), utf8(second) + "/", utf8(first)}, true);
+    const auto search_paths =
+        provider_search_paths({utf8(first), utf8(second) + "/", utf8(first)}, true);
+    const auto paths = paths_of(search_paths);
     ASSERT_GE(paths.size(), 3u);
     EXPECT_EQ(paths[0], first.lexically_normal());
     EXPECT_EQ(paths[1], second.lexically_normal()) << "trailing separators are dropped";
@@ -184,16 +187,28 @@ TEST(ProviderDiscovery, SearchOrderExplicitThenEnvironmentThenInstallation) {
     ASSERT_TRUE(installed.has_value());
     EXPECT_EQ(paths.size(), 4u);
     EXPECT_EQ(paths.back(), *installed);
+    // Each path keeps where it comes from: its origin, and its position among the origin's
+    // non-empty entries (the installation's directory has none).
+    using praenora::detail::SearchPathOrigin;
+    ASSERT_EQ(search_paths.size(), 4u);
+    EXPECT_EQ(search_paths[0].origin, SearchPathOrigin::caller);
+    EXPECT_EQ(search_paths[0].index, std::optional<std::size_t>(0));
+    EXPECT_EQ(search_paths[1].origin, SearchPathOrigin::caller);
+    EXPECT_EQ(search_paths[1].index, std::optional<std::size_t>(1));
+    EXPECT_EQ(search_paths[2].origin, SearchPathOrigin::environment);
+    EXPECT_EQ(search_paths[2].index, std::optional<std::size_t>(0));
+    EXPECT_EQ(search_paths[3].origin, SearchPathOrigin::installation);
+    EXPECT_FALSE(search_paths[3].index.has_value());
 
     // Without the environment, PRAENORA_PROVIDER_PATH is ignored.
-    const auto without = provider_search_paths({utf8(first)}, false);
+    const auto without = paths_of(provider_search_paths({utf8(first)}, false));
     ASSERT_EQ(without.size(), 2u);
     EXPECT_EQ(without[0], first.lexically_normal());
     EXPECT_EQ(without[1], *installed);
 }
 
 TEST(ProviderDiscovery, RelativePathsAreAgainstTheCurrentDirectory) {
-    const auto paths = provider_search_paths({"relative/providers"}, false);
+    const auto paths = paths_of(provider_search_paths({"relative/providers"}, false));
     ASSERT_FALSE(paths.empty());
     EXPECT_TRUE(paths[0].is_absolute());
     EXPECT_EQ(paths[0], (fs::current_path() / "relative" / "providers").lexically_normal());
@@ -305,6 +320,43 @@ TEST(ProviderIndex, AFileReachedTwiceIsIndexedOnce) {
     const ProviderIndex index = ProviderIndex::scan({scratch.path(), scratch.path() / "sub"});
     EXPECT_EQ(names_of(index), std::vector<std::string>{"p"});
     EXPECT_TRUE(index.diagnostics().empty());
+    // Found through the first path, in its subdirectory.
+    const auto& location = index.entries().at(0).manifest.location;
+    ASSERT_TRUE(location.has_value());
+    EXPECT_EQ(location->file, "sub/p.provider.json");
+    EXPECT_EQ(location->index, std::optional<std::size_t>(0));
+}
+
+// Each indexed manifest knows where discovery found it: the search path that reached it first, by
+// origin and index, and the manifest file relative to that path, '/'-separated.
+TEST(ProviderIndex, RecordsWhereEachManifestWasFound) {
+    const ScratchDir scratch;
+    write_manifest(scratch.path() / "a" / "p.provider.json",
+                   usable_manifest("p", {"test.echo@0.0"}));
+    write_manifest(scratch.path() / "b" / "q" / "q.provider.json",
+                   usable_manifest("q", {"test.other@0.0"}));
+    write_manifest(scratch.path() / "c" / "r.provider.json", usable_manifest("r", {"test.r@0.0"}));
+    const ScopedEnvironment variable("PRAENORA_PROVIDER_PATH",
+                                     path_list({"", utf8(scratch.path() / "c")}));
+    const ProviderIndex index = ProviderIndex::scan(provider_search_paths(
+        {utf8(scratch.path() / "a"), utf8(scratch.path() / "a"), utf8(scratch.path() / "b")},
+        true));
+    ASSERT_EQ(names_of(index), (std::vector<std::string>{"p", "q", "r"}));
+    using praenora::detail::SearchPathOrigin;
+    const auto location = [&](std::size_t i) { return *index.entries().at(i).manifest.location; };
+    EXPECT_EQ(location(0).origin, SearchPathOrigin::caller);
+    EXPECT_EQ(location(0).index, std::optional<std::size_t>(0));
+    EXPECT_EQ(location(0).file, "p.provider.json");
+    EXPECT_EQ(location(1).origin, SearchPathOrigin::caller);
+    EXPECT_EQ(location(1).index, std::optional<std::size_t>(2)) << "a repeated path still counts";
+    EXPECT_EQ(location(1).file, "q/q.provider.json");
+    EXPECT_EQ(location(2).origin, SearchPathOrigin::environment);
+    EXPECT_EQ(location(2).index, std::optional<std::size_t>(0)) << "empty entries do not count";
+    EXPECT_EQ(location(2).file, "r.provider.json");
+
+    // A manifest read directly was found on no search path.
+    EXPECT_FALSE(
+        load_provider_manifest(scratch.path() / "a" / "p.provider.json").location.has_value());
 }
 
 TEST(ProviderIndex, OtherPlatformManifestsAreUnusableAndShadowNothing) {

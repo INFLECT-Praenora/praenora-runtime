@@ -1,0 +1,4 @@
+{
+  "code": "SCHEMA_VIOLATION",
+  "pointer": "/execution/manifests/steps/a/search_path"
+}

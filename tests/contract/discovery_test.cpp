@@ -11,6 +11,7 @@
 #include "core/sha256.hpp"
 #include "discovery/manifest.hpp"
 #include "discovery/module_index.hpp"
+#include "discovery/search_paths.hpp"
 #include "document/yaml_loader.hpp"
 #include "platform/platform.hpp"
 
@@ -42,10 +43,15 @@ using praenora::ErrorCode;
 using praenora::Severity;
 using praenora::detail::installation_module_dir;
 using praenora::detail::load_manifest;
+using praenora::detail::manifest_location;
+using praenora::detail::ManifestLocation;
 using praenora::detail::module_search_paths;
 using praenora::detail::ModuleIndex;
 using praenora::detail::ModuleManifest;
 using praenora::detail::parse_semver;
+using praenora::detail::paths_of;
+using praenora::detail::SearchPath;
+using praenora::detail::SearchPathOrigin;
 using praenora::test::ScopedEnvironment;
 using praenora::test::utf8_path;
 
@@ -78,6 +84,23 @@ std::string path_list(const std::vector<std::string>& entries) {
         list += entries[i];
     }
     return list;
+}
+
+// Where a search path comes from, as "<origin>#<index>" ("installation" has no index).
+std::string origin_of(const SearchPath& path) {
+    return praenora::detail::to_string(path.origin) +
+           (path.index ? "#" + std::to_string(*path.index) : std::string());
+}
+
+// Where discovery found a manifest, as "<origin>[#<index>]:<file>", or "nowhere".
+std::string where(const ModuleManifest& manifest) {
+    if (!manifest.location) {
+        return "nowhere";
+    }
+    const ManifestLocation& location = *manifest.location;
+    return praenora::detail::to_string(location.origin) +
+           (location.index ? "#" + std::to_string(*location.index) : std::string()) + ":" +
+           location.file;
 }
 
 } // namespace
@@ -172,7 +195,14 @@ TEST(Discovery, SearchOrderExplicitBeforeEnvironment) {
         if (installed) {
             expected.push_back(*installed);
         }
-        EXPECT_EQ(paths, expected);
+        EXPECT_EQ(paths_of(paths), expected);
+        // Each path keeps where it comes from.
+        EXPECT_EQ(origin_of(paths[0]), "caller#0");
+        EXPECT_EQ(origin_of(paths[1]), "configuration#0");
+        EXPECT_EQ(origin_of(paths[2]), "environment#0");
+        if (installed) {
+            EXPECT_EQ(origin_of(paths[3]), "installation");
+        }
 
         // The first match wins: the explicit path's manifest.
         const ModuleIndex index = ModuleIndex::scan(paths);
@@ -185,15 +215,15 @@ TEST(Discovery, SearchOrderExplicitBeforeEnvironment) {
         const ScopedEnvironment environment("PRAENORA_MODULE_PATH", utf8(primary));
         const auto paths = module_search_paths({utf8(secondary)}, {}, true);
         ASSERT_GE(paths.size(), 2u);
-        EXPECT_EQ(paths[0], secondary);
-        EXPECT_EQ(paths[1], primary);
+        EXPECT_EQ(paths[0].path, secondary);
+        EXPECT_EQ(paths[1].path, primary);
         const ModuleIndex index = ModuleIndex::scan(paths);
         const ModuleManifest* found = index.resolve("fx-echo", kVersion);
         ASSERT_NE(found, nullptr);
         EXPECT_EQ(found->directory, secondary / "fx-echo");
 
         // Without use_environment, PRAENORA_MODULE_PATH is ignored.
-        const auto without = module_search_paths({utf8(secondary)}, {}, false);
+        const auto without = paths_of(module_search_paths({utf8(secondary)}, {}, false));
         EXPECT_EQ(std::find(without.begin(), without.end(), primary), without.end());
         EXPECT_EQ(without.front(), secondary);
     }
@@ -280,14 +310,19 @@ TEST(Discovery, EnvironmentPathListSplit) {
         if (installed) {
             expected.push_back(*installed);
         }
-        EXPECT_EQ(module_search_paths({}, {}, true), expected);
+        const auto paths = module_search_paths({}, {}, true);
+        EXPECT_EQ(paths_of(paths), expected);
+        // Indexes count the variable's non-empty entries: c is the third.
+        EXPECT_EQ(origin_of(paths[0]), "environment#0");
+        EXPECT_EQ(origin_of(paths[1]), "environment#1");
+        EXPECT_EQ(origin_of(paths[2]), "environment#2");
     }
     {
         // A relative entry is relative to the current directory.
         const ScopedEnvironment environment("PRAENORA_MODULE_PATH", "relative modules");
         const auto paths = module_search_paths({}, {}, true);
         ASSERT_FALSE(paths.empty());
-        EXPECT_EQ(paths.front(),
+        EXPECT_EQ(paths.front().path,
                   (fs::current_path() / utf8_path("relative modules")).lexically_normal());
     }
     {
@@ -336,4 +371,74 @@ TEST(Discovery, InvalidManifestsBecomeWarnings) {
         EXPECT_EQ(praenora::error_code_info(diagnostic.code).name,
                   expect.at("code").get<std::string>());
     }
+}
+
+// Each indexed manifest knows where discovery found it: the search path that reached it first, by
+// origin and index, and the manifest file relative to that path, '/'-separated.
+TEST(Discovery, RecordsWhereEachManifestWasFound) {
+    const fs::path primary = layout("primary");
+    const fs::path secondary = layout("secondary");
+    {
+        // Each origin counts its paths from 0.
+        const ModuleIndex index =
+            ModuleIndex::scan(module_search_paths({utf8(primary)}, {secondary}, false));
+        const auto entries = index.entries();
+        ASSERT_EQ(entries.size(), 2u);
+        EXPECT_EQ(where(*entries[0]), "caller#0:fx-echo.pmm.json");
+        EXPECT_EQ(where(*entries[1]), "configuration#0:fx-echo/fx-echo.pmm.json");
+    }
+    {
+        // A configuration path that repeats a caller's path is searched once, as the caller's;
+        // it still counts among the configuration's paths.
+        const auto paths = module_search_paths({utf8(primary)}, {primary, secondary}, false);
+        ASSERT_GE(paths.size(), 2u);
+        EXPECT_EQ(origin_of(paths[0]), "caller#0");
+        EXPECT_EQ(origin_of(paths[1]), "configuration#1");
+        const ModuleIndex index = ModuleIndex::scan(paths);
+        const auto entries = index.entries();
+        ASSERT_EQ(entries.size(), 2u);
+        EXPECT_EQ(where(*entries[0]), "caller#0:fx-echo.pmm.json");
+        EXPECT_EQ(where(*entries[1]), "configuration#1:fx-echo/fx-echo.pmm.json");
+    }
+    {
+        // A caller's path that repeats an earlier one still counts.
+        const ModuleIndex index = ModuleIndex::scan(module_search_paths(
+            {utf8(primary), utf8(primary), utf8(layout("other-platform"))}, {}, false));
+        const auto entries = index.entries();
+        ASSERT_EQ(entries.size(), 2u);
+        EXPECT_EQ(where(*entries[1]), "caller#2:fx-echo.pmm.json");
+    }
+    {
+        // PRAENORA_MODULE_PATH: the position among the variable's non-empty entries.
+        const ScopedEnvironment environment(
+            "PRAENORA_MODULE_PATH",
+            path_list({"", utf8(layout("other-platform")), utf8(secondary)}));
+        const ModuleIndex index = ModuleIndex::scan(module_search_paths({}, {}, true));
+        const auto entries = index.entries();
+        ASSERT_EQ(entries.size(), 2u);
+        EXPECT_EQ(where(*entries[0]), "environment#0:fx-echo.pmm.json");
+        EXPECT_EQ(where(*entries[1]), "environment#1:fx-echo/fx-echo.pmm.json");
+    }
+    {
+        // A file reached through two overlapping paths: relative to the first that reaches it.
+        const ModuleIndex inner_first = ModuleIndex::scan({secondary / "fx-echo", secondary});
+        ASSERT_EQ(inner_first.entries().size(), 1u);
+        EXPECT_EQ(where(*inner_first.entries()[0]), "caller#0:fx-echo.pmm.json");
+        const ModuleIndex outer_first = ModuleIndex::scan({secondary, secondary / "fx-echo"});
+        ASSERT_EQ(outer_first.entries().size(), 1u);
+        EXPECT_EQ(where(*outer_first.entries()[0]), "caller#0:fx-echo/fx-echo.pmm.json");
+    }
+    // The installation's directory has no index.
+    if (const auto installed = installation_module_dir()) {
+        const auto paths = module_search_paths({}, {}, false);
+        ASSERT_EQ(paths.size(), 1u);
+        EXPECT_EQ(origin_of(paths[0]), "installation");
+        const ManifestLocation location =
+            manifest_location(paths[0], paths[0].path / "fx-echo" / "fx-echo.pmm.json");
+        EXPECT_EQ(location.origin, SearchPathOrigin::installation);
+        EXPECT_FALSE(location.index.has_value());
+        EXPECT_EQ(location.file, "fx-echo/fx-echo.pmm.json");
+    }
+    // A manifest read directly was found on no search path.
+    EXPECT_EQ(where(load_manifest(praenora::test::fixture_manifest("fx-echo"))), "nowhere");
 }

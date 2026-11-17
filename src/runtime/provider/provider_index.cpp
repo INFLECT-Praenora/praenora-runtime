@@ -39,17 +39,20 @@ std::string offered(const ProviderManifest& manifest, const std::string& name) {
 
 } // namespace
 
-std::vector<fs::path> provider_search_paths(const std::vector<std::string>& explicit_paths,
-                                            bool use_environment) {
-    std::vector<fs::path> paths;
+std::vector<SearchPath> provider_search_paths(const std::vector<std::string>& explicit_paths,
+                                              bool use_environment) {
+    std::vector<SearchPath> paths;
+    std::size_t index = 0; // among the caller's non-empty paths
     for (const auto& text : explicit_paths) {
-        append_search_path(paths, path_from_utf8(text));
+        if (!text.empty()) {
+            append_search_path(paths, path_from_utf8(text), SearchPathOrigin::caller, index++);
+        }
     }
     if (use_environment) {
         append_environment_search_paths(paths, "PRAENORA_PROVIDER_PATH");
     }
     if (const auto installed = installation_provider_dir()) {
-        append_search_path(paths, *installed);
+        append_search_path(paths, *installed, SearchPathOrigin::installation, std::nullopt);
     }
     return paths;
 }
@@ -88,17 +91,23 @@ std::optional<std::string> provider_problem(const ProviderManifest& manifest) {
 }
 
 ProviderIndex ProviderIndex::scan(const std::vector<fs::path>& search_paths) {
+    return scan(caller_search_paths(search_paths));
+}
+
+ProviderIndex ProviderIndex::scan(const std::vector<SearchPath>& search_paths) {
     ProviderIndex index;
-    index.search_paths_ = search_paths;
+    index.search_paths_ = paths_of(search_paths);
     std::set<fs::path> seen;
     for (const auto& search_path : search_paths) {
         for (const auto& file :
-             manifest_files(search_path, kManifestSuffix, "provider", index.diagnostics_)) {
+             manifest_files(search_path.path, kManifestSuffix, "provider", index.diagnostics_)) {
             if (!seen.insert(normalized_search_path(file)).second) {
                 continue;
             }
             try {
-                index.add(load_provider_manifest(file));
+                ProviderManifest manifest = load_provider_manifest(file);
+                manifest.location = manifest_location(search_path, file);
+                index.add(std::move(manifest));
             } catch (const Error& error) {
                 Diagnostic diagnostic;
                 diagnostic.severity = Severity::warning;

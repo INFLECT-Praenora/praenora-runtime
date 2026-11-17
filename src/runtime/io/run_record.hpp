@@ -46,19 +46,23 @@ void prepare_output_dir(const std::filesystem::path& dir, bool overwrite);
 //    "execution": {"status": "running"|"completed"|"stopped"|"failed", "started_at",
 //                  "finished_at" (null until the end), "ticks_completed", "error" (null or an
 //                  error record), "platform": {"os", "arch", "compiler", "build_type"},
-//                  "overrides": {"seed"?, "ticks"?}, "validation": "strict"|"off", and at the
-//                  end "final_status" (the final status snapshot), "outputs" and "trace"}}.
+//                  "overrides": {"seed"?, "ticks"?}, "validation": "strict"|"off",
+//                  "manifests": {"steps", "services"} (where each manifest was found), and at
+//                  the end "final_status" (the final status snapshot), "outputs" and "trace"}}.
 // Wall-clock instants are RFC 3339 UTC with nine fractional digits. Nothing names the machine or
-// its user. Not thread-safe.
+// its user. No absolute path is written but in error records (their location, message, details and
+// cause) and in values copied from the configuration and from manifests (parameters, a provider's
+// engine object), which hold whatever those documents hold. Not thread-safe.
 class RunRecordWriter {
 public:
     // `output_dir` holds run-record.json; when it is empty, the record is kept in memory only.
-    // `overrides` are the run settings the caller overrode; `strict_validation` tells whether
-    // payloads are validated against their message types ("strict") or not ("off"). Throws
+    // `manifests` is execution.manifests (ValidatedWorkflow::manifest_locations). `overrides` are
+    // the run settings the caller overrode; `strict_validation` tells whether payloads are
+    // validated against their message types ("strict") or not ("off"). Throws
     // praenora::Error(INVALID_ARGUMENT) unless `fingerprint` is the SHA-256 of
     // canonical_json(reproducibility).
     RunRecordWriter(std::filesystem::path output_dir, nlohmann::json reproducibility,
-                    std::string fingerprint, RunOverrides overrides = {},
+                    std::string fingerprint, nlohmann::json manifests, RunOverrides overrides = {},
                     bool strict_validation = true);
 
     // The record of a run that has just started (status running). Throws

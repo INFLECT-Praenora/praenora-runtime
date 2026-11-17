@@ -98,6 +98,25 @@
       "seed": 7
     },
     "validation": "strict",
+    "manifests": {
+      "steps": {
+        "a": {
+          "search_path": {
+            "origin": "caller",
+            "index": 0
+          },
+          "file": "fx-echo/fx-echo.pmm.json"
+        }
+      },
+      "services": {
+        "test.echo@0": {
+          "search_path": {
+            "origin": "installation"
+          },
+          "file": "test-echo/test-echo.provider.json"
+        }
+      }
+    },
     "outputs": {
       "result": {
         "file": "outputs/result.jsonl",

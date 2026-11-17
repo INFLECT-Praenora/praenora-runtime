@@ -83,6 +83,18 @@
       "seed": 7
     },
     "validation": "strict",
+    "manifests": {
+      "steps": {
+        "a": {
+          "search_path": {
+            "origin": "caller",
+            "index": 0
+          },
+          "file": "fx-echo/fx-echo.pmm.json"
+        }
+      },
+      "services": {}
+    },
     "outputs": {
       "result": {
         "file": "outputs/result.jsonl",

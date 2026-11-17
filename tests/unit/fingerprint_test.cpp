@@ -13,6 +13,7 @@
 
 #include "module_fixtures.hpp"
 #include "provider_fixtures.hpp"
+#include "scoped_environment.hpp"
 #include "test_support.hpp"
 #include "validation_fixtures.hpp"
 
@@ -181,7 +182,8 @@ TEST(Fingerprint, ReproducibilitySectionMatchesTheRunRecordSchema) {
           {"platform",
            {{"os", "macos"}, {"arch", "arm64"}, {"compiler", "c"}, {"build_type", "Debug"}}},
           {"overrides", json::object()},
-          {"validation", "strict"}}}};
+          {"validation", "strict"},
+          {"manifests", workflow.manifest_locations}}}};
     const auto& schema = praenora::detail::SchemaRegistry::builtin().for_kind(
         "run-record", praenora::detail::parse_semver("0.2.0"));
     const auto issues = schema.validate(record);
@@ -230,6 +232,61 @@ TEST(Fingerprint, ReproducibilitySectionMatchesTheRunRecordSchema) {
     EXPECT_EQ(section.at("services"), json::object());
     EXPECT_EQ(a.at("services"), json::array());
     EXPECT_EQ(section.at("steps").at("b").at("services"), json::array());
+
+    // Where each manifest was found is kept beside the section, for the run record's execution
+    // section: relative to the caller's search path, the first one.
+    EXPECT_EQ(workflow.manifest_locations, json::parse(R"({
+        "steps": {
+            "a": {"search_path": {"origin": "caller", "index": 0},
+                  "file": "fx-echo/fx-echo.pmm.json"},
+            "b": {"search_path": {"origin": "caller", "index": 0},
+                  "file": "fx-slow/fx-slow.pmm.json"}},
+        "services": {}})"));
+}
+
+// Where the manifests are does not change the fingerprint: the same module files, found through
+// the configuration's own search path, give the same one. Only their recorded location changes.
+TEST(Fingerprint, IgnoresWhereTheManifestsAre) {
+    const auto reference = validated(chain_config());
+
+    ScratchDir dir;
+    write_text_file(dir.path() / "obs.csv", praenora::test::observations_csv());
+    for (const char* name : {"fx-echo", "fx-slow"}) {
+        // Byte for byte: the manifest's digest is part of the fingerprint.
+        const fs::path manifest = praenora::test::fixture_manifest(name);
+        const fs::path copy = dir.path() / "mods" / name;
+        fs::create_directories(copy);
+        fs::copy_file(manifest, copy / manifest.filename());
+        const fs::path library = praenora::detail::load_manifest(manifest).library_path;
+        fs::copy_file(library, copy / library.filename());
+    }
+    const auto context = praenora::test::make_test_context({});
+    const auto result = validate_text(
+        dir.path(),
+        chain_config("run: { seed: 7 }\n", "{}", "modules: { search_paths: [absent, mods] }\n"), {},
+        *context);
+    ASSERT_TRUE(result.workflow.has_value()) << result.report.to_text();
+    EXPECT_NE(result.workflow->steps.at(0).manifest->manifest_path,
+              reference.steps.at(0).manifest->manifest_path);
+    EXPECT_EQ(result.workflow->fingerprint, reference.fingerprint);
+    EXPECT_EQ(result.workflow->manifest_locations.at("steps").at("a"), json::parse(R"({
+        "search_path": {"origin": "configuration", "index": 1},
+        "file": "fx-echo/fx-echo.pmm.json"})"));
+    EXPECT_NE(result.workflow->manifest_locations, reference.manifest_locations);
+
+    // The same copies found through PRAENORA_MODULE_PATH.
+    const praenora::test::ScopedEnvironment variable("PRAENORA_MODULE_PATH",
+                                                     path_to_utf8(dir.path() / "mods"));
+    const auto from_environment = praenora::test::make_test_context({});
+    from_environment->modules =
+        praenora::detail::ModuleIndex::scan(praenora::detail::module_search_paths({}, {}, true));
+    from_environment->use_environment = true;
+    const auto found = validate_text(dir.path(), chain_config(), {}, *from_environment);
+    ASSERT_TRUE(found.workflow.has_value()) << found.report.to_text();
+    EXPECT_EQ(found.workflow->fingerprint, reference.fingerprint);
+    EXPECT_EQ(found.workflow->manifest_locations.at("steps").at("b"), json::parse(R"({
+        "search_path": {"origin": "environment", "index": 0},
+        "file": "fx-slow/fx-slow.pmm.json"})"));
 }
 
 namespace {
@@ -292,6 +349,10 @@ TEST(Fingerprint, RecordsTheServicesOfTheRunAndTheirProviders) {
     ASSERT_EQ(workflow.services.size(), 1u);
     EXPECT_EQ(praenora::detail::to_string(workflow.services.at("test.echo@0").service),
               "test.echo@0.0");
+    // Where the provider's manifest was found: directly in the caller's first provider path.
+    EXPECT_EQ(workflow.manifest_locations.at("services"), json::parse(R"({
+        "test.echo@0": {"search_path": {"origin": "caller", "index": 0},
+                        "file": "test-echo.provider.json"}})"));
 
     // As written in a run record, the section satisfies the run-record schema.
     const json record = {
@@ -305,7 +366,8 @@ TEST(Fingerprint, RecordsTheServicesOfTheRunAndTheirProviders) {
           {"platform",
            {{"os", "macos"}, {"arch", "arm64"}, {"compiler", "c"}, {"build_type", "Debug"}}},
           {"overrides", json::object()},
-          {"validation", "strict"}}}};
+          {"validation", "strict"},
+          {"manifests", workflow.manifest_locations}}}};
     const auto& schema = praenora::detail::SchemaRegistry::builtin().for_kind(
         "run-record", praenora::detail::parse_semver("0.2.0"));
     for (const auto& issue : schema.validate(record)) {

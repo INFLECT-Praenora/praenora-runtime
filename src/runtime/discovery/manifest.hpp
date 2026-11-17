@@ -4,6 +4,7 @@
 #define PRAENORA_RUNTIME_DISCOVERY_MANIFEST_HPP
 
 #include "core/semver.hpp"
+#include "discovery/search_paths.hpp"
 #include "document/schema.hpp"
 #include "instance/services.hpp"
 
@@ -59,6 +60,9 @@ struct ModuleManifest {
     ModuleFeatures features;
     std::optional<std::filesystem::path> test_vectors;
     std::string manifest_sha256; // SHA-256 of the manifest file's bytes
+    // Where discovery found the manifest (ModuleIndex::scan()), without an absolute path; nullopt
+    // for one that load_manifest() read directly.
+    std::optional<ManifestLocation> location;
 };
 
 // Reads and checks a manifest. The file is a JSON document (strict JSON, as every *.json file),

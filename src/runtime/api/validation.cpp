@@ -549,6 +549,7 @@ private:
         result.message_types = message_types();
         result.reproducibility = reproducibility(result);
         result.fingerprint = sha256_hex(canonical_json(result.reproducibility));
+        result.manifest_locations = manifest_locations(result);
         result.config = std::move(config_);
         return result;
     }
@@ -615,6 +616,35 @@ private:
         }
         section["steps"] = std::move(steps);
         return section;
+    }
+
+    // The run record's execution.manifests: where each step's module manifest and each service's
+    // provider manifest was found, by the keys of the reproducibility section's steps and
+    // services. Every manifest of a run comes from a scan of the search paths, so each has a
+    // location.
+    static json manifest_locations(const ValidatedWorkflow& workflow) {
+        const auto location_json = [](const std::optional<ManifestLocation>& location,
+                                      const std::filesystem::path& manifest) {
+            if (!location) {
+                throw Error(ErrorCode::INTERNAL, "the manifest '" + path_to_utf8(manifest) +
+                                                     "' was not found on a search path");
+            }
+            json search_path = {{"origin", to_string(location->origin)}};
+            if (location->index) {
+                search_path["index"] = *location->index;
+            }
+            return json{{"search_path", std::move(search_path)}, {"file", location->file}};
+        };
+        json steps = json::object();
+        for (const ResolvedStep& step : workflow.steps) {
+            steps[step.id] = location_json(step.manifest->location, step.manifest->manifest_path);
+        }
+        json services = json::object();
+        for (const auto& [key, service] : workflow.services) {
+            services[key] =
+                location_json(service.provider->location, service.provider->manifest_path);
+        }
+        return {{"steps", std::move(steps)}, {"services", std::move(services)}};
     }
 
     // The message types of the definition's inputs and outputs and of its steps' capability ports,

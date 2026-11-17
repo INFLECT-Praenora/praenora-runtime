@@ -365,6 +365,20 @@ TEST(Example, RunRecordValidatesAgainstSchema) {
     EXPECT_EQ(execution.at("outputs").at("predictions").at("messages"), kTicks);
     EXPECT_EQ(execution.at("outputs").at("state").at("file"), "outputs/state.jsonl");
     EXPECT_EQ(execution.at("final_status").at("workflow").at("state"), "completed");
+    // Where each step's manifest was found: relative to the caller's module path, the first one.
+    EXPECT_EQ(execution.at("manifests"), json::parse(R"({
+        "steps": {
+            "estimate": {"search_path": {"origin": "caller", "index": 0},
+                         "file": "example-estimator/example-estimator.pmm.json"},
+            "predict": {"search_path": {"origin": "caller", "index": 0},
+                        "file": "example-predictor/example-predictor.pmm.json"}},
+        "services": {}})"));
+    // No absolute path anywhere in the record of a run without an error: it names neither the
+    // directories of the modules, the configuration and the output nor the user.
+    for (const std::string& path :
+         {utf8(utf8_path(PRAENORA_EXAMPLE_MODULES_DIR)), utf8(example_dir()), utf8(dir.path())}) {
+        EXPECT_FALSE(contains(record.dump(), path)) << path;
+    }
 
     // The same check catches a record that breaks the schema.
     json broken = record;
@@ -466,6 +480,11 @@ TEST(Example, PathsWithSpacesAndUnicode) {
     for (const char* file : {"outputs/predictions.jsonl", "outputs/state.jsonl"}) {
         EXPECT_EQ(read_file(copied.out / file), read_file(reference.out / file)) << file;
     }
+    // The records say where the manifests were found relative to the search path, so they agree.
+    const auto manifests = [](const fs::path& out) {
+        return json::parse(read_file(out / "run-record.json")).at("execution").at("manifests");
+    };
+    EXPECT_EQ(manifests(copied.out), manifests(reference.out));
 }
 
 TEST(Example, StatusQueriesDuringRunAreSafe) {

@@ -85,7 +85,8 @@ TEST(RuntimeContext, ModuleSearchOrderKeepsTheCallersPaths) {
     EXPECT_EQ(context.module_paths, options.module_paths);
     EXPECT_TRUE(context.use_environment);
     EXPECT_EQ(context.modules.search_paths(),
-              praenora::detail::module_search_paths(options.module_paths, {}, true));
+              praenora::detail::paths_of(
+                  praenora::detail::module_search_paths(options.module_paths, {}, true)));
 
     // The caller's module is still found when the configuration adds a search path.
     const auto found = validate_text(dir.path(), config_with_search_path("fx-echo"), {}, context);
@@ -174,7 +175,8 @@ TEST(RuntimeContext, ProviderSearchOrderPutsTheCallersPathsFirst) {
     const auto context = make_runtime_context(options);
     EXPECT_EQ(context.providers.search_paths(), expected);
     EXPECT_EQ(context.providers.search_paths(),
-              praenora::detail::provider_search_paths(options.provider_paths, true));
+              praenora::detail::paths_of(
+                  praenora::detail::provider_search_paths(options.provider_paths, true)));
 
     // Without the environment the caller's paths stay first, and PRAENORA_PROVIDER_PATH is left
     // out.

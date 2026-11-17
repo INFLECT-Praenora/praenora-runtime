@@ -281,7 +281,10 @@ The reproducibility section of the run record (format 0.2.0;
 - `steps.<step>.services`: the sorted keys of the services that the step's module may use.
 
 The fingerprint therefore changes when a run's provider, its manifest, its library or its engine
-changes, and when a step's module declares other services.
+changes, and when a step's module declares other services. Where each provider's manifest was
+found is in the run record's execution section (`execution.manifests.services`), relative to its
+search path ([reproducibility.md](reproducibility.md#where-a-manifest-was-found)), so it does not
+change the fingerprint.
 
 ## Loading
 

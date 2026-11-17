@@ -5,6 +5,7 @@
 
 #include "core/semver.hpp"
 #include "discovery/manifest.hpp"
+#include "discovery/search_paths.hpp"
 
 #include <praenora/runtime/error.hpp>
 
@@ -23,10 +24,11 @@ namespace praenora::detail {
 //      entries are skipped, relative ones are relative to the current directory);
 //   4. installation_module_dir().
 // Every path is made absolute and lexically normal, without a trailing separator; a path that
-// repeats an earlier one is dropped.
-std::vector<std::filesystem::path>
-module_search_paths(const std::vector<std::string>& explicit_paths,
-                    const std::vector<std::filesystem::path>& config_paths, bool use_environment);
+// repeats an earlier one is dropped. Each keeps its origin (caller, configuration, environment,
+// installation) and its index among its origin's non-empty entries (SearchPath).
+std::vector<SearchPath> module_search_paths(const std::vector<std::string>& explicit_paths,
+                                            const std::vector<std::filesystem::path>& config_paths,
+                                            bool use_environment);
 
 // The installation's default module directory, <prefix>/lib/praenora/modules, located from the
 // binary that holds the runtime (platform/platform.hpp): <its directory>/praenora/modules, and on
@@ -45,7 +47,10 @@ public:
     // - a manifest whose name, version and platform repeat an earlier one is indexed but can
     //   never be resolved; it gets a warning naming both paths;
     // - manifests for other platforms are indexed too and shadow nothing.
-    // A manifest file reached twice (overlapping search paths) is indexed once.
+    // A manifest file reached twice (overlapping search paths) is indexed once. Each indexed
+    // manifest's `location` says where it was found: the search path that reached it first.
+    static ModuleIndex scan(const std::vector<SearchPath>& search_paths);
+    // The same over `search_paths` taken as the caller's paths (caller_search_paths()).
     static ModuleIndex scan(const std::vector<std::filesystem::path>& search_paths);
 
     // Warnings found while scanning, in the order found. Warnings that report no failure (a

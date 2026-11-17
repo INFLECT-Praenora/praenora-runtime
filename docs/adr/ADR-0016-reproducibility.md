@@ -40,6 +40,7 @@ Results must be reproducible, and the runtime must eliminate each source of nond
 - `tools/generate_example_data.py` writes the example's observations: times are whole hundredths of a day, so they are exact decimal text, and values are written with three decimals, which makes the file practically independent of the last digits of the platform's `exp` and `sin`; it writes bytes with `\n` line endings on every platform.
 - The golden outputs of the example (`tests/fixtures/golden/example.estimate-predict/`) are its recorded output files with sixteen zeros in place of the run fingerprint's first 16 hex digits in each envelope `id`: the fingerprint covers the module libraries' digests, which differ from build to build. They are compared with a relative tolerance of 1e-9 and an absolute one of 1e-12 (`json_near()`, ADR-0024), and rewritten only with `PRAENORA_UPDATE_GOLDEN=1`.
 - The run record identifies each step's module by name, version, manifest digest and library digest. Neither section holds a path, the resolved manifest's included, so the records of runs made at different paths compare equal; `praenora modules list` and `praenora modules inspect` show where a manifest is.
+- Later: [ADR-0029](ADR-0029-run-record-says-where-manifests-were-found.md) adds `execution.manifests`, where each module and provider manifest was found, relative to its search path and never as an absolute path; the reproducibility section still holds no path, and the fingerprint does not change.
 
 ## Alternatives considered
 

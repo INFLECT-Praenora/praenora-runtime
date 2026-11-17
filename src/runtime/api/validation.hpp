@@ -86,6 +86,12 @@ struct ValidatedWorkflow {
     // It holds no paths, no wall-clock time and nothing from `outputs` or `observability`.
     nlohmann::json reproducibility;
     std::string fingerprint; // sha256_hex(canonical_json(reproducibility))
+    // The run record's execution.manifests, outside the hashed section: where each manifest of the
+    // run was found, without an absolute path (ManifestLocation, discovery/search_paths.hpp):
+    //   steps {<step>: location}, services {"<name>@<major>": location} (the provider's manifest),
+    // each location {search_path {origin, index (absent for the installation's directory)},
+    // file (relative to the search path, '/'-separated)}.
+    nlohmann::json manifest_locations;
     // The runtime services that providers serve to the run, by "<name>@<major>": every service
     // that some step's module declares and that resolved. One provider serves a name and major to
     // the whole run.

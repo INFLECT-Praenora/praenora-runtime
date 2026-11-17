@@ -53,3 +53,4 @@ Some ADRs have a split status, for example "Accepted (shape) / Proposed (details
 | [ADR-0026](ADR-0026-runtime-service-providers.md) | Runtime service providers: one engine per process, loaded on demand | Proposed | 2026-11-16 |
 | [ADR-0027](ADR-0027-simulation-service-v0.md) | Simulation service v0 and the libRoadRunner provider | Proposed | 2026-11-16 |
 | [ADR-0028](ADR-0028-error-records-keep-location-and-details.md) | Error records keep the location and details of their error | Proposed | 2026-11-16 |
+| [ADR-0029](ADR-0029-run-record-says-where-manifests-were-found.md) | The run record says where each manifest was found, without an absolute path | Proposed | 2026-11-16 |

@@ -103,6 +103,7 @@ format 0.1.x, which have no `services` and whose error records have no `location
 | `platform` | `{os, arch, compiler, build_type}` of the runtime build. |
 | `overrides` | The run settings the caller overrode (`seed`, `ticks`); `{}` when none. |
 | `validation` | `strict`, or `off` for a performance measurement. |
+| `manifests` | Where each manifest of the run was found ([below](#where-a-manifest-was-found)): `{steps {<step>: location}, services {"<name>@<major>": location}}`, for the module manifest of every step and the provider manifest of every service in the reproducibility section. |
 | `outputs` | `{<output>: {file, sha256, messages}}` for every recorded output, written at the end. |
 | `trace` | `{file, sha256, messages}` of the message trace, written at the end when tracing is on. |
 | `final_status` | The final status snapshot ([observability.md](observability.md#status-snapshot)), written at the end. |
@@ -111,8 +112,40 @@ format 0.1.x, which have no `services` and whose error records have no `location
   each time replacing the file atomically, as JSON indented by two spaces with a final newline.
   Without an output directory it is kept in memory only (`Workflow::run_record_json()`).
 - The record names no host and no user. It identifies each module, and each provider, by name,
-  version and the digests of its manifest and library, not by path.
+  version and the digests of its manifest and library, and says where its manifest was found only
+  relative to a search path that it names by origin and index (`manifests`). The runtime writes no
+  absolute path into the record except in two places: error records (`error`, and those in
+  `final_status`), whose `location`, `message`, `details` and `cause` can name a file by its
+  absolute path, and the values it copies from the configuration and from manifests (parameters
+  and their defaults, a provider's `engine` object), which hold whatever those documents hold,
+  paths included.
 - A writer MUST refuse a fingerprint that is not the hash of the record's reproducibility section.
+
+### Where a manifest was found
+
+A location in `execution.manifests` is `{"search_path": {"origin", "index"}, "file"}`:
+
+- `search_path` is the search path that reached the manifest first
+  ([manifest.md](manifest.md#discovery), [runtime-services.md](runtime-services.md#discovery)),
+  named by where it comes from, never by its value:
+  - `origin` is `caller` (the caller's paths: `RuntimeOptions::module_paths` or `provider_paths`,
+    `--module-path` or `--provider-path`, the Python package's paths), `configuration` (the
+    configuration's `modules.search_paths`; module manifests only), `environment`
+    (`PRAENORA_MODULE_PATH` or `PRAENORA_PROVIDER_PATH`) or `installation` (the installation's
+    module or provider directory);
+  - `index` is the path's position among the non-empty entries of its origin, as given, counting
+    from 0. An entry that repeats an earlier path, and so is not searched again, still counts. The
+    installation's directory has no `index`.
+- `file` is the manifest file relative to that search path, with `/` as separator on every
+  platform: `<file>` for a manifest in the search path itself, `<directory>/<file>` for one in an
+  immediate subdirectory (discovery looks no deeper). A manifest reached through two overlapping
+  search paths is relative to the first.
+
+Given the run's search paths, a reader can tell which file a run used, even when several copies of
+a module or provider are installed; runs whose search paths hold the same files in the same layout
+record the same locations wherever the paths are. The locations are outside the reproducibility
+section: they never change the fingerprint. `praenora modules inspect` and `praenora providers
+list` show the absolute paths on the machine.
 
 ## Output files
 
@@ -185,5 +218,7 @@ absolute one of 1e-12.
 - [ADR-0022](../adr/ADR-0022-target-data-intake.md): input data and its digests.
 - [ADR-0026](../adr/ADR-0026-runtime-service-providers.md): service providers and their engines in
   the fingerprint.
+- [ADR-0029](../adr/ADR-0029-run-record-says-where-manifests-were-found.md): where manifests were
+  found.
 - [RFC 8785 (JSON Canonicalization Scheme)](https://www.rfc-editor.org/rfc/rfc8785).
 - [user-guide.md](../user-guide.md#what-a-run-writes): the files of a run.

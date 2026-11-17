@@ -4,6 +4,7 @@
 #define PRAENORA_RUNTIME_PROVIDER_PROVIDER_MANIFEST_HPP
 
 #include "core/semver.hpp"
+#include "discovery/search_paths.hpp"
 #include "instance/services.hpp"
 
 #include <nlohmann/json.hpp>
@@ -29,6 +30,9 @@ struct ProviderManifest {
     std::vector<ServiceVersion> services; // in manifest order; unique by name and major
     nlohmann::json engine;                // a JSON object
     std::string manifest_sha256;          // SHA-256 of the manifest file's bytes
+    // Where discovery found the manifest (ProviderIndex::scan()), without an absolute path;
+    // nullopt for one that load_provider_manifest() read directly.
+    std::optional<ManifestLocation> location;
 };
 
 // Reads and checks a provider manifest, as load_manifest() reads a module manifest

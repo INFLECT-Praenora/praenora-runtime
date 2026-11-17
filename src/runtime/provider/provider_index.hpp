@@ -4,6 +4,7 @@
 #ifndef PRAENORA_RUNTIME_PROVIDER_PROVIDER_INDEX_HPP
 #define PRAENORA_RUNTIME_PROVIDER_PROVIDER_INDEX_HPP
 
+#include "discovery/search_paths.hpp"
 #include "provider/provider_manifest.hpp"
 
 #include <praenora/runtime/error.hpp>
@@ -23,9 +24,10 @@ namespace praenora::detail {
 //      entries are skipped, relative ones are relative to the current directory);
 //   3. installation_provider_dir().
 // Every path is made absolute and lexically normal, without a trailing separator; a path that
-// repeats an earlier one is dropped.
-std::vector<std::filesystem::path>
-provider_search_paths(const std::vector<std::string>& explicit_paths, bool use_environment);
+// repeats an earlier one is dropped. Each keeps its origin (caller, environment, installation) and
+// its index among its origin's non-empty entries (SearchPath).
+std::vector<SearchPath> provider_search_paths(const std::vector<std::string>& explicit_paths,
+                                              bool use_environment);
 
 // The installation's provider directory, <prefix>/lib/praenora/providers: the sibling of the
 // module directory (installation_module_dir()), located the same way. nullopt when the runtime's
@@ -78,7 +80,10 @@ public:
     // - a manifest whose name and platform repeat an earlier one is indexed but shadowed: it is
     //   never used, and gets a warning (code OK) naming both paths;
     // - manifests for other platforms are indexed too (unusable) and shadow nothing.
-    // A manifest file reached twice (overlapping search paths) is indexed once.
+    // A manifest file reached twice (overlapping search paths) is indexed once. Each indexed
+    // manifest's `location` says where it was found: the search path that reached it first.
+    static ProviderIndex scan(const std::vector<SearchPath>& search_paths);
+    // The same over `search_paths` taken as the caller's paths (caller_search_paths()).
     static ProviderIndex scan(const std::vector<std::filesystem::path>& search_paths);
 
     // Warnings found while scanning, in the order found. A shadowed manifest's warning carries

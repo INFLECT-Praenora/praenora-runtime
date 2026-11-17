@@ -93,7 +93,7 @@ void prepare_output_dir(const fs::path& dir, bool overwrite) {
 }
 
 RunRecordWriter::RunRecordWriter(fs::path output_dir, json reproducibility, std::string fingerprint,
-                                 RunOverrides overrides, bool strict_validation) {
+                                 json manifests, RunOverrides overrides, bool strict_validation) {
     if (sha256_hex(canonical_json(reproducibility)) != fingerprint) {
         throw Error(ErrorCode::INVALID_ARGUMENT,
                     "run record: the fingerprint is not the hash of the reproducibility section");
@@ -126,7 +126,8 @@ RunRecordWriter::RunRecordWriter(fs::path output_dir, json reproducibility, std:
                      {"compiler", versions.compiler},
                      {"build_type", versions.build_type}}},
                    {"overrides", std::move(overridden)},
-                   {"validation", strict_validation ? "strict" : "off"}}}};
+                   {"validation", strict_validation ? "strict" : "off"},
+                   {"manifests", std::move(manifests)}}}};
 }
 
 void RunRecordWriter::write_started(std::int64_t started_unix_ns) {

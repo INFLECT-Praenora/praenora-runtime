@@ -236,7 +236,8 @@
         "ticks_completed",
         "platform",
         "overrides",
-        "validation"
+        "validation",
+        "manifests"
       ],
       "additionalProperties": false,
       "properties": {
@@ -329,6 +330,37 @@
             "off"
           ],
           "description": "Whether payloads were validated against their message types (strict) or not (off, for performance measurements)."
+        },
+        "manifests": {
+          "type": "object",
+          "required": [
+            "steps",
+            "services"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "steps": {
+              "type": "object",
+              "patternProperties": {
+                "^(?!(inputs|outputs)$)[a-z][a-z0-9_]*$": {
+                  "$ref": "#/definitions/manifest_location"
+                }
+              },
+              "additionalProperties": false,
+              "description": "Where the module manifest of each step was found, by step."
+            },
+            "services": {
+              "type": "object",
+              "propertyNames": {
+                "$ref": "#/definitions/service_key"
+              },
+              "additionalProperties": {
+                "$ref": "#/definitions/manifest_location"
+              },
+              "description": "Where the provider manifest of each runtime service of the run was found, by <name>@<major>."
+            }
+          },
+          "description": "Where each manifest of the run was found, relative to a search path named by its origin and index, never by an absolute path. Outside the hashed section: it does not change the fingerprint."
         },
         "outputs": {
           "type": "object",
@@ -486,6 +518,63 @@
     "fingerprint": {
       "type": "string",
       "pattern": "^[0-9a-f]{64}$"
+    },
+    "manifest_location": {
+      "type": "object",
+      "required": [
+        "search_path",
+        "file"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "search_path": {
+          "type": "object",
+          "required": [
+            "origin"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "origin": {
+              "enum": [
+                "caller",
+                "configuration",
+                "environment",
+                "installation"
+              ],
+              "description": "Where the search path comes from: the caller's paths, the configuration's modules.search_paths, the environment variable (PRAENORA_MODULE_PATH or PRAENORA_PROVIDER_PATH), or the installation's directory."
+            },
+            "index": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "The search path's position among the non-empty entries of its origin, as given, from 0; an entry that repeats an earlier path still counts."
+            }
+          },
+          "if": {
+            "properties": {
+              "origin": {
+                "const": "installation"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "index": false
+            }
+          },
+          "else": {
+            "required": [
+              "index"
+            ]
+          },
+          "description": "The search path that reached the manifest first; the installation's directory has no index."
+        },
+        "file": {
+          "type": "string",
+          "pattern": "^(?![A-Za-z]:[/\\\\])(?!\\\\)(?!\\.\\.?(/|$))[^/]+(/(?!\\.\\.?$)[^/]+)?$",
+          "description": "The manifest file relative to the search path, '/'-separated: <file>, or <directory>/<file> for a manifest in an immediate subdirectory. Never absolute (no leading /, \\ or drive such as C:/), never with a . or .. segment."
+        }
+      },
+      "description": "Where discovery found a manifest, without an absolute path."
     },
     "module_name": {
       "type": "string",

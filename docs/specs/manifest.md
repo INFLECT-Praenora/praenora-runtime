@@ -198,7 +198,9 @@ manifest, in search order, of that name and version (build metadata ignored) for
 platform. When there is none, the error is `PLATFORM_MISMATCH` if manifests of that name and
 version exist only for other platforms (naming them), and `MODULE_NOT_FOUND` otherwise (naming the
 searched paths and the other versions found). `praenora modules list` and
-`praenora modules inspect <name>[@<version>]` show what discovery found.
+`praenora modules inspect <name>[@<version>]` show what discovery found. The run record says where
+each step's manifest was found, relative to its search path and without an absolute path
+([reproducibility.md](reproducibility.md#where-a-manifest-was-found)).
 
 ## Compatibility and library checks
 

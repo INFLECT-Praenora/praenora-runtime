@@ -28,6 +28,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <optional>
 #include <sstream>
 #include <stdexcept>
@@ -44,6 +45,8 @@ using praenora::WorkflowState;
 using praenora::detail::canonical_json;
 using praenora::detail::MetricsRegistry;
 using praenora::detail::OutputRecorder;
+using praenora::detail::path_from_utf8;
+using praenora::detail::path_to_utf8;
 using praenora::detail::prepare_output_dir;
 using praenora::detail::RunOverrides;
 using praenora::detail::RunRecordWriter;
@@ -122,6 +125,24 @@ template <class Call> Error error_of(Call&& call) {
     return Error(ErrorCode::OK, "nothing thrown");
 }
 
+// Calls `check(where, text)` for every string of `value`, object keys included; `where` is the
+// string's JSON pointer.
+void for_each_string(const json& value, const std::string& pointer,
+                     const std::function<void(const std::string&, const std::string&)>& check) {
+    if (value.is_string()) {
+        check(pointer, value.get<std::string>());
+    } else if (value.is_object()) {
+        for (auto it = value.begin(); it != value.end(); ++it) {
+            check(pointer + " (a key)", it.key());
+            for_each_string(it.value(), pointer + "/" + it.key(), check);
+        }
+    } else if (value.is_array()) {
+        for (std::size_t i = 0; i < value.size(); ++i) {
+            for_each_string(value[i], pointer + "/" + std::to_string(i), check);
+        }
+    }
+}
+
 OutputRecorder::FileInfo file_info(std::string port, std::string path, std::string data,
                                    std::uint64_t messages) {
     OutputRecorder::FileInfo info;
@@ -140,7 +161,8 @@ TEST(RunRecord, ValidatesAgainstSchema) {
     const fs::path out = dir.path() / "out";
     RunOverrides overrides;
     overrides.seed = 7;
-    RunRecordWriter writer(out, workflow.reproducibility, workflow.fingerprint, overrides, true);
+    RunRecordWriter writer(out, workflow.reproducibility, workflow.fingerprint,
+                           workflow.manifest_locations, overrides, true);
 
     // Started: written at once, status running.
     writer.write_started(kStartedAt);
@@ -157,6 +179,7 @@ TEST(RunRecord, ValidatesAgainstSchema) {
     EXPECT_TRUE(execution.at("error").is_null());
     EXPECT_EQ(execution.at("overrides"), json({{"seed", 7}}));
     EXPECT_EQ(execution.at("validation"), "strict");
+    EXPECT_EQ(execution.at("manifests"), workflow.manifest_locations);
     EXPECT_FALSE(execution.contains("final_status")); // only once the run has ended
     // The platform, and nothing about the machine or its user.
     const json& platform = execution.at("platform");
@@ -201,7 +224,7 @@ TEST(RunRecord, ValidatesAgainstSchema) {
     // A failed run records its error, with its location, its details and the module's error
     // document as the cause; a cause that is not a JSON object is kept as text.
     RunRecordWriter failed(dir.path() / "failed", workflow.reproducibility, workflow.fingerprint,
-                           {}, false);
+                           workflow.manifest_locations, {}, false);
     failed.write_started(kStartedAt);
     RunSummary failure;
     failure.final_state = WorkflowState::failed;
@@ -245,7 +268,8 @@ TEST(RunRecord, ValidatesAgainstSchema) {
               ErrorCode::INVALID_ARGUMENT);
 
     // Without an output directory the record is kept in memory only.
-    RunRecordWriter memory({}, workflow.reproducibility, workflow.fingerprint);
+    RunRecordWriter memory({}, workflow.reproducibility, workflow.fingerprint,
+                           workflow.manifest_locations);
     memory.write_started(kStartedAt);
     EXPECT_EQ(issues_of(memory.current()), "");
     EXPECT_EQ(memory.current().at("execution").at("status"), "running");
@@ -254,7 +278,8 @@ TEST(RunRecord, ValidatesAgainstSchema) {
 TEST(RunRecord, FingerprintMatchesReproducibilitySection) {
     ScratchDir dir;
     const ValidatedWorkflow workflow = validated_single(dir.path());
-    RunRecordWriter writer(dir.path() / "out", workflow.reproducibility, workflow.fingerprint);
+    RunRecordWriter writer(dir.path() / "out", workflow.reproducibility, workflow.fingerprint,
+                           workflow.manifest_locations);
     writer.write_started(kStartedAt);
     const json record = json::parse(read_file(dir.path() / "out" / "run-record.json"));
     // The reproducibility section is the validated one, verbatim, and the fingerprint is its hash.
@@ -269,7 +294,7 @@ TEST(RunRecord, FingerprintMatchesReproducibilitySection) {
     // A fingerprint that is not the section's hash is refused.
     EXPECT_EQ(error_of([&] {
                   RunRecordWriter(dir.path() / "other", workflow.reproducibility,
-                                  std::string(64, '0'));
+                                  std::string(64, '0'), workflow.manifest_locations);
               }).code(),
               ErrorCode::INVALID_ARGUMENT);
 }
@@ -414,4 +439,39 @@ TEST(OutputDir, OverwriteRemovesOnlyManagedFiles) {
     prepare_output_dir(out, true);
     EXPECT_TRUE(fs::exists(out / "outputs" / "mine.jsonl"));
     EXPECT_TRUE(fs::exists(out / "status.json"));
+}
+
+// The record says where each step's manifest was found, relative to a search path that it names
+// only by origin and index. Like the rest of a record without an error, it holds no absolute path,
+// so it names neither the machine's directories nor its user.
+TEST(RunRecord, SaysWhereEachManifestWasFoundWithoutAnAbsolutePath) {
+    ScratchDir dir;
+    const ValidatedWorkflow workflow = validated_single(dir.path());
+    const fs::path out = dir.path() / "out";
+    RunRecordWriter writer(out, workflow.reproducibility, workflow.fingerprint,
+                           workflow.manifest_locations);
+    writer.write_started(kStartedAt);
+    EXPECT_EQ(writer.current().at("execution").at("manifests"), json::parse(R"({
+        "steps": {"a": {"search_path": {"origin": "caller", "index": 0},
+                        "file": "fx-echo/fx-echo.pmm.json"}},
+        "services": {}})"));
+
+    RunSummary summary;
+    summary.final_state = WorkflowState::completed;
+    summary.ticks_completed = 3;
+    summary.fingerprint = workflow.fingerprint;
+    writer.write_final(summary, kStartedAt + 1'000'000'000,
+                       {file_info("result", "outputs/result.jsonl", "lines", 3)},
+                       status_json(workflow, WorkflowState::completed));
+    const json record = json::parse(read_file(out / "run-record.json"));
+    EXPECT_EQ(issues_of(record), "");
+    EXPECT_EQ(record.at("execution").at("manifests"), workflow.manifest_locations);
+
+    const std::string modules = path_to_utf8(praenora::test::utf8_path(PRAENORA_TEST_MODULES_DIR));
+    const std::string scratch = path_to_utf8(dir.path());
+    for_each_string(record, "", [&](const std::string& where, const std::string& text) {
+        EXPECT_FALSE(path_from_utf8(text).is_absolute()) << where << ": " << text;
+        EXPECT_EQ(text.find(modules), std::string::npos) << where << ": " << text;
+        EXPECT_EQ(text.find(scratch), std::string::npos) << where << ": " << text;
+    });
 }

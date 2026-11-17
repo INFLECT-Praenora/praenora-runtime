@@ -83,20 +83,55 @@ fs::path normalized_search_path(const fs::path& path) {
     return result;
 }
 
-void append_search_path(std::vector<fs::path>& paths, const fs::path& path) {
+std::string to_string(SearchPathOrigin origin) {
+    switch (origin) {
+    case SearchPathOrigin::caller:
+        return "caller";
+    case SearchPathOrigin::configuration:
+        return "configuration";
+    case SearchPathOrigin::environment:
+        return "environment";
+    case SearchPathOrigin::installation:
+        return "installation";
+    }
+    return "caller"; // not reached: every origin is listed
+}
+
+std::vector<fs::path> paths_of(const std::vector<SearchPath>& search_paths) {
+    std::vector<fs::path> paths;
+    paths.reserve(search_paths.size());
+    for (const SearchPath& search_path : search_paths) {
+        paths.push_back(search_path.path);
+    }
+    return paths;
+}
+
+std::vector<SearchPath> caller_search_paths(const std::vector<fs::path>& paths) {
+    std::vector<SearchPath> search_paths;
+    search_paths.reserve(paths.size());
+    for (std::size_t i = 0; i < paths.size(); ++i) {
+        search_paths.push_back({paths[i], SearchPathOrigin::caller, i});
+    }
+    return search_paths;
+}
+
+void append_search_path(std::vector<SearchPath>& paths, const fs::path& path,
+                        SearchPathOrigin origin, std::optional<std::size_t> index) {
     if (path.empty()) {
         return;
     }
     fs::path normal = normalized_search_path(path);
-    if (std::find(paths.begin(), paths.end(), normal) == paths.end()) {
-        paths.push_back(std::move(normal));
+    const auto same = [&](const SearchPath& earlier) { return earlier.path == normal; };
+    if (std::none_of(paths.begin(), paths.end(), same)) {
+        paths.push_back({std::move(normal), origin, index});
     }
 }
 
-void append_environment_search_paths(std::vector<fs::path>& paths, const char* name) {
+void append_environment_search_paths(std::vector<SearchPath>& paths, const char* name) {
     if (const auto list = environment_variable(name)) {
-        for (const auto& entry : split_path_list(*list)) {
-            append_search_path(paths, path_from_utf8(entry));
+        const std::vector<std::string> entries = split_path_list(*list); // without empty ones
+        for (std::size_t i = 0; i < entries.size(); ++i) {
+            append_search_path(paths, path_from_utf8(entries[i]), SearchPathOrigin::environment, i);
         }
     }
 }
@@ -132,6 +167,19 @@ std::vector<fs::path> manifest_files(const fs::path& search_path, std::string_vi
         files.insert(files.end(), sub.manifests.begin(), sub.manifests.end());
     }
     return files;
+}
+
+ManifestLocation manifest_location(const SearchPath& search_path, const fs::path& file) {
+    ManifestLocation location;
+    location.origin = search_path.origin;
+    location.index = search_path.index;
+    // manifest_files() names each file <search path>/<file> or <search path>/<directory>/<file>;
+    // both sides are normalized first, so a trailing separator on the search path changes nothing.
+    // The generic format uses '/' on every platform.
+    location.file = normalized_search_path(file)
+                        .lexically_relative(normalized_search_path(search_path.path))
+                        .generic_u8string();
+    return location;
 }
 
 } // namespace praenora::detail
