@@ -47,6 +47,32 @@ std::string config(const std::string& body, const std::string& workflow = "test.
            workflow + ", version: \"" + version + "\" }\n" + body;
 }
 
+// The two kinds of data source.
+const char* const kDataSources[] = {"observation-csv", "json-document"};
+
+// A configuration of test.single whose input "source" reads data/obs.csv with a source of kind
+// `source`; the path is on line 6.
+std::string data_config(const std::string& source) {
+    return config("run: { ticks: 1 }\n"
+                  "inputs:\n"
+                  "  source: { source: " +
+                  source +
+                  ", path: data/obs.csv }\n"
+                  "steps:\n"
+                  "  a: { module: { name: fx-echo, version: \"0.1.0\" } }\n");
+}
+
+// Gives a directory and a file in it their usual permissions back when it goes out of scope, so
+// that the scratch directory can be removed after a test that took them away.
+struct RestorePermissions {
+    fs::path directory, file;
+    ~RestorePermissions() {
+        std::error_code ec;
+        fs::permissions(directory, fs::perms::owner_all, ec);
+        fs::permissions(file, fs::perms::owner_read | fs::perms::owner_write, ec);
+    }
+};
+
 // A json-document input "source" (any object fits test.blob) and one tick per run.
 const char* const kSourceInput = "run: { ticks: 3 }\n"
                                  "inputs:\n"
@@ -200,18 +226,74 @@ TEST(Validation, CsvMissingRequiredColumn) {
     EXPECT_EQ(errors[0].location.line, 1);
     EXPECT_TRUE(contains(errors[0].message, "'value'")) << errors[0].message;
     EXPECT_TRUE(contains(errors[0].message, "'source'")) << errors[0].message; // the input
+}
 
-    // A data file that does not exist is located at the configuration's path.
-    fs::remove(data);
-    const auto missing = validate_text(
-        dir.path(), config("inputs:\n"
-                           "  source: { source: observation-csv, path: data/obs.csv }\n"
-                           "steps:\n"
-                           "  a: { module: { name: fx-echo, version: \"0.1.0\" } }\n"));
-    ASSERT_EQ(missing.errors().size(), 1u) << missing.report.to_text();
-    EXPECT_EQ(missing.errors()[0].code, ErrorCode::TARGET_DATA_INVALID);
-    EXPECT_EQ(missing.errors()[0].location.pointer, "/inputs/source/path");
-    EXPECT_EQ(missing.errors()[0].location.line, 5);
+TEST(Validation, DataFileThatCannotBeReadIsTargetDataUnavailable) {
+    // A data file that does not exist, or a directory in its place, is located at the
+    // configuration's path.
+    ScratchDir dir;
+    const fs::path data = dir.path() / "data" / "obs.csv";
+    fs::create_directories(data.parent_path());
+    for (const char* source : kDataSources) {
+        for (const bool directory : {false, true}) {
+            SCOPED_TRACE(std::string(source) + (directory ? ", a directory" : ", no file"));
+            if (directory) {
+                fs::create_directory(data);
+            }
+            const auto result = validate_text(dir.path(), data_config(source));
+            fs::remove(data);
+            EXPECT_FALSE(result.workflow.has_value());
+            const auto errors = result.errors();
+            ASSERT_EQ(errors.size(), 1u) << result.report.to_text();
+            EXPECT_EQ(errors[0].code, ErrorCode::TARGET_DATA_UNAVAILABLE);
+            EXPECT_EQ(errors[0].location.pointer, "/inputs/source/path");
+            EXPECT_EQ(errors[0].location.line, 6);
+            EXPECT_TRUE(contains(errors[0].message, directory ? "is not a file" : "does not exist"))
+                << errors[0].message;
+        }
+    }
+}
+
+TEST(Validation, UnreadableDataFileIsTargetDataUnavailable) {
+    // A data file the process may not read is located at the file. One in a directory the
+    // process may not search is located at the configuration's path, since not even its status
+    // can be read; it is not reported as missing.
+    ScratchDir dir;
+    const fs::path locked = dir.path() / "data";
+    const fs::path data = locked / "obs.csv";
+    write_text_file(data, praenora::test::observations_csv());
+    const RestorePermissions restore{locked, data};
+    fs::permissions(data, fs::perms::none);
+    if (std::ifstream(data, std::ios::binary).is_open()) {
+        GTEST_SKIP() << "the process can read a file without permissions";
+    }
+    for (const char* source : kDataSources) {
+        SCOPED_TRACE(std::string(source) + ", unreadable");
+        const auto result = validate_text(dir.path(), data_config(source));
+        const auto errors = result.errors();
+        ASSERT_EQ(errors.size(), 1u) << result.report.to_text();
+        EXPECT_EQ(errors[0].code, ErrorCode::TARGET_DATA_UNAVAILABLE);
+        EXPECT_EQ(errors[0].location.file, path_to_utf8(data));
+        EXPECT_TRUE(contains(errors[0].message, "input 'source': cannot read the"))
+            << errors[0].message;
+    }
+
+    fs::permissions(data, fs::perms::owner_read | fs::perms::owner_write);
+    fs::permissions(locked, fs::perms::none);
+    std::error_code ec;
+    (void)fs::status(data, ec);
+    ASSERT_TRUE(ec) << "the status of a file in a directory without permissions was read";
+    for (const char* source : kDataSources) {
+        SCOPED_TRACE(std::string(source) + ", in a locked directory");
+        const auto result = validate_text(dir.path(), data_config(source));
+        const auto errors = result.errors();
+        ASSERT_EQ(errors.size(), 1u) << result.report.to_text();
+        EXPECT_EQ(errors[0].code, ErrorCode::TARGET_DATA_UNAVAILABLE);
+        EXPECT_EQ(errors[0].location.pointer, "/inputs/source/path");
+        EXPECT_EQ(errors[0].location.line, 6);
+        EXPECT_TRUE(contains(errors[0].message, "' cannot be read: ")) << errors[0].message;
+        EXPECT_FALSE(contains(errors[0].message, "does not exist")) << errors[0].message;
+    }
 }
 
 TEST(Validation, TwoColumnsFromOneHeaderAreReportedOnce) {

@@ -100,10 +100,30 @@ TEST(Graph, TypeMismatchIsPortTypeMismatch) {
                    {"inputs.source -> a.in", "pmp.observation-batch@0.1.0", "test.blob@0.1.0"});
 }
 
-TEST(Graph, TypeVersionMismatchIsPortTypeMismatch) {
-    expect_rejected("version-mismatch", ErrorCode::PORT_TYPE_MISMATCH);
-    expect_message("version-mismatch", ErrorCode::PORT_TYPE_MISMATCH,
-                   {"test.blob@0.2.0", "test.blob@0.1.0"});
+TEST(Graph, TypeAndVersionMismatchIsOnlyPortTypeMismatch) {
+    // Two different types at different versions: a type mismatch, not also a version problem.
+    expect_rejected("type-and-version-mismatch", ErrorCode::PORT_TYPE_MISMATCH);
+    expect_message("type-and-version-mismatch", ErrorCode::PORT_TYPE_MISMATCH,
+                   {"inputs.source -> a.in", "test.other@0.2.0", "test.blob@0.1.0"});
+    const Outcome outcome = check_case("type-and-version-mismatch");
+    const auto* mismatch = find(outcome.report, ErrorCode::PORT_TYPE_MISMATCH);
+    ASSERT_NE(mismatch, nullptr);
+    EXPECT_EQ(mismatch->location.pointer, "/connections/0");
+    EXPECT_EQ(find(outcome.report, ErrorCode::MESSAGE_TYPE_INCOMPATIBLE), nullptr)
+        << outcome.report.to_text();
+}
+
+TEST(Graph, TypeVersionMismatchIsMessageTypeIncompatible) {
+    // One message type at two versions: a connection's ends carry the same version of a type.
+    expect_rejected("version-mismatch", ErrorCode::MESSAGE_TYPE_INCOMPATIBLE);
+    expect_message("version-mismatch", ErrorCode::MESSAGE_TYPE_INCOMPATIBLE,
+                   {"inputs.source -> a.in", "test.blob@0.2.0", "test.blob@0.1.0"});
+    const Outcome outcome = check_case("version-mismatch");
+    const auto* incompatible = find(outcome.report, ErrorCode::MESSAGE_TYPE_INCOMPATIBLE);
+    ASSERT_NE(incompatible, nullptr);
+    EXPECT_EQ(incompatible->location.pointer, "/connections/0");
+    EXPECT_EQ(find(outcome.report, ErrorCode::PORT_TYPE_MISMATCH), nullptr)
+        << outcome.report.to_text();
 }
 
 TEST(Graph, FanInIsGraphInvalid) {

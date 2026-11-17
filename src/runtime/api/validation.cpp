@@ -495,13 +495,20 @@ private:
                 reported_at(pointer + "/path") || reported_under(pointer + "/columns")) {
                 continue;
             }
+            // The status tells a missing file from one whose status cannot be read, such as a
+            // file in a directory that the process may not search (`ec` is set then).
             std::error_code ec;
-            if (!fs::is_regular_file(binding->second.path, ec)) {
-                add(ErrorCode::TARGET_DATA_INVALID, at(pointer + "/path"),
+            const fs::file_status status = fs::status(binding->second.path, ec);
+            if (!fs::is_regular_file(status)) {
+                std::string why = "is not a file";
+                if (status.type() == fs::file_type::not_found) {
+                    why = "does not exist";
+                } else if (ec) {
+                    why = "cannot be read: " + ec.message();
+                }
+                add(ErrorCode::TARGET_DATA_UNAVAILABLE, at(pointer + "/path"),
                     "input '" + name + "': the data file '" + path_to_utf8(binding->second.path) +
-                        "' " +
-                        (fs::exists(binding->second.path, ec) ? "is not a file"
-                                                              : "does not exist"));
+                        "' " + why);
                 continue;
             }
             try {

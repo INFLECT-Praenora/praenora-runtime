@@ -95,7 +95,7 @@ located in the definition's catalog entry (file, line, column and JSON pointer):
 | 2 | A connection's `delay` is 0 or 1. | `GRAPH_INVALID` | `/connections/<i>/delay` |
 | 3 | A connection starts at an output port of its step's capability or at a declared workflow input, and ends at an input port of its step's capability or at a declared workflow output. | `PORT_UNKNOWN` | `/connections/<i>/from`, `/connections/<i>/to` |
 | 4 | A step input or a workflow output has at most one incoming connection. Fan-out is allowed; fan-in is not. | `GRAPH_INVALID` | `/connections/<i>/to` |
-| 5 | Both ends of a connection carry the same message type: the same id and the same version. | `PORT_TYPE_MISMATCH` | `/connections/<i>` |
+| 5 | Both ends of a connection carry the same message type: the same id (`PORT_TYPE_MISMATCH`) and the same version (`MESSAGE_TYPE_INCOMPATIBLE`). | `PORT_TYPE_MISMATCH`, `MESSAGE_TYPE_INCOMPATIBLE` | `/connections/<i>` |
 | 6 | A delayed connection feeds an optional step input; it never feeds a required input (in tick 0 there is no earlier message) or a workflow output. | `GRAPH_INVALID` | `/connections/<i>/delay` |
 | 7 | A required step input is fed, with delay 0, by a workflow input or by a required output; an optional output cannot feed it. | `GRAPH_INVALID` | `/connections/<i>/from` |
 | 8 | Every required step input is connected. | `PORT_UNCONNECTED` | `/steps/<step>` |

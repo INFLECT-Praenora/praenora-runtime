@@ -144,6 +144,15 @@ praenora_add_cli_test(cli.modules.check_invalid_vectors
 praenora_add_cli_test(cli.graph.asyncapi_matches_committed
     CMD graph --workflow example.estimate-predict@0.1.0 --format asyncapi
     EXPECT_STDOUT_FILE "${_praenora_committed_asyncapi}")
+# A definition whose connection carries one message type at two versions is refused with
+# MESSAGE_TYPE_INCOMPATIBLE at the connection (exit code 3), before anything is exported.
+praenora_add_cli_test(cli.graph.version_mismatch
+    CMD graph --workflow bad.version-mismatch@0.1.0 --format asyncapi --json
+        --catalog-path "${_praenora_fixtures}/catalog"
+        --catalog-path "${_praenora_fixtures}/catalog-bad/version-mismatch"
+    EXPECT_EXIT 3
+    EXPECT_JSON_PATH ok error.name error.code error.location.pointer
+    EXPECT_JSON_VALUE false MESSAGE_TYPE_INCOMPATIBLE 404 /connections/0)
 
 praenora_add_cli_test(cli.run.module_failure
     CMD run "${_praenora_cli_configs}/module-failure/workflow.yaml" ${_praenora_fixture_paths}
@@ -237,6 +246,19 @@ praenora_add_cli_test(cli.modules.check_missing_vectors
         --vectors "${_praenora_missing}/vectors.json" ${_praenora_fixture_paths}
     EXPECT_EXIT 74
     EXPECT_STDERR_REGEX "cannot read the test vectors")
+# A missing data file is a diagnostic of the validation report, TARGET_DATA_UNAVAILABLE: the tool
+# exits with 3, as for every report that holds an error other than IO_ERROR.
+set(_praenora_missing_data "${_praenora_cli_configs}/missing-data/workflow.yaml")
+praenora_add_cli_test(cli.validate.missing_data
+    CMD validate "${_praenora_missing_data}" ${_praenora_fixture_paths} --json
+    EXPECT_EXIT 3
+    EXPECT_JSON_PATH ok error.name error.code diagnostics.0.name diagnostics.0.location.pointer
+    EXPECT_JSON_VALUE false TARGET_DATA_UNAVAILABLE 801 TARGET_DATA_UNAVAILABLE
+        /inputs/source/path)
+praenora_add_cli_test(cli.run.missing_data
+    CMD run "${_praenora_missing_data}" ${_praenora_fixture_paths}
+    EXPECT_EXIT 3
+    EXPECT_STDERR_REGEX "workflow\\.yaml:9:[0-9]+: error\\[TARGET_DATA_UNAVAILABLE\\]")
 
 # Service providers. fx-service requires test.echo@0, which the fixture provider test-echo serves
 # (configuration service/workflow.yaml). providers/old-runtime.provider.json is the manifest of a

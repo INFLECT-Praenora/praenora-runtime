@@ -61,9 +61,11 @@ public:
 // `port_type`; batch() returns it every tick.
 //
 // Throws praenora::Error:
-// - TARGET_DATA_INVALID, located at the file and line, for unreadable files, malformed CSV, a
-//   missing required column (line 1) and rows that break the rules, and located at the file for
-//   an observation CSV beyond the size limit;
+// - TARGET_DATA_UNAVAILABLE, located at the file, for a file that cannot be read (one that does
+//   not exist or is a directory too);
+// - TARGET_DATA_INVALID, located at the file and line, for malformed CSV, a missing required
+//   column (line 1) and rows that break the rules, and located at the file for an observation
+//   CSV beyond the size limit;
 // - PARSE_ERROR for a json-document that is not JSON or YAML;
 // - INPUT_BINDING_INVALID for an unknown source kind, two columns read from one header, an
 //   observation batch that `port_type` does not accept, and a json-document that violates

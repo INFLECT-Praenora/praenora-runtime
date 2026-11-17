@@ -160,13 +160,14 @@ observation rows of [specs/protocol.md](specs/protocol.md#message-types), the co
 
 Other columns are ignored. Numbers are read the same way whatever the process's locale; infinities,
 NaN and surrounding spaces are refused. A row that breaks a rule is `TARGET_DATA_INVALID`, naming
-the file and line, and so is a missing data file. With `columns`, a column is read from the header
-named instead of its own name; a key that is not an observation column is `CONFIG_INVALID`. No two
-columns may be read from one header, counting the columns that are not remapped, which read the
-header of their own name: `{ time: value, value: value }` and `{ value: time }` are each one
-`CONFIG_INVALID`, at the entry that causes the clash (of two entries that name one header, the one
-whose column name sorts later). An input whose `path` or `columns` has an error is not read. The
-example's data file,
+the file and line; a data file that does not exist, is not a file or cannot be read (a directory on
+its path that cannot be searched included) is `TARGET_DATA_UNAVAILABLE`, for either kind of source.
+With `columns`, a column is read from the header named instead of its own name; a key that is not an
+observation column is `CONFIG_INVALID`. No two columns may be read from one header, counting the
+columns that are not remapped, which read the header of their own name:
+`{ time: value, value: value }` and `{ value: time }` are each one `CONFIG_INVALID`, at the entry
+that causes the clash (of two entries that name one header, the one whose column name sorts later).
+An input whose `path` or `columns` has an error is not read. The example's data file,
 [`data/observations.csv`](../examples/workflows/estimate-predict/data/observations.csv), uses the
 columns directly.
 
@@ -294,7 +295,7 @@ collecting every problem; a later step is skipped only when it depends on one th
    `PLATFORM_MISMATCH`, `ABI_INCOMPATIBLE`, `PROTOCOL_INCOMPATIBLE`, `CAPABILITY_NOT_IMPLEMENTED`,
    `LIBRARY_NOT_FOUND`, `LIBRARY_DIGEST_MISMATCH`), without loading it.
 5. Validate the parameters and fill in their defaults (`PARAMETERS_INVALID`).
-6. Read and check the input data (`TARGET_DATA_INVALID`).
+6. Read and check the input data (`TARGET_DATA_UNAVAILABLE`, `TARGET_DATA_INVALID`).
 7. Compute the digests and the run fingerprint.
 
 With `--load` (and in every run), the module libraries are then loaded and checked

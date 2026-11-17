@@ -251,7 +251,7 @@ public:
         } catch (const Error& e) {
             SourceLocation location;
             location.file = origin;
-            throw Error(ErrorCode::TARGET_DATA_INVALID,
+            throw Error(ErrorCode::TARGET_DATA_UNAVAILABLE,
                         std::string("cannot read the observation CSV: ") + e.what(),
                         std::move(location));
         }

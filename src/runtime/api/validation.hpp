@@ -158,7 +158,9 @@ RuntimeContext make_runtime_context(const RuntimeOptions& options);
 //      resolved to. Nothing is loaded;
 //   7. each step's parameters satisfy its module's parameter schema (PARAMETERS_INVALID, located
 //      at /steps/<step>/parameters<pointer> in the configuration), which then fills in defaults;
-//   8. each input's data file exists and its source can be built (io/input_source.hpp);
+//   8. each input's data file exists, is a file and has a status that can be read
+//      (TARGET_DATA_UNAVAILABLE, located at /inputs/<name>/path in the configuration) and its
+//      source can be built (io/input_source.hpp);
 //   9. the reproducibility section and the fingerprint are computed.
 // Every problem is collected; a check is skipped only when it depends on one that failed (no
 // definition: nothing after step 3; an unknown capability or message type: the graph, and the

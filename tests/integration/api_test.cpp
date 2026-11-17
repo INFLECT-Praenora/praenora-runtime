@@ -245,7 +245,7 @@ TEST(Api, ValidateReportsDiagnosticsWithoutThrowing) {
     EXPECT_FALSE(report.ok());
     EXPECT_TRUE(has_code(report, ErrorCode::MODULE_NOT_FOUND)) << report.to_text();
     EXPECT_TRUE(has_code(report, ErrorCode::BINDING_INVALID)) << report.to_text();
-    EXPECT_TRUE(has_code(report, ErrorCode::TARGET_DATA_INVALID)) << report.to_text();
+    EXPECT_TRUE(has_code(report, ErrorCode::TARGET_DATA_UNAVAILABLE)) << report.to_text();
     for (const auto& error : errors_of(report)) {
         EXPECT_TRUE(contains(error.location.file, "workflow.yaml")) << report.to_text();
         EXPECT_GT(error.location.line, 0) << report.to_text();

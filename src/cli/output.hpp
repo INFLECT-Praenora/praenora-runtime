@@ -64,7 +64,7 @@ ValidationReport report_in(const Error& error);
 
 // The exit code of a validation report with errors: 74 when every error is IO_ERROR (such as a
 // configuration, document or manifest file that is missing or cannot be read; a data file is
-// TARGET_DATA_INVALID), otherwise 3, whatever the codes.
+// TARGET_DATA_UNAVAILABLE), otherwise 3, whatever the codes.
 int exit_code_of(const ValidationReport& report);
 
 // The exit code of a command that failed with `error`: that of the validation report it carries,

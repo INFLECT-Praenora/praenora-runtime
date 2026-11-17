@@ -39,6 +39,9 @@ FIXTURE_PATHS = {"module_paths": [TEST_MODULES], "catalog_paths": [TEST_CATALOG]
 # A configuration of the test workflow test.single whose fx-slow step sets sleep_ms below its
 # minimum: PARAMETERS_INVALID at /steps/a/parameters/sleep_ms.
 BAD_PARAMETERS_CONFIG = FIXTURES / "configs" / "cli" / "bad-parameters" / "workflow.yaml"
+# A configuration of test.single whose input's data file does not exist: TARGET_DATA_UNAVAILABLE
+# at /inputs/source/path.
+MISSING_DATA_CONFIG = FIXTURES / "configs" / "cli" / "missing-data" / "workflow.yaml"
 # The fixture provider test-echo, which serves the test service test.echo@0, as a provider search
 # path.
 TEST_ECHO_PROVIDER = str(pathlib.Path(TEST_PROVIDERS, "test-echo"))

@@ -98,7 +98,8 @@ In v0 every reference to a catalog entry is exact (build metadata ignored), and 
 evolving message types and capabilities is open ([open-questions.md](../open-questions.md), OQ-7):
 
 - a workflow step names one capability version, and a port one message type version;
-- the two ends of a connection carry the same message type id and version (`PORT_TYPE_MISMATCH`);
+- the two ends of a connection carry the same message type id (`PORT_TYPE_MISMATCH`) and version
+  (`MESSAGE_TYPE_INCOMPATIBLE`);
 - a module implements a step's capability only when its manifest lists exactly that version
   (`CAPABILITY_NOT_IMPLEMENTED`), and its `describe()` document lists the same set of capabilities as
   its manifest (`MODULE_IDENTITY_MISMATCH`).

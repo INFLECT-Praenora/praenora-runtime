@@ -142,11 +142,18 @@ private:
         if (!source) {
             return;
         }
-        if (source->type != target->type || source->type_version != target->type_version) {
+        if (source->type != target->type) {
             add(ErrorCode::PORT_TYPE_MISMATCH,
                 "connection " + text + " carries " + source->type + "@" +
                     to_string(source->type_version) + " into a port of type " + target->type + "@" +
                     to_string(target->type_version),
+                base);
+        } else if (source->type_version != target->type_version) {
+            add(ErrorCode::MESSAGE_TYPE_INCOMPATIBLE,
+                "connection " + text + " carries " + source->type + "@" +
+                    to_string(source->type_version) + " into a port that requires " + target->type +
+                    "@" + to_string(target->type_version) +
+                    "; both ends of a connection carry the same version of a message type",
                 base);
         }
         if (connection.delay > 0) {

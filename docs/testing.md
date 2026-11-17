@@ -190,11 +190,11 @@ When a run or a validation fails, its error code points further. By code range:
 | 100-103 (`PARSE_ERROR`, `SCHEMA_VIOLATION`, ...) | `document`: the file at the location given | user, or the module for a manifest |
 | 200-204 (`CONFIG_INVALID`, `BINDING_INVALID`, `PARAMETERS_INVALID`, ...) | `config` and validation: the workflow configuration | user |
 | 300-304 (`MANIFEST_INVALID`, `MODULE_NOT_FOUND`, `LIBRARY_DIGEST_MISMATCH`, ...) | `discovery` and `loader`: the manifest, the module search paths | module, or environment |
-| 400-406 (`ABI_INCOMPATIBLE`, `PLATFORM_MISMATCH`, `CATALOG_ENTRY_NOT_FOUND`, ...) | `compat` and `catalog` | module, environment or protocol |
+| 400-407 (`ABI_INCOMPATIBLE`, `PLATFORM_MISMATCH`, `CATALOG_ENTRY_NOT_FOUND`, ...) | `compat` and `catalog`; `graph` for `MESSAGE_TYPE_INCOMPATIBLE`; validation and the contract checks for `SERVICE_UNAVAILABLE` | module, environment or protocol |
 | 500-502 (`LIBRARY_LOAD_FAILED`, `ENTRY_POINT_MISSING`, `API_TABLE_INVALID`) | `loader`: the module's library | module, or environment |
 | 600-604 (`GRAPH_INVALID`, `GRAPH_CYCLE`, `PORT_*`) | `graph`: the workflow definition | protocol |
 | 700-705 (`STEP_FAILED`, `OUTPUT_INVALID`, `STEP_TIMEOUT`, `MODULE_UNRESPONSIVE`, ...) | `engine` and `instance`: the step named in the details | module, or the configuration's timeouts; `INPUT_MISSING` is the runtime's |
-| 800-801 (`TARGET_DATA_INVALID`, ...) | `io`: the data file and line | user data, or environment |
+| 800-801 (`TARGET_DATA_INVALID`, `TARGET_DATA_UNAVAILABLE`) | `io` and validation: the data file and line, or the input's `path` | user data, or environment |
 | 1-12 (`INVALID_ARGUMENT`, `IO_ERROR`, `INTERNAL`, ...) | Wherever the message says | caller, environment, or the runtime for `INTERNAL` and `UNKNOWN` |
 
 The [error taxonomy](specs/error-taxonomy.md) gives each code's owner, exit code and retryable

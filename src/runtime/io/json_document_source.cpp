@@ -27,7 +27,7 @@ public:
         } catch (const Error& e) {
             SourceLocation location;
             location.file = origin;
-            throw Error(ErrorCode::TARGET_DATA_INVALID,
+            throw Error(ErrorCode::TARGET_DATA_UNAVAILABLE,
                         std::string("cannot read the document: ") + e.what(), std::move(location));
         }
         digest_ = sha256_hex(bytes);

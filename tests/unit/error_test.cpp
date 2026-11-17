@@ -169,7 +169,20 @@ TEST(ErrorTaxonomy, SpotChecksAgainstTheTable) {
     EXPECT_EQ(target.category, ErrorCategory::data);
     EXPECT_EQ(target.owner, "user data");
 
-    EXPECT_EQ(static_cast<int>(ErrorCode::TARGET_DATA_UNAVAILABLE), 801);
+    // A data file that cannot be read: the machine's, unlike its content, and worth a retry.
+    const auto& unavailable = error_code_info(ErrorCode::TARGET_DATA_UNAVAILABLE);
+    EXPECT_EQ(static_cast<int>(unavailable.code), 801);
+    EXPECT_EQ(unavailable.category, ErrorCategory::data);
+    EXPECT_EQ(unavailable.owner, "environment");
+    EXPECT_TRUE(unavailable.retryable);
+
+    // The ends of a connection carry two versions of one message type: the workflow
+    // definition's fault, like PORT_TYPE_MISMATCH.
+    const auto& incompatible = error_code_info(ErrorCode::MESSAGE_TYPE_INCOMPATIBLE);
+    EXPECT_EQ(static_cast<int>(incompatible.code), 404);
+    EXPECT_EQ(incompatible.category, ErrorCategory::validation);
+    EXPECT_EQ(incompatible.owner, error_code_info(ErrorCode::PORT_TYPE_MISMATCH).owner);
+
     EXPECT_EQ(error_code_info(ErrorCode::UNSUPPORTED).category, ErrorCategory::compatibility);
     EXPECT_EQ(error_code_info(ErrorCode::MODULE_UNRESPONSIVE).category, ErrorCategory::timeout);
     EXPECT_EQ(praenora::to_string(ErrorCategory::environment), "environment");

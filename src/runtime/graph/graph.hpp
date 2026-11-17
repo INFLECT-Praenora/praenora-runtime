@@ -4,7 +4,8 @@
 // Rules:
 // - every endpoint names an existing step and port, or a declared workflow input or output
 //   (PORT_UNKNOWN); a step's capability must be in the catalog (CATALOG_ENTRY_NOT_FOUND);
-// - producer and consumer types are equal: same id and same version (PORT_TYPE_MISMATCH);
+// - producer and consumer types are equal: the same id (PORT_TYPE_MISMATCH) and the same version
+//   (MESSAGE_TYPE_INCOMPATIBLE);
 // - each step input and each workflow output has at most one incoming connection (GRAPH_INVALID);
 // - every required step input and every workflow output is connected (PORT_UNCONNECTED);
 // - delay is 0 or 1; a delayed connection feeds only an optional step input (GRAPH_INVALID);

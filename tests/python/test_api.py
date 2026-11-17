@@ -20,8 +20,9 @@ from unittest import mock
 import praenora
 import praenora.runtime as pr
 from support import (BAD_PARAMETERS_CONFIG, EXAMPLE_CONFIG, EXAMPLE_MODULES, FIXTURE_PATHS,
-                     FIXTURES, SERVICE_CONFIG, SOURCE_DIR, TEST_CATALOG, TEST_ECHO_PROVIDER,
-                     TEST_MODULES, UNUSABLE_PROVIDERS, environment, needs_examples)
+                     FIXTURES, MISSING_DATA_CONFIG, SERVICE_CONFIG, SOURCE_DIR, TEST_CATALOG,
+                     TEST_ECHO_PROVIDER, TEST_MODULES, UNUSABLE_PROVIDERS, environment,
+                     needs_examples)
 
 EXAMPLE_WORKFLOW = "example.estimate-predict@0.1.0"
 # A valid configuration of the test workflow test.single (one fx-slow step).
@@ -157,6 +158,19 @@ class ValidateTest(unittest.TestCase):
         diagnostics = error.details["diagnostics"]
         self.assertEqual([diagnostic["name"] for diagnostic in diagnostics], ["PARAMETERS_INVALID"])
         self.assertEqual(diagnostics[0]["location"], error.location)
+
+    def test_missing_data_file_raises_target_data_unavailable(self):
+        # A data file that does not exist is a diagnostic of the report, located at the input's
+        # path, not an IO_ERROR.
+        with self.assertRaises(pr.PraenoraError) as caught:
+            pr.validate(MISSING_DATA_CONFIG, **FIXTURE_PATHS)
+        error = caught.exception
+        self.assertEqual((error.name, error.code, error.category),
+                         ("TARGET_DATA_UNAVAILABLE", 801, "data"))
+        self.assertEqual(error.location["pointer"], "/inputs/source/path")
+        self.assertEqual(error.location["line"], 9)
+        self.assertEqual([diagnostic["name"] for diagnostic in error.details["diagnostics"]],
+                         ["TARGET_DATA_UNAVAILABLE"])
 
     def test_validate_returns_warnings(self):
         # A manifest that cannot be read is skipped with a warning: the report is returned.

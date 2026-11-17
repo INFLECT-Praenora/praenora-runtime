@@ -84,7 +84,7 @@ as `a/b` names both parties that commonly own the fix; `none` marks codes that r
 | 401 | `PROTOCOL_INCOMPATIBLE` | validation | 3 | module | no | The module's protocol (PMP) version is incompatible with the runtime. |
 | 402 | `CAPABILITY_NOT_IMPLEMENTED` | validation | 3 | user/module | no | The module does not implement the capability the step requires. |
 | 403 | `PLATFORM_MISMATCH` | validation | 3 | environment | no | No manifest of the module matches the host operating system and architecture. |
-| 404 | `MESSAGE_TYPE_INCOMPATIBLE` | validation | 3 | protocol/module | no | A message type version differs from the one required. |
+| 404 | `MESSAGE_TYPE_INCOMPATIBLE` | validation | 3 | protocol | no | A message type version differs from the one required, such as at the two ends of a connection. |
 | 405 | `CATALOG_ENTRY_NOT_FOUND` | validation | 3 | protocol | no | A referenced message type, capability or workflow definition is not in the catalog. |
 | 406 | `CATALOG_ENTRY_DUPLICATE` | compatibility | 3 | protocol | no | Two catalog entries have the same id and version. |
 | 407 | `SERVICE_UNAVAILABLE` | compatibility | 3 | environment | no | No usable service provider offers a runtime service that a module requires. |
@@ -95,7 +95,7 @@ as `a/b` names both parties that commonly own the fix; `none` marks codes that r
 | 601 | `GRAPH_CYCLE` | validation | 3 | protocol | no | The connections without delay form a cycle. |
 | 602 | `PORT_UNCONNECTED` | validation | 3 | protocol | no | A required step input or a workflow output has no incoming connection. |
 | 603 | `PORT_UNKNOWN` | validation | 3 | protocol | no | A connection names a step, port, workflow input or workflow output that does not exist. |
-| 604 | `PORT_TYPE_MISMATCH` | validation | 3 | protocol | no | A connection joins ports of different message types or versions. |
+| 604 | `PORT_TYPE_MISMATCH` | validation | 3 | protocol | no | A connection joins ports of different message types. |
 | 700 | `STEP_FAILED` | execution | 1 | module | no | A module call returned an error. |
 | 701 | `OUTPUT_INVALID` | execution | 1 | module | no | A module result is malformed, names an undeclared port or violates the port's schema. |
 | 702 | `STEP_TIMEOUT` | timeout | 5 | module/config | yes | A module call passed its deadline and returned within the cancellation grace period. |
@@ -103,7 +103,7 @@ as `a/b` names both parties that commonly own the fix; `none` marks codes that r
 | 704 | `INPUT_MISSING` | execution | 1 | runtime | no | A required input message was not available when a step ran. |
 | 705 | `RUN_STOPPED` | cancelled | 130 | none | no | The run was stopped on request. |
 | 800 | `TARGET_DATA_INVALID` | data | 1 | user data | no | Target data is malformed or breaks the observation rules. |
-| 801 | `TARGET_DATA_UNAVAILABLE` | data | 1 | environment | yes | Target data could not be read. |
+| 801 | `TARGET_DATA_UNAVAILABLE` | data | 1 | environment | yes | Target data could not be read, for example because its file does not exist. |
 
 Notes on the table:
 
@@ -113,10 +113,18 @@ Notes on the table:
 - `CANCELLED` and `TIMEOUT` are statuses of module calls. The runtime reports a stopped run as
   `RUN_STOPPED` and a call past its deadline as `STEP_TIMEOUT` or `MODULE_UNRESPONSIVE`; an
   unresponsive call's own status is `TIMEOUT`.
-- `MESSAGE_TYPE_INCOMPATIBLE` and `TARGET_DATA_UNAVAILABLE` are defined but not raised by this
-  runtime version: connected ports of different message type versions are `PORT_TYPE_MISMATCH`,
-  because v0 requires exact versions, and input data is read during validation, where a missing or
-  unreadable data file is `TARGET_DATA_INVALID`.
+- `MESSAGE_TYPE_INCOMPATIBLE` is raised by graph validation for a connection whose ends carry one
+  message type at two versions, located at `/connections/<i>` of the workflow definition, because
+  v0 requires the exact version ([workflow-definitions.md](workflow-definitions.md#graph-rules));
+  ends of two different message types are `PORT_TYPE_MISMATCH`
+  ([ADR-0031](../adr/ADR-0031-raise-the-reserved-error-codes.md)).
+- `TARGET_DATA_UNAVAILABLE` is raised by validation for a data file that cannot be read: one that
+  does not exist, is not a file or whose status cannot be read (a directory on its path cannot be
+  searched, for example), located at `/inputs/<name>/path` of the configuration, and one that
+  cannot be opened or read, located at the file. What an observation CSV holds, and its size, are
+  `TARGET_DATA_INVALID`; a `json-document` that is not JSON or YAML, or is beyond 16 MiB, is
+  `PARSE_ERROR`, and one that violates its message type is `INPUT_BINDING_INVALID`. Input data is
+  read only during validation, never during a run.
 - `SERVICE_UNAVAILABLE` is raised by validation for a service that a module's manifest requires
   and that no usable provider offers, located at `/requires/services/<i>` of the manifest, and by
   the contract checks' `library.load` check for the same reason
@@ -127,7 +135,8 @@ Notes on the table:
   `LIBRARY_LOAD_FAILED` with `details.reason` `library`, `identity`, `start`, `service` or
   `conflict` for the rest of its loading.
 - `TARGET_DATA_INVALID` exits with 1 when a run meets it and with 3 when validation finds it, like
-  every error of a validation report.
+  every error of a validation report. `TARGET_DATA_UNAVAILABLE` is found only by validation, so the
+  CLI exits with 3 for it.
 - Retryable means that retrying the same operation unchanged may succeed: `RESOURCE_EXHAUSTED`,
   `TIMEOUT`, `IO_ERROR`, `STEP_TIMEOUT` and `TARGET_DATA_UNAVAILABLE`. A retry of a run is a new run
   with its own run record.
@@ -180,6 +189,7 @@ from 10000 up, never appears as the error's code: it is `details.cause.code` of 
 | `PARAMETERS_INVALID` | The pointer `/steps/<step>/parameters/...` against the module's `parameters_schema` (`praenora modules inspect <name>@<version>`). |
 | `INPUT_BINDING_INVALID` | The configuration's `inputs`: every workflow input bound, a message type that cannot carry the source's data, a `json-document` that violates the input's message type. |
 | `TARGET_DATA_INVALID` | The data file and line in the message: CSV structure, a missing column, numbers, the `missing` and `censoring` rules ([protocol.md](protocol.md#message-types)), or a CSV file beyond 256 MiB. |
+| `TARGET_DATA_UNAVAILABLE` | The input's `path` in the configuration (relative to the configuration file's directory) and the file it names: it must exist, be a file and be readable by the process, and every directory on the path must be searchable. |
 | `MODULE_NOT_FOUND` | The searched paths and the other versions found, both listed in the message; `--module-path`, `modules.search_paths`, `PRAENORA_MODULE_PATH`; `praenora modules list`. |
 | `PLATFORM_MISMATCH` | The platforms named in the message: the module is not built or installed for this platform. |
 | `MANIFEST_INVALID` | The manifest file and pointer ([manifest.md](manifest.md)); `praenora modules check <manifest>`. Regenerate the manifest with `praenora_add_module()`. |
@@ -191,6 +201,7 @@ from 10000 up, never appears as the error's code: it is `details.cause.code` of 
 | `ENTRY_POINT_MISSING`, `API_TABLE_INVALID`, `MODULE_IDENTITY_MISMATCH` | The module's build: `praenora modules check` names the failing check (`library.entry_point`, `api.header`, `api.required_functions`, `describe.identity`); for an identity mismatch, `details.differences` (often a stale manifest beside a rebuilt library). |
 | `CATALOG_ENTRY_NOT_FOUND`, `CATALOG_ENTRY_DUPLICATE` | The catalog entry and origins named in the message; `--catalog-path` and `PRAENORA_CATALOG_PATH`. |
 | `GRAPH_INVALID`, `GRAPH_CYCLE`, `PORT_UNCONNECTED`, `PORT_UNKNOWN`, `PORT_TYPE_MISMATCH` | The workflow definition at the pointer in the message ([workflow-definitions.md](workflow-definitions.md#graph-rules)); `praenora graph --workflow <name>@<version>`. |
+| `MESSAGE_TYPE_INCOMPATIBLE` | The connection at the pointer in the message: its ends carry two versions of one message type. The workflow definition's inputs, outputs and step capabilities must agree on the version of each message type they connect; pin a definition whose versions agree ([workflow-definitions.md](workflow-definitions.md#graph-rules)). |
 | `STEP_FAILED` | `details.step`, `details.phase`, `details.cause` (the module's own code and message) and `details.diagnostics`; the step's log records (logger `module.<step>`). |
 | `OUTPUT_INVALID` | `details.port`, the pointer into the result and `details.issues`; with tracing on, the trace's last records ([observability.md](observability.md#message-trace)); the module's test vectors. |
 | `STEP_TIMEOUT` | The step's timeouts (`run.timeouts`, `steps.<step>.timeouts`) against its durations in the metrics, and whether the module polls `cancel_requested()` ([time-cancellation-timeouts.md](time-cancellation-timeouts.md)). |
@@ -222,4 +233,6 @@ and, once versions are bumped again, an ABI minor version
 
 - [ADR-0013](../adr/ADR-0013-error-taxonomy-and-status-codes.md): error taxonomy and status codes.
 - [ADR-0023](../adr/ADR-0023-public-cpp-api.md): exceptions in the C++ API.
+- [ADR-0031](../adr/ADR-0031-raise-the-reserved-error-codes.md): where `MESSAGE_TYPE_INCOMPATIBLE`
+  and `TARGET_DATA_UNAVAILABLE` are raised.
 - [testing.md](../testing.md#triage): triage of failing tests.

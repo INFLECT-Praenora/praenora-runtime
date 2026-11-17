@@ -111,8 +111,10 @@ constexpr std::array kTable = {
         no_retry, "The module does not implement the capability the step requires."),
     row(E::PLATFORM_MISMATCH, "PLATFORM_MISMATCH", C::validation, "environment", no_retry,
         "No manifest of the module matches the host operating system and architecture."),
-    row(E::MESSAGE_TYPE_INCOMPATIBLE, "MESSAGE_TYPE_INCOMPATIBLE", C::validation, "protocol/module",
-        no_retry, "A message type version differs from the one required."),
+    row(E::MESSAGE_TYPE_INCOMPATIBLE, "MESSAGE_TYPE_INCOMPATIBLE", C::validation, "protocol",
+        no_retry,
+        "A message type version differs from the one required, such as at the two ends of a "
+        "connection."),
     row(E::CATALOG_ENTRY_NOT_FOUND, "CATALOG_ENTRY_NOT_FOUND", C::validation, "protocol", no_retry,
         "A referenced message type, capability or workflow definition is not in the catalog."),
     row(E::CATALOG_ENTRY_DUPLICATE, "CATALOG_ENTRY_DUPLICATE", C::compatibility, "protocol",
@@ -137,7 +139,7 @@ constexpr std::array kTable = {
         "A connection names a step, port, workflow input or workflow output that does not "
         "exist."),
     row(E::PORT_TYPE_MISMATCH, "PORT_TYPE_MISMATCH", C::validation, "protocol", no_retry,
-        "A connection joins ports of different message types or versions."),
+        "A connection joins ports of different message types."),
     row(E::STEP_FAILED, "STEP_FAILED", C::execution, "module", no_retry,
         "A module call returned an error."),
     row(E::OUTPUT_INVALID, "OUTPUT_INVALID", C::execution, "module", no_retry,
@@ -145,7 +147,9 @@ constexpr std::array kTable = {
     row(E::STEP_TIMEOUT, "STEP_TIMEOUT", C::timeout, "module/config", retry,
         "A module call passed its deadline and returned within the cancellation grace period."),
     row(E::MODULE_UNRESPONSIVE, "MODULE_UNRESPONSIVE", C::timeout, "module", no_retry,
-        "A module call did not return within its deadline plus the cancellation grace period."),
+        "A module call did not return within its deadline plus the cancellation grace period, or "
+        "a call or load was refused because such a call may still be running in the module's "
+        "library."),
     row(E::INPUT_MISSING, "INPUT_MISSING", C::execution, "runtime", no_retry,
         "A required input message was not available when a step ran."),
     row(E::RUN_STOPPED, "RUN_STOPPED", C::cancelled, "none", no_retry,
@@ -153,8 +157,9 @@ constexpr std::array kTable = {
     // Exit 1 during a run; the CLI reports 3 when validation finds it.
     row(E::TARGET_DATA_INVALID, "TARGET_DATA_INVALID", C::data, "user data", no_retry,
         "Target data is malformed or breaks the observation rules."),
+    // Found by validation only, so the CLI reports 3.
     row(E::TARGET_DATA_UNAVAILABLE, "TARGET_DATA_UNAVAILABLE", C::data, "environment", retry,
-        "Target data could not be read."),
+        "Target data could not be read, for example because its file does not exist."),
 };
 
 constexpr bool table_is_sorted() {

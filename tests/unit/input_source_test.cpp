@@ -348,6 +348,32 @@ TEST(ObservationCsv, OversizedFileIsRefusedBeforeItIsRead) {
     fs::permissions(big, fs::perms::owner_read | fs::perms::owner_write);
 }
 
+TEST(InputSource, FileThatCannotBeReadIsTargetDataUnavailable) {
+    // A file that does not exist, and a directory, cannot be read: TARGET_DATA_UNAVAILABLE located
+    // at the file, for either kind of source. Validation reports the first two at the
+    // configuration's path before it builds a source; the source's own check remains.
+    ScratchDir dir;
+    const fs::path directory = dir.path() / "dir";
+    fs::create_directory(directory);
+    for (const char* source : {"observation-csv", "json-document"}) {
+        for (const fs::path& path : {dir.path() / "none.csv", directory}) {
+            SCOPED_TRACE(std::string(source) + ": " + praenora::detail::path_to_utf8(path));
+            InputBinding binding = csv_binding(path);
+            binding.source = source;
+            try {
+                (void)make_input_source(binding, message_type("test.blob"), days());
+                ADD_FAILURE() << "the source was built";
+            } catch (const Error& e) {
+                EXPECT_EQ(e.code(), ErrorCode::TARGET_DATA_UNAVAILABLE) << e.what();
+                EXPECT_EQ(e.location().file, praenora::detail::path_to_utf8(path));
+                EXPECT_NE(std::string(e.what()).find("input 'observations': cannot read the"),
+                          std::string::npos)
+                    << e.what();
+            }
+        }
+    }
+}
+
 TEST(ObservationCsv, PortTypeMustAcceptObservationBatches) {
     // test.blob accepts any object, so it can carry observation batches too.
     const fs::path file = praenora::test::fixture_path("data/observations.csv");

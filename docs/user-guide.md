@@ -79,7 +79,7 @@ The exit code says what happened:
 | 4 | A module library could not be loaded or checked. |
 | 5 | A module call timed out or never returned. |
 | 70 | An internal error, usually a defect of the runtime. |
-| 74 | An environment error. `IO_ERROR`: a file or directory that is missing or unreadable, such as the configuration, a document, a manifest, a status file or a catalog directory; a file that cannot be written; or an output directory that holds an earlier run (a missing or unreadable data file is `TARGET_DATA_INVALID`, exit 3). `RESOURCE_EXHAUSTED`: the run ran out of memory or a worker thread could not start. |
+| 74 | An environment error. `IO_ERROR`: a file or directory that is missing or unreadable, such as the configuration, a document, a manifest, a status file or a catalog directory; a file that cannot be written; or an output directory that holds an earlier run (a missing or unreadable data file is `TARGET_DATA_UNAVAILABLE`, exit 3). `RESOURCE_EXHAUSTED`: the run ran out of memory or a worker thread could not start. |
 | 130 | Interrupted or stopped. |
 
 Each failure has an error code with a name, such as `PARAMETERS_INVALID`; the
@@ -346,7 +346,8 @@ step, module and `details` (for example the service, the search paths and the pr
 | `PARAMETERS_INVALID` | A step's parameter breaks the module's parameter schema; `praenora modules inspect <name>@<version>` shows the module, and its manifest holds the schema. |
 | `SCHEMA_VIOLATION` | A misspelled key or a value of the wrong type, at the JSON pointer given. |
 | `TARGET_DATA_INVALID` | The input data: the message names the file and line ([configuration.md](configuration.md#observation-csv)). |
-| `IO_ERROR`, exit 74 | A missing or unreadable file or directory (the configuration, a manifest, a catalog directory), a file that cannot be written, or an output directory with an earlier run (add `--overwrite`). A missing data file is `TARGET_DATA_INVALID` instead (exit 3). |
+| `TARGET_DATA_UNAVAILABLE` | The input's `path`: the data file does not exist, is not a file or cannot be read. |
+| `IO_ERROR`, exit 74 | A missing or unreadable file or directory (the configuration, a manifest, a catalog directory), a file that cannot be written, or an output directory with an earlier run (add `--overwrite`). A missing data file is `TARGET_DATA_UNAVAILABLE` instead (exit 3). |
 | `LIBRARY_LOAD_FAILED`, exit 4 | The operating system could not load the module library, for example because a library it needs is missing; the message holds the system's text. For a service provider, located in its manifest, `details.reason` names the check that failed: `start` (the provider's own error in `details.cause`), `identity` (a stale provider manifest), `service`, `conflict` or `library`. |
 | `STEP_FAILED`, exit 1 | A module returned an error. Its own code and message are in the error's `cause`; its log records are on the logger `module.<step>`. |
 | `STEP_TIMEOUT`, `MODULE_UNRESPONSIVE`, exit 5 | A call ran past its deadline (`run.timeouts`, `steps.<step>.timeouts`); an unresponsive module ignored the cancellation and never returned. While such a call may still be running, the process refuses the calls and loads of its library that would have to wait for it (all of them for `features.concurrency: "module"`) with `MODULE_UNRESPONSIVE` too, naming the call in `details.abandoned_call`. |
