@@ -402,9 +402,10 @@ foreach(components IN ITEMS "Runtime Frobnicator" "Off" "Runtime Frobnicator-NOT
     file(WRITE "${unknown_dir}/CMakeLists.txt" "cmake_minimum_required(VERSION 3.24)\n"
         "project(praenora_unknown_component LANGUAGES NONE)\n"
         "find_package(Praenora 0.2 REQUIRED COMPONENTS ${components})\n")
-    praenora_test_run(UNKNOWN "step 2: an unknown component (${components})"
-        "${CMAKE_COMMAND}" -S "${unknown_dir}" -B "${unknown_dir}/build" -C "${settings_file}"
-        ${generator_args})
+    # The command is run and, on a failure, shown from this one list.
+    set(unknown_command "${CMAKE_COMMAND}" -S "${unknown_dir}" -B "${unknown_dir}/build"
+        -C "${settings_file}" ${generator_args})
+    praenora_test_run(UNKNOWN "step 2: an unknown component (${components})" ${unknown_command})
     # CMake wraps the reason's lines.
     string(REGEX REPLACE "[ \t\r\n]+" " " unknown_output "${UNKNOWN_OUT}${UNKNOWN_ERR}")
     string(FIND "${unknown_output}" "Reason given by package: " reason_position)
@@ -417,9 +418,8 @@ foreach(components IN ITEMS "Runtime Frobnicator" "Off" "Runtime Frobnicator-NOT
        OR NOT unknown_reason MATCHES "Runtime" OR NOT unknown_reason MATCHES "ModuleSDK")
         set(problem "it did not fail with a reason that names the component ${unknown} and the ")
         string(APPEND problem "components Runtime and ModuleSDK")
-        praenora_test_fail("step 2: requiring ${components}" "${problem}"
-            "${CMAKE_COMMAND};-S;${unknown_dir}" "${UNKNOWN_EXIT}" "${UNKNOWN_OUT}"
-            "${UNKNOWN_ERR}")
+        praenora_test_fail("step 2: requiring ${components}" "${problem}" "${unknown_command}"
+            "${UNKNOWN_EXIT}" "${UNKNOWN_OUT}" "${UNKNOWN_ERR}")
     endif()
     message(STATUS "step 2: requiring ${components}: ${unknown} is not found, and the reason "
         "names it")
