@@ -19,7 +19,7 @@ foreach(variable IN ITEMS PROBE TICKS VALIDATION)
 endforeach()
 
 set(command "${PROBE}" --ticks "${TICKS}" --validation "${VALIDATION}")
-praenora_test_run(RUN "praenora_perf" ${command})
+praenora_test_run(RUN "praenora_perf" "${command}")
 string(STRIP "${RUN_OUT}" report)
 
 # Fails the test, showing what the probe did.

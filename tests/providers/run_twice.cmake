@@ -21,7 +21,7 @@ endforeach()
 
 set(command "${PRINT}" "${MANIFEST}" "${FORMAT}" "${MODEL}" "${END}")
 foreach(run IN ITEMS FIRST SECOND)
-    praenora_test_run(${run} "praenora_simulation_print" ${command})
+    praenora_test_run(${run} "praenora_simulation_print" "${command}")
     if(NOT ${run}_EXIT STREQUAL "0")
         praenora_test_fail("praenora_simulation_print" "exit code ${${run}_EXIT}, expected 0"
             "${command}" "${${run}_EXIT}" "${${run}_OUT}" "${${run}_ERR}")

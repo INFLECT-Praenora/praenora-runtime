@@ -89,10 +89,11 @@ endif()
 set(prefix "${WORK_DIR}/prefix")
 set(example_modules example-estimator example-predictor)
 
-# _run(<prefix> <what> <command>...): praenora_test_run() (tests/support/run_command.cmake), and
-# the command must exit with 0; its outputs go to <prefix>_OUT and <prefix>_ERR.
+# _run(<prefix> <what> <command>...): praenora_test_run() (tests/support/run_command.cmake), which
+# passes each argument after <what> to the program, an empty one included, and the command must
+# exit with 0; its outputs go to <prefix>_OUT and <prefix>_ERR.
 function(_run prefix what)
-    praenora_test_run(command "${what}" ${ARGN})
+    praenora_test_run(command "${what}" "${ARGN}")
     if(NOT command_EXIT STREQUAL "0")
         praenora_test_fail("${what}" "exit code ${command_EXIT}, expected 0" "${ARGN}"
             "${command_EXIT}" "${command_OUT}" "${command_ERR}")
@@ -405,7 +406,8 @@ foreach(components IN ITEMS "Runtime Frobnicator" "Off" "Runtime Frobnicator-NOT
     # The command is run and, on a failure, shown from this one list.
     set(unknown_command "${CMAKE_COMMAND}" -S "${unknown_dir}" -B "${unknown_dir}/build"
         -C "${settings_file}" ${generator_args})
-    praenora_test_run(UNKNOWN "step 2: an unknown component (${components})" ${unknown_command})
+    praenora_test_run(UNKNOWN "step 2: an unknown component (${components})"
+        "${unknown_command}")
     # CMake wraps the reason's lines.
     string(REGEX REPLACE "[ \t\r\n]+" " " unknown_output "${UNKNOWN_OUT}${UNKNOWN_ERR}")
     string(FIND "${unknown_output}" "Reason given by package: " reason_position)

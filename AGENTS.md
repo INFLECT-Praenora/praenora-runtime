@@ -114,9 +114,11 @@ Project presets: `linux-x64-{debug,release,asan,tsan}`, `macos-arm64-{debug,rele
 `providers.<provider>.exports` (the library exports only the provider entry point) and
 `providers.<provider>.processes` (two fresh processes print the same bytes), for `test-simulation`
 and, when it is built, `roadrunner`. The `cli` label holds the CLI driver tests, named
-`cli.<command>.<case>`; `cli.driver.shows_failing_command`, which checks how that driver shows a
-failing command; and the `CliTable.*` and `Frontend.*` unit tests of the tool's helpers and of what
-it shares with the Python extension (`ctest --preset dev -L cli`). The `python` label
+`cli.<command>.<case>`; `cli.driver.passes_empty_arguments`, which checks that each argument of a
+command reaches its program, an empty one included, and `cli.driver.shows_failing_command`, which
+checks how that driver shows a failing command; and the `CliTable.*` and `Frontend.*` unit tests
+of the tool's helpers and of what it shares with the Python extension
+(`ctest --preset dev -L cli`). The `python` label
 holds one CTest test, `python.unittest`, which runs the unittest suite of `tests/python` against the
 package in `build/<preset>/python`; with `PRAENORA_SANITIZERS` set it is registered but disabled,
 because an instrumented extension does not load into an interpreter that is not instrumented. So a

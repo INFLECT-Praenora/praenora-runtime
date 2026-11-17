@@ -2,8 +2,9 @@
 # CTest names cli.<command>.<case>, label cli. They use the fixture modules, the fixture service
 # providers, the test catalog and the configurations of tests/fixtures/configs/cli and, when the
 # examples are built, the example modules and workflow. Runs write their output directories below
-# the build tree. One more test, cli.driver.shows_failing_command (check_driver.cmake), checks the
-# driver itself: how it shows a command that fails.
+# the build tree. Two more tests check the driver itself (check_driver.cmake):
+# cli.driver.passes_empty_arguments, that each argument of a command reaches its program, an empty
+# one included, and cli.driver.shows_failing_command, how it shows a command that fails.
 
 set(_praenora_cli_driver "${CMAKE_CURRENT_SOURCE_DIR}/run_cli.cmake")
 set(_praenora_cli_tool "$<TARGET_FILE:praenora_cli>")
@@ -21,10 +22,10 @@ set(_praenora_fixture_paths
 #                       [INTERRUPT <count> READY_FILE <status file>]
 #                       [<driver variable> <value>...]...)
 #
-# Adds CTest test <name> (label cli) that runs the praenora tool with the CMD arguments through
-# run_cli.cmake. The other keywords are the driver's variables (see there): SETUP_CMD and AFTER_CMD
-# are argument lists like CMD; EXPECT_JSON_PATH, EXPECT_JSON_VALUE and COPY_FILES take several
-# values.
+# Adds CTest test <name> (label cli) that runs the praenora tool with the CMD arguments, an empty
+# one included, through run_cli.cmake. The other keywords are the driver's variables (see there):
+# SETUP_CMD and AFTER_CMD are argument lists like CMD; EXPECT_JSON_PATH, EXPECT_JSON_VALUE and
+# COPY_FILES take several values.
 # ENVIRONMENT sets environment variables (name=value) for the test. With INTERRUPT (POSIX only),
 # a plain POSIX shell runs the CMD command in the foreground (exec, so it keeps SIGINT at its
 # default disposition) while a background waiter waits, for at most 120 s, until the status file
@@ -247,6 +248,11 @@ praenora_add_cli_test(cli.modules.check_missing_vectors
         --vectors "${_praenora_missing}/vectors.json" ${_praenora_fixture_paths}
     EXPECT_EXIT 74
     EXPECT_STDERR_REGEX "cannot read the test vectors")
+# An empty path exits 74 too: it reaches the tool as an argument of its own.
+praenora_add_cli_test(cli.validate.empty_path
+    CMD validate ""
+    EXPECT_EXIT 74
+    EXPECT_STDERR_REGEX "error\\[IO_ERROR\\]: cannot read ''")
 # A missing data file is a diagnostic of the validation report, TARGET_DATA_UNAVAILABLE: the tool
 # exits with 3, as for every report that holds an error other than IO_ERROR.
 set(_praenora_missing_data "${_praenora_cli_configs}/missing-data/workflow.yaml")
@@ -526,12 +532,17 @@ if(PRAENORA_BUILD_EXAMPLES)
         EXPECT_JSON_VALUE status-snapshot example.estimate-predict completed)
 endif()
 
-# The driver itself: when a command fails, it shows the command on one line, with each argument
-# that is empty or holds whitespace or a quote character shown in double quotes, and its outputs
-# line by line as they were printed (check_driver.cmake).
-add_test(NAME cli.driver.shows_failing_command
-    COMMAND "${CMAKE_COMMAND}" -P "${CMAKE_CURRENT_SOURCE_DIR}/check_driver.cmake")
-set_tests_properties(cli.driver.shows_failing_command PROPERTIES LABELS cli)
+# The driver itself (check_driver.cmake): cli.driver.passes_empty_arguments, each argument of a
+# command reaches its program as it is, an empty one included; cli.driver.shows_failing_command,
+# when a command fails, it shows the command on one line, with each argument that is empty or
+# holds whitespace or a quote character shown in double quotes, and its outputs line by line as
+# they were printed.
+foreach(check IN ITEMS passes_empty_arguments shows_failing_command)
+    add_test(NAME cli.driver.${check}
+        COMMAND "${CMAKE_COMMAND}" -DCHECK=${check}
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/check_driver.cmake")
+    set_tests_properties(cli.driver.${check} PROPERTIES LABELS cli)
+endforeach()
 
 # Unit tests of the tool's own helpers (src/cli) and of what it shares with the Python extension
 # (praenora_frontend, src/frontend), all header-only.

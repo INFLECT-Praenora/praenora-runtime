@@ -19,9 +19,10 @@
 #   SETUP_CMD=<command line>       run first; must exit 0
 #   AFTER_CMD=<command line>       run last, with exit code AFTER_EXPECT_EXIT (default 0)
 #
-# Needs only CMake: the commands run through tests/support/run_command.cmake and string(JSON)
-# reads the output. On a mismatch it prints the command, its exit code and both outputs, and
-# fails; so does a command that prints a sanitizer report (sanitizer builds).
+# Needs only CMake: the commands run through tests/support/run_command.cmake, which passes each
+# element of a command line to the program as one argument, an empty one included, and
+# string(JSON) reads the output. On a mismatch it prints the command, its exit code and both
+# outputs, and fails; so does a command that prints a sanitizer report (sanitizer builds).
 cmake_minimum_required(VERSION 3.24)
 include("${CMAKE_CURRENT_LIST_DIR}/../support/run_command.cmake")
 
@@ -47,14 +48,14 @@ if(DEFINED COPY_FILES)
 endif()
 
 if(DEFINED SETUP_CMD)
-    praenora_test_run(SETUP "setup" ${SETUP_CMD})
+    praenora_test_run(SETUP "setup" "${SETUP_CMD}")
     if(NOT SETUP_EXIT STREQUAL "0")
         praenora_test_fail("setup" "exit code ${SETUP_EXIT}, expected 0" "${SETUP_CMD}"
             "${SETUP_EXIT}" "${SETUP_OUT}" "${SETUP_ERR}")
     endif()
 endif()
 
-praenora_test_run(RUN "command" ${CMD})
+praenora_test_run(RUN "command" "${CMD}")
 
 # Fails the test, showing what the command did.
 function(_fail problem)
@@ -131,7 +132,7 @@ if(DEFINED AFTER_CMD)
     if(NOT DEFINED AFTER_EXPECT_EXIT)
         set(AFTER_EXPECT_EXIT 0)
     endif()
-    praenora_test_run(AFTER "last command" ${AFTER_CMD})
+    praenora_test_run(AFTER "last command" "${AFTER_CMD}")
     if(NOT AFTER_EXIT STREQUAL AFTER_EXPECT_EXIT)
         praenora_test_fail("last command" "exit code ${AFTER_EXIT}, expected ${AFTER_EXPECT_EXIT}"
             "${AFTER_CMD}" "${AFTER_EXIT}" "${AFTER_OUT}" "${AFTER_ERR}")

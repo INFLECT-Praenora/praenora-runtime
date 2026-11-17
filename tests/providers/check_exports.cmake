@@ -24,7 +24,7 @@ else()
     set(command "${NM}" -D --defined-only "${LIBRARY}")
     set(entry_point "praenora_provider_get_api")
 endif()
-praenora_test_run(NM "nm" ${command})
+praenora_test_run(NM "nm" "${command}")
 if(NOT NM_EXIT STREQUAL "0")
     praenora_test_fail("nm" "exit code ${NM_EXIT}, expected 0" "${command}" "${NM_EXIT}"
         "${NM_OUT}" "${NM_ERR}")
