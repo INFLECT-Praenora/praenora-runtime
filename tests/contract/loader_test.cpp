@@ -12,6 +12,7 @@
 
 #include "module_fixtures.hpp"
 #include "scoped_environment.hpp"
+#include "temp_dir.hpp"
 #include "test_support.hpp"
 
 #include <praenora/runtime/error.hpp>
@@ -43,6 +44,7 @@ using praenora::detail::ModuleManifest;
 using praenora::detail::parse_semver;
 using praenora::detail::SharedLibrary;
 using praenora::test::fixture_manifest;
+using praenora::test::RestorePermissions;
 using praenora::test::ScopedEnvironment;
 using praenora::test::ScratchDir;
 using praenora::test::utf8_path;
@@ -434,15 +436,14 @@ TEST(Loader, UnreadableLibraryIsIoErrorAtTheManifest) {
     const ScratchDir scratch;
     const fs::path manifest_path = copy_fixture("fx-echo", scratch.path() / "unreadable");
     const ModuleManifest manifest = load_manifest(manifest_path);
+    const RestorePermissions restore{manifest.library_path, fs::perms::owner_all};
     fs::permissions(manifest.library_path, fs::perms::none);
     const bool readable = std::ifstream(manifest.library_path, std::ios::binary).is_open();
     if (readable) {
-        fs::permissions(manifest.library_path, fs::perms::owner_all);
         GTEST_SKIP() << "the file stays readable here (permissions are not enforced)";
     }
 
     const auto failure = library_check_failure(manifest);
-    fs::permissions(manifest.library_path, fs::perms::owner_all);
     EXPECT_EQ(failure.code, ErrorCode::IO_ERROR) << failure.message;
     EXPECT_EQ(failure.location.file, manifest.manifest_path.u8string());
     EXPECT_EQ(failure.location.pointer, "/library/path");

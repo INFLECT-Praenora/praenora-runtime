@@ -10,6 +10,7 @@
 #include "document/yaml_loader.hpp"
 
 #include "module_fixtures.hpp"
+#include "temp_dir.hpp"
 #include "test_support.hpp"
 
 #include <praenora/runtime/error.hpp>
@@ -21,7 +22,6 @@
 #include <fstream>
 #include <memory>
 #include <string>
-#include <system_error>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -35,6 +35,7 @@ using praenora::detail::make_input_source;
 using praenora::detail::MessageTypeDef;
 using praenora::detail::parse_semver;
 using praenora::detail::TimeBase;
+using praenora::test::RestorePermissions;
 using praenora::test::ScratchDir;
 using praenora::test::write_text_file;
 
@@ -121,17 +122,6 @@ std::unique_ptr<InputSource> fixture_source() {
     return make_input_source(csv_binding(praenora::test::fixture_path("data/observations.csv")),
                              observation_batch(), days());
 }
-
-// Gives a file's owner read and write permission back when it goes out of scope, however the test
-// ends, so that the scratch directory can be removed after a test that took it away. Declare it
-// after the ScratchDir, so that it is destroyed first.
-struct RestorePermissions {
-    fs::path file;
-    ~RestorePermissions() {
-        std::error_code ec;
-        fs::permissions(file, fs::perms::owner_read | fs::perms::owner_write, ec);
-    }
-};
 
 } // namespace
 
@@ -334,7 +324,7 @@ TEST(ObservationCsv, OversizedFileIsRefusedBeforeItIsRead) {
     // before the size check would report "cannot read" instead of "too large".
     const fs::path big = dir.path() / "big.csv";
     write_text_file(big, csv + "\"never closed\n");
-    const RestorePermissions restore{big};
+    const RestorePermissions restore{big, fs::perms::owner_read | fs::perms::owner_write};
     fs::permissions(big, fs::perms::none);
     if (std::ifstream(big, std::ios::binary).is_open()) {
         GTEST_SKIP() << "the process can read a file without permissions";

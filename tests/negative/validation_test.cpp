@@ -9,6 +9,7 @@
 #include "document/json_util.hpp"
 
 #include "module_fixtures.hpp"
+#include "temp_dir.hpp"
 #include "test_support.hpp"
 #include "validation_fixtures.hpp"
 
@@ -20,6 +21,7 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <system_error>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -28,6 +30,7 @@ using praenora::Diagnostic;
 using praenora::ErrorCode;
 using praenora::Severity;
 using praenora::detail::path_to_utf8;
+using praenora::test::RestorePermissions;
 using praenora::test::ScratchDir;
 using praenora::test::validate_text;
 using praenora::test::write_text_file;
@@ -61,17 +64,6 @@ std::string data_config(const std::string& source) {
                   "steps:\n"
                   "  a: { module: { name: fx-echo, version: \"0.1.0\" } }\n");
 }
-
-// Gives a directory and a file in it their usual permissions back when it goes out of scope, so
-// that the scratch directory can be removed after a test that took them away.
-struct RestorePermissions {
-    fs::path directory, file;
-    ~RestorePermissions() {
-        std::error_code ec;
-        fs::permissions(directory, fs::perms::owner_all, ec);
-        fs::permissions(file, fs::perms::owner_read | fs::perms::owner_write, ec);
-    }
-};
 
 // A json-document input "source" (any object fits test.blob) and one tick per run.
 const char* const kSourceInput = "run: { ticks: 3 }\n"
@@ -262,7 +254,10 @@ TEST(Validation, UnreadableDataFileIsTargetDataUnavailable) {
     const fs::path locked = dir.path() / "data";
     const fs::path data = locked / "obs.csv";
     write_text_file(data, praenora::test::observations_csv());
-    const RestorePermissions restore{locked, data};
+    // Declared last, the directory's guard is destroyed first: the file's guard can reach the file
+    // only once the directory has its permissions back.
+    const RestorePermissions restore_data{data, fs::perms::owner_read | fs::perms::owner_write};
+    const RestorePermissions restore_locked{locked, fs::perms::owner_all};
     fs::permissions(data, fs::perms::none);
     if (std::ifstream(data, std::ios::binary).is_open()) {
         GTEST_SKIP() << "the process can read a file without permissions";

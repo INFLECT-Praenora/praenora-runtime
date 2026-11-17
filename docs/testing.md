@@ -232,7 +232,9 @@ gate in every build that has them: the contract tests run the checks on them.
   should print the error code's name, the JSON pointer or `file:line`, and the step and tick where
   they matter.
 - **Helpers.** `tests/support/` holds what tests share: scratch directories, JSON comparison with a
-  tolerance, log capture, fixture paths. Tests get the locations of the source tree, the fixtures,
+  tolerance, log capture, fixture paths. A test that takes a file's or a directory's permissions
+  away gives them back through a `RestorePermissions` guard (`temp_dir.hpp`), declared after its
+  `ScratchDir`. Tests get the locations of the source tree, the fixtures,
   the test catalog and the fixture and example modules as compile definitions
   (`PRAENORA_TEST_SOURCE_DIR`, `PRAENORA_TEST_FIXTURES_DIR`, `PRAENORA_TEST_CATALOG_DIR`,
   `PRAENORA_TEST_MODULES_DIR`, `PRAENORA_EXAMPLE_MODULES_DIR`).

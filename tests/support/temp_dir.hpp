@@ -1,5 +1,6 @@
-// Temporary directories for tests. Header-only; uses only the standard library, so white-box and
-// black-box tests alike can use it.
+// Temporary directories for tests, and a guard that gives a file or a directory its permissions
+// back. Header-only; uses only the standard library, so white-box and black-box tests alike can
+// use it.
 #ifndef PRAENORA_TESTS_SUPPORT_TEMP_DIR_HPP
 #define PRAENORA_TESTS_SUPPORT_TEMP_DIR_HPP
 
@@ -9,6 +10,7 @@
 #include <random>
 #include <string>
 #include <system_error>
+#include <utility>
 
 namespace praenora::test {
 
@@ -35,6 +37,28 @@ public:
 
 private:
     std::filesystem::path path_;
+};
+
+// Gives a path the permissions passed to its constructor when it goes out of scope, however the
+// test ends, and ignores errors. A test that takes a file's or a directory's permissions away
+// declares one after its ScratchDir, so that it is destroyed first and the scratch directory can
+// then be removed. Guards are destroyed in the reverse order of their declarations: declare a
+// directory's guard after the guards of the files in it, so that the directory gets its permissions
+// back first.
+class RestorePermissions {
+public:
+    RestorePermissions(std::filesystem::path path, std::filesystem::perms permissions)
+        : path_(std::move(path)), permissions_(permissions) {}
+    ~RestorePermissions() {
+        std::error_code ignored;
+        std::filesystem::permissions(path_, permissions_, ignored);
+    }
+    RestorePermissions(const RestorePermissions&) = delete;
+    RestorePermissions& operator=(const RestorePermissions&) = delete;
+
+private:
+    std::filesystem::path path_;
+    std::filesystem::perms permissions_;
 };
 
 } // namespace praenora::test
