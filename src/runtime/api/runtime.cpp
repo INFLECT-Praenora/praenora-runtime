@@ -653,13 +653,11 @@ std::string Runtime::graph(const GraphRequest& request) const {
     }
     // An invalid definition: every problem, located in its catalog entry, in the details.
     const ValidationReport problems = detail::validate_graph(*definition, catalog);
-    for (const Diagnostic& diagnostic : problems.diagnostics) {
-        if (diagnostic.severity == Severity::error) {
-            throw Error(diagnostic.code,
-                        "workflow definition " + identity(definition->name, definition->version) +
-                            " is invalid: " + diagnostic.message,
-                        diagnostic.location, problems.to_json());
-        }
+    if (const Diagnostic* first = problems.first_error()) {
+        throw Error(first->code,
+                    "workflow definition " + identity(definition->name, definition->version) +
+                        " is invalid: " + first->message,
+                    first->location, problems.to_json());
     }
     return detail::export_graph(*definition, catalog, request.format);
 }

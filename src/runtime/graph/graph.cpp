@@ -297,10 +297,8 @@ ValidationReport validate_graph(const WorkflowDef& definition, const Catalog& ca
 
 WorkflowGraph build_graph(const WorkflowDef& definition, const Catalog& catalog) {
     GraphAnalysis analysis(definition, catalog);
-    for (const Diagnostic& diagnostic : analysis.report().diagnostics) {
-        if (diagnostic.severity == Severity::error) {
-            throw Error(diagnostic.code, diagnostic.message, diagnostic.location);
-        }
+    if (const Diagnostic* first = analysis.report().first_error()) {
+        throw Error(first->code, first->message, first->location);
     }
     return std::move(analysis.graph());
 }

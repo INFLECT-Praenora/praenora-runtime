@@ -27,6 +27,8 @@ struct Outcome {
     praenora::ValidationReport report;
     bool build_threw = false;
     ErrorCode build_code = ErrorCode::OK;
+    std::string build_message;
+    praenora::SourceLocation build_location;
 };
 
 // Validates and builds workflow bad.<name>@0.1.0 of catalog-bad/<name>, on top of the test catalog.
@@ -44,6 +46,8 @@ Outcome check_case(const std::string& name) {
     } catch (const Error& error) {
         outcome.build_threw = true;
         outcome.build_code = error.code();
+        outcome.build_message = error.what();
+        outcome.build_location = error.location();
     }
     return outcome;
 }
@@ -160,6 +164,24 @@ TEST(Graph, WorkflowOutputUnconnectedIsPortUnconnected) {
     ASSERT_NE(unconnected, nullptr);
     EXPECT_NE(unconnected->message.find("outputs.extra"), std::string::npos)
         << unconnected->message;
+}
+
+TEST(Graph, SeveralProblemsAreReportedAndBuildRefusesWithTheFirst) {
+    // A fan-in at connection 1, then an unconnected workflow output: the report holds both, in
+    // that order, and build_graph() throws the first of them as it is reported.
+    const Outcome outcome = check_case("fan-in-and-output-unconnected");
+    ASSERT_EQ(outcome.report.diagnostics.size(), 2u) << outcome.report.to_text();
+    const praenora::Diagnostic& first = outcome.report.diagnostics[0];
+    EXPECT_EQ(first.code, ErrorCode::GRAPH_INVALID);
+    EXPECT_EQ(first.location.pointer, "/connections/1/to");
+    EXPECT_EQ(outcome.report.diagnostics[1].code, ErrorCode::PORT_UNCONNECTED);
+    ASSERT_TRUE(outcome.build_threw);
+    EXPECT_EQ(outcome.build_code, first.code);
+    EXPECT_EQ(outcome.build_message, first.message);
+    EXPECT_EQ(outcome.build_location.file, first.location.file);
+    EXPECT_EQ(outcome.build_location.line, first.location.line);
+    EXPECT_EQ(outcome.build_location.column, first.location.column);
+    EXPECT_EQ(outcome.build_location.pointer, first.location.pointer);
 }
 
 TEST(Graph, DelayGreaterThanOneRejected) {
