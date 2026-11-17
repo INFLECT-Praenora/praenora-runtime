@@ -264,7 +264,8 @@ if(PRAENORA_WITH_ROADRUNNER)
     add_dependencies(praenora_integration_tests praenora_provider_roadrunner)
 endif()
 
-# CLI tests (label cli): the praenora tool, run through tests/cli/run_cli.cmake.
+# CLI tests (label cli): the praenora tool, run through tests/cli/run_cli.cmake, and that driver
+# itself.
 if(TARGET praenora_cli)
     add_subdirectory(cli)
 endif()

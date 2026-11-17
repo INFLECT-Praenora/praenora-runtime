@@ -53,7 +53,7 @@ themselves.
 | `negative` | What must be refused: bad manifests, configurations and graphs, incompatible modules, failing validations, services no provider serves, providers that do not load in a run, each with its code and location. | `praenora_negative_tests` |
 | `lifecycle` | Call order and cleanup, timeouts, unresponsive modules, cancellation and stop requests, calls into one library from instances of several loads of it (they take turns, and are refused behind an abandoned call), and the runtime services an instance is served. | `praenora_lifecycle_tests` |
 | `integration` | The public API through the shared library only, and the example workflow end to end: golden outputs, determinism, the fingerprint, files on disk, status queries during a run. | `praenora_integration_tests` |
-| `cli` | The `praenora` tool: every command, exit code, `--json` shape and diagnostics format (`cli.<command>.<case>`, driven by `tests/cli/run_cli.cmake`), and the unit tests of its helpers (`CliTable.*`) and of what it shares with the Python extension (`Frontend.*`, `src/frontend`). | `praenora_cli_tests` and the CLI driver |
+| `cli` | The `praenora` tool: every command, exit code, `--json` shape and diagnostics format (`cli.<command>.<case>`, driven by `tests/cli/run_cli.cmake`), how that driver shows a command that fails (`cli.driver.shows_failing_command`), and the unit tests of its helpers (`CliTable.*`) and of what it shares with the Python extension (`Frontend.*`, `src/frontend`). | `praenora_cli_tests`, the CLI driver and `tests/cli/check_driver.cmake` |
 | `python` | The Python package: CLI parity, errors, the context manager, calls from a second thread. One CTest test, `python.unittest`, runs the `unittest` suite of `tests/python`. | `python.unittest` |
 | `install` | An installation into a scratch prefix: its layout (service providers included), a module and an application built against it, the installed tool, a moved installation, no build or source paths in installed files. | `install.consumer` |
 | `perf` | The performance probe `praenora_perf`: 2000 ticks of a four-step chain of no-op modules, with and without payload validation. It prints a JSON report and fails only when the probe fails, never on timings. | `perf.validation_strict`, `perf.validation_off` |
@@ -167,7 +167,11 @@ positive.
 ## Triage
 
 A failing test names its component, and the failure message names an error code, a JSON pointer or
-`file:line`, and the step and tick where they matter. Start from the label:
+`file:line`, and the step and tick where they matter. The CLI, install, perf and provider-file
+drivers show a command that failed on one line, with each argument that is empty or holds
+whitespace or a quote character shown in double quotes
+([`tests/support/run_command.cmake`](../tests/support/run_command.cmake) gives the rule). Start
+from the label:
 
 | Failing label | Component | Likely owner |
 |---|---|---|
@@ -177,7 +181,7 @@ A failing test names its component, and the failure message names an error code,
 | `negative` | Validation: a bad input was accepted, or refused with another code or location. | runtime |
 | `lifecycle` | `src/runtime/instance` and `src/runtime/engine`: call order, deadlines, cancellation, teardown. | runtime |
 | `integration` | The public API (`src/runtime/api`), or the example modules when their outputs changed (golden files). | runtime, or the example modules |
-| `cli` | `src/cli`, or the API behind the command; the test's name says which command. | runtime |
+| `cli` | `src/cli`, or the API behind the command; the test's name says which command. For `cli.driver.*`, the drivers' shared `tests/support/run_command.cmake`. | runtime |
 | `python` | `src/python` and `python/praenora/runtime`; or the interpreter, when the import fails. | runtime, or environment |
 | `install` | The install rules and the CMake package (`cmake/PraenoraInstall.cmake`, `cmake/PraenoraConfig.cmake.in`, `cmake/PraenoraModule.cmake`); the driver prints each step it checked. | runtime, or environment |
 | `perf` | Only when the probe crashes or prints no report. | runtime |

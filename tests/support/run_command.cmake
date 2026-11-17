@@ -10,14 +10,38 @@
 #   problem", whatever the exit code: a sanitizer build may report a problem and still exit with 0.
 #
 # praenora_test_fail(<what> <problem> <command> <exit code> <stdout> <stderr>)
-#   Fails the test with "<what>: <problem>", then the command (a ;-list, shown with spaces), its
-#   exit code and both outputs.
+#   Fails the test with "<what>: <problem>", then the command (a ;-list), its exit code and both
+#   outputs. The command is shown on one line, its arguments separated by spaces. An argument that
+#   is empty or holds whitespace (a space, tab, line feed, vertical tab, form feed or carriage
+#   return) or a quote character (" or ') is shown in double quotes, inside which a backslash
+#   precedes each \ and ", and a tab, line feed, vertical tab, form feed or carriage return is
+#   written \t, \n, \v, \f or \r. Every other argument is shown as it is. The line starts with a
+#   space: message() prints a line that starts with a space as it is, and formats every other line,
+#   one that starts with a tab included, as a paragraph wrapped at spaces. An empty element of the
+#   list is shown as "", though praenora_test_run() does not pass it: CMake drops empty elements
+#   when it expands a list unquoted.
 include_guard(GLOBAL)
 
 function(praenora_test_fail what problem command exit_code out err)
-    string(REPLACE ";" " " shown "${command}")
+    string(ASCII 11 vertical_tab)
+    string(ASCII 12 form_feed)
+    set(shown "")
+    foreach(argument IN LISTS command)
+        if(argument STREQUAL "" OR
+           argument MATCHES "[ \t\n${vertical_tab}${form_feed}\r\"']")
+            string(REPLACE "\\" "\\\\" argument "${argument}")
+            string(REPLACE "\"" "\\\"" argument "${argument}")
+            string(REPLACE "\t" "\\t" argument "${argument}")
+            string(REPLACE "\n" "\\n" argument "${argument}")
+            string(REPLACE "${vertical_tab}" "\\v" argument "${argument}")
+            string(REPLACE "${form_feed}" "\\f" argument "${argument}")
+            string(REPLACE "\r" "\\r" argument "${argument}")
+            set(argument "\"${argument}\"")
+        endif()
+        string(APPEND shown " ${argument}")
+    endforeach()
     message(FATAL_ERROR "${what}: ${problem}\n"
-        "command: ${shown}\n"
+        " command:${shown}\n"
         "exit code: ${exit_code}\n"
         "--- stdout ---\n${out}\n"
         "--- stderr ---\n${err}\n")

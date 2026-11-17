@@ -2,7 +2,8 @@
 # CTest names cli.<command>.<case>, label cli. They use the fixture modules, the fixture service
 # providers, the test catalog and the configurations of tests/fixtures/configs/cli and, when the
 # examples are built, the example modules and workflow. Runs write their output directories below
-# the build tree.
+# the build tree. One more test, cli.driver.shows_failing_command (check_driver.cmake), checks the
+# driver itself: how it shows a command that fails.
 
 set(_praenora_cli_driver "${CMAKE_CURRENT_SOURCE_DIR}/run_cli.cmake")
 set(_praenora_cli_tool "$<TARGET_FILE:praenora_cli>")
@@ -524,6 +525,13 @@ if(PRAENORA_BUILD_EXAMPLES)
         EXPECT_JSON_PATH result.kind result.workflow.name result.workflow.state
         EXPECT_JSON_VALUE status-snapshot example.estimate-predict completed)
 endif()
+
+# The driver itself: when a command fails, it shows the command on one line, with each argument
+# that is empty or holds whitespace or a quote character shown in double quotes
+# (check_driver.cmake).
+add_test(NAME cli.driver.shows_failing_command
+    COMMAND "${CMAKE_COMMAND}" -P "${CMAKE_CURRENT_SOURCE_DIR}/check_driver.cmake")
+set_tests_properties(cli.driver.shows_failing_command PROPERTIES LABELS cli)
 
 # Unit tests of the tool's own helpers (src/cli) and of what it shares with the Python extension
 # (praenora_frontend, src/frontend), all header-only.
