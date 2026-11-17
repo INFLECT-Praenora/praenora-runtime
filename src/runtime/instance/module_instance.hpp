@@ -39,6 +39,13 @@
 //     Its lease is marked abandoned: the library refuses the calls that would wait for it until
 //     the call returns, if ever.
 //
+// Service lookups. With InstanceOptions::record_lookups, the instance records the runtime-service
+// lookups made while each of its calls is in flight, on any thread of the module: one
+// ServiceLookup per service (name, major and whether provided) and call, in the order of each
+// one's first lookup in that call, with the number of lookups and, for an invoke, its tick. A
+// call's lookups are kept once the call returns or is abandoned (then those made before), until
+// take_lookups(). Lookups made between calls are not recorded.
+//
 // States (praenora::StepState): loaded -> created -> ready -> finalized -> destroyed, `busy` while
 // a call runs. A failed, timed-out or cancelled create, initialize or finalize leaves `failed`;
 // invoke returns to `ready` whatever its outcome, so an initialized instance is always finalized
@@ -66,6 +73,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace praenora::detail {
 
@@ -130,6 +138,9 @@ struct InstanceOptions {
     // during the call. finalize, destroy and diagnostics always start clear. Must outlive the
     // instance.
     const std::atomic<bool>* stop_flag = nullptr;
+    // Whether to record the runtime-service lookups of each call, for take_lookups() (the engine
+    // sets it when the run writes a message trace).
+    bool record_lookups = false;
 };
 
 class ModuleInstance {
@@ -184,6 +195,10 @@ public:
     // to be called again, while the run it belonged to goes away. Thread-safe; never throws.
     void withdraw_services() noexcept;
 
+    // The runtime-service lookups of the calls that ended since the last take_lookups(), in call
+    // order; empty without InstanceOptions::record_lookups. For the controlling thread.
+    std::vector<ServiceLookup> take_lookups() noexcept;
+
     StepState state() const noexcept; // thread-safe
     const LoadedModule& module() const noexcept;
     // The abandoned call that the last refused call was refused for (CallResult::refused_by),
@@ -203,12 +218,14 @@ private:
     // Runs `body` on the worker thread with a copy of `input` as the call's document, and waits
     // for it as the deadlines say. Marks `claim` once the call is posted, so an exception before
     // that restores the state. On unresponsive the instance is abandoned before this returns.
-    // When `created` is given, it receives the instance a create() call produced.
+    // When `created` is given, it receives the instance a create() call produced. `tick`: the
+    // invocation's, for the lookups an invoke records.
     // `access`: the lease the call takes on the library's gate (LoadedModule::call_access(), or
     // exclusive for self_test).
     CallResult run(Claim& claim, const char* call, std::chrono::nanoseconds timeout,
                    StopFlag stop_flag, LibraryGate::Access access, const std::string& input,
-                   Body body, praenora_instance** created = nullptr);
+                   Body body, praenora_instance** created = nullptr,
+                   std::optional<std::uint64_t> tick = std::nullopt);
     void abandon(const char* call) noexcept;
     // The result of a call that never reached the module: refused (`refused_by`, the abandoned
     // call it would have waited for; logged as library.refused), or else stopped while it waited
@@ -222,6 +239,13 @@ private:
     // Stops serving runtime services, built-in and provider ones alike: what withdraw_services()
     // and an abandonment both do. Takes the lock that get_service() takes.
     void stop_serving() noexcept;
+    // With InstanceOptions::record_lookups, starts recording the lookups of call `number`, named
+    // `call`, of the invocation of `tick` if any; finish_recording() stops it and moves what was
+    // recorded to ended_lookups_, or drops it when `keep` is false (a call that was never
+    // posted). Both take the lock that get_service() takes.
+    void start_recording(std::uint64_t number, const char* call,
+                         std::optional<std::uint64_t> tick) noexcept;
+    void finish_recording(bool keep) noexcept;
     // Logs an event about the instance; never throws (the message is copied inside).
     void log(LogLevel level, std::string_view message, const char* event) const noexcept;
 
@@ -235,6 +259,8 @@ private:
     praenora_instance* instance_ = nullptr; // the module's instance, while it exists
     std::uint64_t calls_ = 0;               // calls posted so far; numbers them from 1
     std::optional<LibraryCall> refused_by_; // the abandoned call of the last refusal
+    // The lookups of the calls that ended, until take_lookups().
+    std::vector<ServiceLookup> ended_lookups_;
 };
 
 } // namespace praenora::detail

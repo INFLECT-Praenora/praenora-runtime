@@ -67,7 +67,7 @@ The suites of the GoogleTest labels name the components they test:
 | `protocol` | `Catalog`, `Graph`, `GraphExport`, `Schemas` |
 | `contract` | `Discovery`, `Engine`, `Envelope`, `Instance`, `Loader`, `Manifest`, `ModuleCheck`, `ProviderDiscovery`, `ProviderIndex`, `ProviderLoader`, `ProviderManifest`, `ServiceRun`, `Services`, the parameterized `SimulationService` (the service checks: `<Provider>/SimulationService.<Check>/<ParameterSet>`), and, with the roadrunner provider, `RoadrunnerProvider` |
 | `negative` | `Compat`, `Config`, `ConfigBadFixtures`, `Graph`, `Manifest`, `ProviderLoadFailure`, `ProviderManifest`, `ServiceValidation`, `Validation` |
-| `lifecycle` | `Cancel`, `Lifecycle`, `ServiceVisibility`, `Timeout` |
+| `lifecycle` | `Cancel`, `Lifecycle`, `ServiceLookups`, `ServiceVisibility`, `Timeout` |
 | `integration` | `Api`, `Example` |
 | `cli` | `CliTable`, `Frontend` (beside the `cli.<command>.<case>` driver tests, which are not GoogleTest) |
 

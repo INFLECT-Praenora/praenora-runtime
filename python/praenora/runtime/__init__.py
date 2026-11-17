@@ -277,8 +277,9 @@ class Workflow:
             (names in any case); log_file: also log to this file ("" for none). They win over
             PRAENORA_LOG_LEVEL, PRAENORA_LOG_FORMAT and the configuration.
         overwrite: replace an earlier run in the output directory.
-        trace_messages: whether every message is traced to <output_dir>/trace/messages.jsonl;
-            None keeps the configuration's setting.
+        trace_messages: whether every message, and the runtime services each call into a
+            module looks up, are traced to <output_dir>/trace/messages.jsonl; None keeps the
+            configuration's setting.
         status_file: keep a status file there (read_status() reads it).
 
     The control calls (start, tick, run and close) are made one at a time. The queries (state,

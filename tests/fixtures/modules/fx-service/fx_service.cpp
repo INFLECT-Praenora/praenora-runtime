@@ -7,14 +7,20 @@
 //    "found": {"<name>@<major>": <whether get_service() returned a table>, ...}}
 // for test.echo@0 and each lookup. With the parameter require_echo true (default false), an
 // invoke without a usable test.echo@0 fails with NOT_FOUND. create() logs "fx-service:create" at
-// info level. One source, built as several fixture modules that declare different services
-// (tests/fixtures/modules/CMakeLists.txt).
+// info level. The parameter lookup_in (default ["invoke"]) names the calls in which the services
+// of `lookups` are looked up: any of "create", "initialize", "invoke", "finalize", "destroy" and
+// "diagnostics" (invoke always looks up test.echo@0; `found` has a lookup only when "invoke" is
+// among them); the parameter repeat (default 1) is how many times each of them is looked up in
+// such a call. The parameter fail_in (default []) names calls, "create" or "initialize", that
+// fail with INVALID_ARGUMENT after their lookups. One source, built as several fixture modules
+// that declare different services (tests/fixtures/modules/CMakeLists.txt).
 #include "test_echo.h"
 
 #include <praenora/sdk/module.hpp>
 
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <exception>
@@ -90,6 +96,50 @@ public:
             lookups_.push_back(lookup_of(key.get<std::string>()));
         }
         require_echo_ = parameters.value("require_echo", false);
+        for (const auto& call : parameters.value("lookup_in", json::array({"invoke"}))) {
+            static const char* const kCalls[] = {"create",   "initialize", "invoke",
+                                                 "finalize", "destroy",    "diagnostics"};
+            if (!call.is_string() || std::find(std::begin(kCalls), std::end(kCalls),
+                                               call.get<std::string>()) == std::end(kCalls)) {
+                throw sdk::Error(PRAENORA_STATUS_INVALID_ARGUMENT,
+                                 "fx-service: lookup_in names calls of the module ABI");
+            }
+            lookup_in_.push_back(call.get<std::string>());
+        }
+        const json repeat = parameters.value("repeat", json(1));
+        if (!repeat.is_number_integer() || repeat.get<std::int64_t>() < 1) {
+            throw sdk::Error(PRAENORA_STATUS_INVALID_ARGUMENT,
+                             "fx-service: repeat is a positive integer");
+        }
+        repeat_ = repeat.get<std::uint64_t>();
+        for (const auto& call : parameters.value("fail_in", json::array())) {
+            if (call != "create" && call != "initialize") {
+                throw sdk::Error(PRAENORA_STATUS_INVALID_ARGUMENT,
+                                 "fx-service: fail_in names create or initialize");
+            }
+            fail_in_.push_back(call.get<std::string>());
+        }
+        look_up_in("create");
+        fail_if_asked("create");
+    }
+
+    ~ServiceModule() override {
+        try {
+            look_up_in("destroy");
+        } catch (...) {
+        }
+    }
+
+    void initialize(const sdk::InitializeContext&) override {
+        look_up_in("initialize");
+        fail_if_asked("initialize");
+    }
+
+    void finalize() override { look_up_in("finalize"); }
+
+    std::string diagnostics() const override {
+        look_up_in("diagnostics");
+        return "{}";
     }
 
     std::string invoke(std::string_view invocation_json) override {
@@ -107,8 +157,10 @@ public:
         const auto* echo = static_cast<const praenora_test_echo_v0*>(
             host_.service(PRAENORA_TEST_ECHO_SERVICE, 0));
         found[std::string(PRAENORA_TEST_ECHO_SERVICE) + "@0"] = echo != nullptr;
-        for (const Lookup& lookup : lookups_) {
-            found[lookup.key] = host_.service(lookup.name, lookup.major) != nullptr;
+        if (looks_up_in("invoke")) {
+            for (const Lookup& lookup : lookups_) {
+                found[lookup.key] = look_up(lookup);
+            }
         }
 
         json echoed = nullptr;
@@ -135,9 +187,40 @@ public:
     }
 
 private:
+    bool looks_up_in(const std::string& call) const {
+        return std::find(lookup_in_.begin(), lookup_in_.end(), call) != lookup_in_.end();
+    }
+
+    // Looks `lookup` up `repeat` times; whether the last lookup returned a table.
+    bool look_up(const Lookup& lookup) const {
+        bool found = false;
+        for (std::uint64_t i = 0; i < repeat_; ++i) {
+            found = host_.service(lookup.name, lookup.major) != nullptr;
+        }
+        return found;
+    }
+
+    // In a call named in fail_in, fails.
+    void fail_if_asked(const std::string& call) const {
+        if (std::find(fail_in_.begin(), fail_in_.end(), call) != fail_in_.end()) {
+            throw sdk::Error(PRAENORA_STATUS_INVALID_ARGUMENT, "fx-service: " + call + " fails");
+        }
+    }
+
+    // In a call named in lookup_in, looks up every service of `lookups`.
+    void look_up_in(const std::string& call) const {
+        if (looks_up_in(call)) {
+            for (const Lookup& lookup : lookups_) {
+                static_cast<void>(look_up(lookup));
+            }
+        }
+    }
+
     const sdk::Host& host_;
     std::vector<Lookup> lookups_;
     bool require_echo_ = false;
+    std::vector<std::string> lookup_in_, fail_in_;
+    std::uint64_t repeat_ = 1;
 };
 
 } // namespace

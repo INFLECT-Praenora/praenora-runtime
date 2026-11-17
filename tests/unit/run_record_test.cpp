@@ -381,6 +381,36 @@ TEST(TraceWriter, CanonicalLinesWithDiagnostics) {
               ErrorCode::INVALID_STATE);
 }
 
+TEST(TraceWriter, LookupRecords) {
+    ScratchDir dir;
+    const fs::path file = dir.path() / "trace" / "messages.jsonl";
+    TraceWriter trace(file);
+    const json envelope = {{"id", "x:3:inputs.source"}, {"data", {{"v", 1}}}};
+    trace.write(3, "a", "in", "in", envelope, nullptr);
+    // A lookup outside an invocation has no tick. A service name that is not valid UTF-8 is
+    // written with each invalid byte replaced by U+FFFD, rather than failing the run.
+    trace.write_lookup(std::nullopt, "a", "create", "praenora.simulation", 0, true, 1);
+    trace.write_lookup(3, "a", "invoke", std::string("bad\xFF", 4), 2, false, 5);
+    const TraceWriter::Summary summary = trace.finish();
+    const std::string text = read_file(file);
+    EXPECT_EQ(text, canonical_json({{"tick", 3},
+                                    {"step", "a"},
+                                    {"direction", "in"},
+                                    {"port", "in"},
+                                    {"envelope", envelope}}) +
+                        "\n"
+                        "{\"count\":1,\"major\":0,\"phase\":\"create\",\"provided\":true,"
+                        "\"service\":\"praenora.simulation\",\"step\":\"a\",\"tick\":null}\n"
+                        "{\"count\":5,\"major\":2,\"phase\":\"invoke\",\"provided\":false,"
+                        "\"service\":\"bad\xEF\xBF\xBD\",\"step\":\"a\",\"tick\":3}\n");
+    EXPECT_EQ(summary.messages, 1u); // the envelopes; lookup records carry none
+    EXPECT_EQ(summary.sha256, sha256_hex(text));
+    EXPECT_EQ(error_of([&] {
+                  trace.write_lookup(4, "a", "invoke", "praenora.simulation", 0, true, 1);
+              }).code(),
+              ErrorCode::INVALID_STATE);
+}
+
 TEST(OutputDir, RefusesExistingRunWithoutOverwrite) {
     ScratchDir dir;
     // A directory that does not exist yet is created.

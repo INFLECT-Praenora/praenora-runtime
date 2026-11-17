@@ -105,7 +105,7 @@ format 0.1.x, which have no `services` and whose error records have no `location
 | `validation` | `strict`, or `off` for a performance measurement. |
 | `manifests` | Where each manifest of the run was found ([below](#where-a-manifest-was-found)): `{steps {<step>: location}, services {"<name>@<major>": location}}`, for the module manifest of every step and the provider manifest of every service in the reproducibility section. |
 | `outputs` | `{<output>: {file, sha256, messages}}` for every recorded output, written at the end. |
-| `trace` | `{file, sha256, messages}` of the message trace, written at the end when tracing is on. |
+| `trace` | `{file, sha256, messages}` of the message trace, written at the end when tracing is on; `messages` counts its envelopes ([observability.md](observability.md#message-trace)). |
 | `final_status` | The final status snapshot ([observability.md](observability.md#status-snapshot)), written at the end. |
 
 - The record is written when the run starts, before any module is loaded, and again when it ends,

@@ -11,10 +11,13 @@
 
 #include <algorithm>
 #include <condition_variable>
+#include <iterator>
 #include <limits>
+#include <map>
 #include <mutex>
 #include <new>
 #include <string_view>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -53,6 +56,14 @@ struct HostContext {
     ServiceRegistry provider_services;               // fixed; served only while `serving`
     bool serving = true;                             // guarded; false once withdrawn
     praenora_instance* abandoned_instance = nullptr; // guarded; kept reachable once abandoned
+    // The lookups of the call `recording` (guarded; 0 when none is recorded), named
+    // `recording_call`, of the invocation of `recording_tick` if any: one per service name,
+    // major and whether provided, in order; `recorded` indexes them.
+    std::uint64_t recording = 0;
+    const char* recording_call = nullptr;
+    std::optional<std::uint64_t> recording_tick;
+    std::vector<ServiceLookup> lookups;
+    std::map<std::tuple<std::string, std::uint32_t, bool>, std::size_t> recorded;
 };
 
 // One call into the module, shared by the caller and the task on the worker thread. The task sets
@@ -170,6 +181,35 @@ std::int32_t PRAENORA_CALL host_cancel_requested(void* context) noexcept {
                : 0;
 }
 
+// Counts one lookup in the call being recorded; the caller holds services_mutex. Out of memory,
+// the lookup goes unrecorded: the module gets its table all the same.
+void record_lookup(HostContext& host, std::string_view service, std::uint32_t major,
+                   bool provided) noexcept {
+    try {
+        auto key = std::make_tuple(std::string(service), major, provided);
+        const auto found = host.recorded.find(key);
+        if (found != host.recorded.end()) {
+            ++host.lookups[found->second].count;
+            return;
+        }
+        ServiceLookup lookup;
+        lookup.phase = host.recording_call;
+        lookup.tick = host.recording_tick;
+        lookup.service = std::get<0>(key);
+        lookup.major = major;
+        lookup.provided = provided;
+        lookup.count = 1;
+        host.lookups.push_back(std::move(lookup));
+        try {
+            host.recorded.emplace(std::move(key), host.lookups.size() - 1);
+        } catch (...) {
+            host.lookups.pop_back();
+            throw;
+        }
+    } catch (...) {
+    }
+}
+
 const void* PRAENORA_CALL host_get_service(void* context, const char* name, std::size_t name_size,
                                            std::uint32_t major) noexcept {
     HostContext* host = host_of(context);
@@ -187,6 +227,9 @@ const void* PRAENORA_CALL host_get_service(void* context, const char* name, std:
                 if (table == nullptr && host->services != nullptr) {
                     table = host->services->find(service, major);
                 }
+            }
+            if (host->recording != 0) {
+                record_lookup(*host, service, major, table != nullptr);
             }
         }
         if (host->logger != nullptr && host->logger->should_log(spdlog::level::debug)) {
@@ -336,7 +379,7 @@ StepState ModuleInstance::begin(const char* call, std::initializer_list<StepStat
 CallResult ModuleInstance::run(Claim& claim, const char* call_name,
                                std::chrono::nanoseconds timeout, StopFlag stop_flag,
                                LibraryGate::Access access, const std::string& input, Body body,
-                               praenora_instance** created) {
+                               praenora_instance** created, std::optional<std::uint64_t> tick) {
     // The library first (loader/library_gate.hpp): the call waits for its turn, which is not
     // part of its deadline, and is refused when it would have to wait for an abandoned call. The
     // caller's stop flag ends the wait of a call it applies to.
@@ -351,6 +394,7 @@ CallResult ModuleInstance::run(Claim& claim, const char* call_name,
     auto call = std::make_shared<Call>(input, options_.max_output_bytes);
     const std::uint64_t number = ++calls_;
     host_->in_flight.store(number);
+    start_recording(number, call_name, tick);
     // In flight first, the flag second: a stop set after this read finds the call in flight
     // through request_cancel(), and one set before it is seen here.
     if (stop_flag == StopFlag::applies && options_.stop_flag != nullptr &&
@@ -382,7 +426,8 @@ CallResult ModuleInstance::run(Claim& claim, const char* call_name,
         });
     } catch (...) {
         host_->in_flight.store(0);
-        throw; // the claim restores the state
+        finish_recording(false); // never posted: what its module's threads looked up is not its
+        throw;                   // the claim restores the state
     }
     claim.reached();
     CallResult result;
@@ -417,12 +462,15 @@ CallResult ModuleInstance::run(Claim& claim, const char* call_name,
         result.outcome = CallOutcome::unresponsive;
         result.status = PRAENORA_STATUS_TIMEOUT;
         result.duration = Clock::now() - start;
-        lease->abandon();   // the library refuses what would wait for this call, until it returns
+        lease->abandon(); // the library refuses what would wait for this call, until it returns
+        // The lookups the call made so far; the rest are not recorded.
+        finish_recording(true);
         abandon(call_name); // the call stays in flight for good
         return result;
     }
     // The call is over: a stop requested from now on reaches no call. What the task wrote is ours.
     host_->in_flight.store(0);
+    finish_recording(true);
     result.status = call->status;
     result.output = call->output.take();
     result.error_json = call->error.take();
@@ -558,15 +606,17 @@ CallResult ModuleInstance::invoke(const std::string& invocation_json, std::uint6
     HostContext* const host = host_.get();
     // The invocation's tick is set on the worker as the call starts, once it has its turn at the
     // library, and cleared as it returns.
-    const CallResult result =
-        run(claim, "invoke", options_.invoke_timeout, StopFlag::applies, module_->call_access(),
-            invocation_json, [api, instance, host, tick](Call& call) {
-                host->tick.store(tick);
-                const praenora_status status =
-                    api->invoke(instance, bytes(call.input), call.output.sink(), call.error.sink());
-                host->tick.store(kNoTick);
-                return status;
-            });
+    const CallResult result = run(
+        claim, "invoke", options_.invoke_timeout, StopFlag::applies, module_->call_access(),
+        invocation_json,
+        [api, instance, host, tick](Call& call) {
+            host->tick.store(tick);
+            const praenora_status status =
+                api->invoke(instance, bytes(call.input), call.output.sink(), call.error.sink());
+            host->tick.store(kNoTick);
+            return status;
+        },
+        nullptr, tick);
     if (!claim.called()) {
         return result; // refused or stopped before it started; the claim restores ready
     }
@@ -696,6 +746,49 @@ void ModuleInstance::request_cancel() noexcept {
 }
 
 void ModuleInstance::withdraw_services() noexcept { stop_serving(); }
+
+void ModuleInstance::start_recording(std::uint64_t number, const char* call,
+                                     std::optional<std::uint64_t> tick) noexcept {
+    if (!options_.record_lookups) {
+        return;
+    }
+    const std::lock_guard<std::mutex> lock(host_->services_mutex);
+    host_->recording = number;
+    host_->recording_call = call;
+    host_->recording_tick = tick;
+    host_->lookups.clear();
+    host_->recorded.clear();
+}
+
+void ModuleInstance::finish_recording(bool keep) noexcept {
+    if (!options_.record_lookups) {
+        return;
+    }
+    const std::lock_guard<std::mutex> lock(host_->services_mutex);
+    if (host_->recording == 0) {
+        return;
+    }
+    if (keep) {
+        try {
+            ended_lookups_.insert(ended_lookups_.end(),
+                                  std::make_move_iterator(host_->lookups.begin()),
+                                  std::make_move_iterator(host_->lookups.end()));
+        } catch (...) {
+            // Out of memory: the call's lookups go unrecorded.
+        }
+    }
+    host_->recording = 0;
+    host_->recording_call = nullptr;
+    host_->recording_tick.reset();
+    host_->lookups.clear();
+    host_->recorded.clear();
+}
+
+std::vector<ServiceLookup> ModuleInstance::take_lookups() noexcept {
+    std::vector<ServiceLookup> taken;
+    taken.swap(ended_lookups_);
+    return taken;
+}
 
 void ModuleInstance::stop_serving() noexcept {
     // The lock that get_service() takes: a lookup running now finishes with the registry first.

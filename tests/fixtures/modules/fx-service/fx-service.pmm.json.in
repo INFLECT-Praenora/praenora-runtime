@@ -22,8 +22,22 @@
         "items": { "type": "string", "pattern": "^[a-z][a-z0-9.-]*@[0-9]+$" },
         "default": []
       },
-      "require_echo": { "type": "boolean", "default": false }
+      "require_echo": { "type": "boolean", "default": false },
+      "lookup_in": {
+        "type": "array",
+        "items": {
+          "enum": ["create", "initialize", "invoke", "finalize", "destroy", "diagnostics"]
+        },
+        "default": ["invoke"]
+      },
+      "repeat": { "type": "integer", "minimum": 1, "default": 1 },
+      "fail_in": {
+        "type": "array",
+        "items": { "enum": ["create", "initialize"] },
+        "default": []
+      }
     },
     "additionalProperties": false
-  }
+  },
+  "features": { "diagnostics": true }
 }

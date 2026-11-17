@@ -237,7 +237,9 @@ A module instance's `get_service` ([module-abi.md](module-abi.md#host-api)) retu
    resolved for the run (required or optional);
 2. otherwise the table of a runtime built-in service of that name and major (in this version only
    test services that tests register, such as `test.gate`), whatever the manifest declares;
-3. otherwise NULL, logged as every lookup is (event `service.lookup`, debug).
+3. otherwise NULL, logged as every lookup is (event `service.lookup`, debug) and, in a traced run,
+   traced as every lookup made during a call is
+   ([observability.md](observability.md#message-trace)).
 
 So a module never sees a provider service it did not declare, even when the run loaded that
 provider for another step, and a module whose manifest has format 0.1 sees no provider service at

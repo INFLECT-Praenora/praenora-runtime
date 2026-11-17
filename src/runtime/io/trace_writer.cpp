@@ -66,6 +66,18 @@ void TraceWriter::write_diagnostics(std::uint64_t tick, const std::string& step,
                 {"diagnostics", diagnostics}});
 }
 
+void TraceWriter::write_lookup(std::optional<std::uint64_t> tick, const std::string& step,
+                               const std::string& phase, const std::string& service,
+                               std::uint32_t major, bool provided, std::uint64_t count) {
+    write_line({{"tick", tick ? nlohmann::json(*tick) : nlohmann::json(nullptr)},
+                {"step", step},
+                {"phase", phase},
+                {"service", replace_invalid_utf8(service)},
+                {"major", major},
+                {"provided", provided},
+                {"count", count}});
+}
+
 void TraceWriter::write_line(const nlohmann::json& record) {
     if (done_) {
         throw Error(ErrorCode::INVALID_STATE, "the message trace is already finished");

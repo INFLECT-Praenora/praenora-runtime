@@ -1383,10 +1383,9 @@ TEST(Api, RunSimulatesThroughTheSimulationService) {
     // test-simulation offers: each tick it runs a plan with the values of its input, and its
     // kernel's dy/dt at the start.
     ScratchDir dir;
-    const std::string file =
-        write_config(dir.path(), "test.single", "run: { ticks: 2, seed: 7 }\n",
-                     step("a", "simulating-module", "{ kernel: true }"),
-                     "outputs: { directory: out }\n");
+    const std::string file = write_config(dir.path(), "test.single", "run: { ticks: 2, seed: 7 }\n",
+                                          step("a", "simulating-module", "{ kernel: true }"),
+                                          "outputs: { directory: out, trace_messages: true }\n");
     write_text_file(dir.path() / "source.json", R"({"values": [0.6931471805599453, 16]})");
     const std::string manifest = utf8(praenora::test::fixture_manifest("simulating-module"));
 
@@ -1429,6 +1428,13 @@ TEST(Api, RunSimulatesThroughTheSimulationService) {
               json({{"name", "test-simulation-engine"}, {"version", "1.0.0"}}));
     EXPECT_EQ(record.at("reproducibility").at("steps").at("a").at("services"),
               json({"praenora.simulation@0"}));
+
+    // The module looks the service up once, when it is created: the trace's first line says so.
+    const std::string trace = read_text(dir.path() / "out" / "trace" / "messages.jsonl");
+    EXPECT_EQ(trace.substr(0, trace.find('\n')),
+              "{\"count\":1,\"major\":0,\"phase\":\"create\",\"provided\":true,"
+              "\"service\":\"praenora.simulation\",\"step\":\"a\",\"tick\":null}");
+    EXPECT_EQ(trace.find("\"phase\":\"invoke\""), std::string::npos);
 
     // The module passes its contract checks, which run its test vectors through the service.
     const praenora::ModuleCheckReport checks = runtime.check_module(manifest);

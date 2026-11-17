@@ -2,7 +2,8 @@
 // (InstanceOptions::provider_services, the services its manifest declares that resolved for the
 // run) first, then the runtime's built-in services, and nothing else; nothing at all once its
 // services are withdrawn. The module is fx-service, which reports what it found
-// (tests/fixtures/modules/fx-service); the provider service is test-echo's test.echo@0.
+// (tests/fixtures/modules/fx-service); the provider service is test-echo's test.echo@0. And, for
+// the message trace, the lookups each call made, when the instance records them.
 #include "instance/module_instance.hpp"
 #include "instance/services.hpp"
 #include "provider/provider_loader.hpp"
@@ -24,6 +25,7 @@
 #include <optional>
 #include <string>
 #include <utility>
+#include <vector>
 
 using nlohmann::json;
 using praenora::StepState;
@@ -31,6 +33,7 @@ using praenora::detail::CallOutcome;
 using praenora::detail::CallResult;
 using praenora::detail::InstanceOptions;
 using praenora::detail::ModuleInstance;
+using praenora::detail::ServiceLookup;
 using praenora::detail::ServiceRegistry;
 using praenora::test::CapturedLogs;
 using praenora::test::create_document;
@@ -67,6 +70,26 @@ std::unique_ptr<ModuleInstance> ready(InstanceOptions options, const json& looku
               CallOutcome::succeeded);
     EXPECT_EQ(instance->initialize(initialize_document()).outcome, CallOutcome::succeeded);
     return instance;
+}
+
+// The lookups as JSON, one object per record, to compare them as a whole.
+json records(const std::vector<ServiceLookup>& lookups) {
+    json all = json::array();
+    for (const ServiceLookup& lookup : lookups) {
+        all.push_back({{"phase", lookup.phase},
+                       {"tick", lookup.tick ? json(*lookup.tick) : json(nullptr)},
+                       {"service", lookup.service},
+                       {"major", lookup.major},
+                       {"provided", lookup.provided},
+                       {"count", lookup.count}});
+    }
+    return all;
+}
+
+json record(const char* phase, json tick, const char* service, std::uint32_t major, bool provided,
+            std::uint64_t count) {
+    return {{"phase", phase}, {"tick", std::move(tick)}, {"service", service},
+            {"major", major}, {"provided", provided},    {"count", count}};
 }
 
 } // namespace
@@ -140,4 +163,68 @@ TEST(ServiceVisibility, WithdrawnServicesAreNoLongerServed) {
     EXPECT_EQ(seen.at("found"), json({{"test.echo@0", false}, {"test.gate@0", false}}));
     EXPECT_TRUE(seen.at("echo").is_null());
     EXPECT_EQ(instance->state(), StepState::ready);
+}
+
+TEST(ServiceLookups, OneRecordPerServiceAndCall) {
+    // fx-service looks up test.other@1 (not served) and test.echo@0 (the provider's) three times
+    // in each of its calls. Each call has one record per service, in the order of its first
+    // lookup, with the number of lookups it stands for; only invoke's records have a tick. In
+    // invoke, fx-service's own lookup of test.echo@0 comes first and is one of four.
+    CapturedLogs logs;
+    InstanceOptions options = instance_options(logs);
+    options.provider_services.add(PRAENORA_TEST_ECHO_SERVICE, 0, echo_table());
+    options.record_lookups = true;
+    ModuleInstance instance(load_fixture_module("fx-service"), std::move(options));
+    const json parameters = {
+        {"lookups", {"test.other@1", "test.echo@0"}},
+        {"lookup_in", {"create", "initialize", "invoke", "finalize", "destroy", "diagnostics"}},
+        {"repeat", 3}};
+    ASSERT_EQ(instance.create(create_document("fx-service", parameters)).outcome,
+              CallOutcome::succeeded);
+    ASSERT_EQ(instance.initialize(initialize_document()).outcome, CallOutcome::succeeded);
+    EXPECT_EQ(records(instance.take_lookups()),
+              json::array({record("create", nullptr, "test.other", 1, false, 3),
+                           record("create", nullptr, "test.echo", 0, true, 3),
+                           record("initialize", nullptr, "test.other", 1, false, 3),
+                           record("initialize", nullptr, "test.echo", 0, true, 3)}));
+    EXPECT_TRUE(instance.take_lookups().empty()); // taken
+
+    static_cast<void>(invoke_once(instance, 4));
+    ASSERT_TRUE(instance.diagnostics());
+    ASSERT_EQ(instance.finalize().outcome, CallOutcome::succeeded);
+    EXPECT_EQ(instance.destroy(), CallOutcome::succeeded);
+    EXPECT_EQ(records(instance.take_lookups()),
+              json::array({record("invoke", 4, "test.echo", 0, true, 4),
+                           record("invoke", 4, "test.other", 1, false, 3),
+                           record("diagnostics", nullptr, "test.other", 1, false, 3),
+                           record("diagnostics", nullptr, "test.echo", 0, true, 3),
+                           record("finalize", nullptr, "test.other", 1, false, 3),
+                           record("finalize", nullptr, "test.echo", 0, true, 3),
+                           record("destroy", nullptr, "test.other", 1, false, 3),
+                           record("destroy", nullptr, "test.echo", 0, true, 3)}));
+}
+
+TEST(ServiceLookups, NotRecordedUnlessAsked) {
+    CapturedLogs logs;
+    InstanceOptions options = instance_options(logs);
+    options.provider_services.add(PRAENORA_TEST_ECHO_SERVICE, 0, echo_table());
+    auto instance = ready(options, {"test.other@1"});
+    EXPECT_EQ(invoke_once(*instance, 0).at("found"),
+              json({{"test.echo@0", true}, {"test.other@1", false}}));
+    EXPECT_TRUE(instance->take_lookups().empty());
+}
+
+TEST(ServiceLookups, FailedCallKeepsItsLookups) {
+    // Without test.echo@0, an invoke with require_echo fails; the lookup it made is recorded.
+    CapturedLogs logs;
+    InstanceOptions options = instance_options(logs);
+    options.record_lookups = true;
+    ModuleInstance instance(load_fixture_module("fx-service"), std::move(options));
+    ASSERT_EQ(instance.create(create_document("fx-service", {{"require_echo", true}})).outcome,
+              CallOutcome::succeeded);
+    ASSERT_EQ(instance.initialize(initialize_document()).outcome, CallOutcome::succeeded);
+    const json data = {{"value", 7}};
+    EXPECT_EQ(instance.invoke(invocation_document(2, &data), 2).outcome, CallOutcome::failed);
+    EXPECT_EQ(records(instance.take_lookups()),
+              json::array({record("invoke", 2, "test.echo", 0, false, 1)}));
 }

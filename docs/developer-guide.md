@@ -268,14 +268,16 @@ The last lines say `skip  unload  PRAENORA_DEBUG_KEEP_LIBRARIES=1 keeps module l
 ## Message tracing
 
 A trace records every envelope that goes into or comes out of a step, in order, with its tick, step,
-direction and port. It needs an output directory; `--trace` turns it on for one run
-(`outputs.trace_messages: true` in the configuration for every run):
+direction and port, and the runtime services that each call into a step's module looked up. It needs
+an output directory; `--trace` turns it on for one run (`outputs.trace_messages: true` in the
+configuration for every run). The example's modules use no service, so its trace holds envelopes
+only; the script below prints the message records (those with a `direction`):
 
 ```bash
 RUN="${TMPDIR:-/tmp}/praenora-trace"
 ./build/dev/bin/praenora run examples/workflows/estimate-predict/workflow.yaml \
     --module-path build/dev/modules --output-dir "$RUN" --overwrite --trace --ticks 2
-python3 -c 'import json, sys; [print(r["tick"], r["step"], r["direction"], r["port"]) for r in map(json.loads, open(sys.argv[1]))]' "$RUN/trace/messages.jsonl"
+python3 -c 'import json, sys; [print(r["tick"], r["step"], r["direction"], r["port"]) for r in map(json.loads, open(sys.argv[1])) if "direction" in r]' "$RUN/trace/messages.jsonl"
 ```
 
 ```text
@@ -291,9 +293,13 @@ python3 -c 'import json, sys; [print(r["tick"], r["step"], r["direction"], r["po
 ```
 
 Tick 1 shows the delayed feedback: `estimate` receives `prior`, the predictions of tick 0. A
-record also holds the result's `diagnostics` object when the module returned one. The format is in
-[specs/observability.md](specs/observability.md#message-trace). For a failing run, the trace's last
-records show what the failing step received.
+record also holds the result's `diagnostics` object when the module returned one. A module that
+uses a runtime service adds lookup records, with the call (`phase`), the service, its major
+version, whether it was provided and how many times it was looked up in that call; a simulation
+module, for example, shows its lookup of `praenora.simulation@0` in `create`, before tick 0. The
+format is in [specs/observability.md](specs/observability.md#message-trace). For a failing run, the
+trace's last message records show what the failing step received; the lookup records after them
+show which services its failing call looked up, then those of the teardown's calls.
 
 ## Logging
 

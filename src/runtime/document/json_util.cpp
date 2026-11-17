@@ -132,6 +132,17 @@ bool is_valid_utf8(std::string_view text) {
     return true;
 }
 
+std::string replace_invalid_utf8(std::string_view text) {
+    if (is_valid_utf8(text)) {
+        return std::string(text);
+    }
+    // nlohmann/json's serializer replaces what is not UTF-8; reading its output back gives the
+    // text itself.
+    const std::string quoted = nlohmann::json(std::string(text))
+                                   .dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
+    return nlohmann::json::parse(quoted).get<std::string>();
+}
+
 std::optional<double> parse_decimal(std::string_view text) {
     const auto is_digit = [](char c) { return c >= '0' && c <= '9'; };
     const auto digits_from = [&](std::size_t i) {

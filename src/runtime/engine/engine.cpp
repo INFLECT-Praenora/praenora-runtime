@@ -413,6 +413,7 @@ bool Engine::start_step(Step& step) {
     }
     options.run_fingerprint = workflow_.fingerprint;
     options.stop_flag = &stop_flag_;
+    options.record_lookups = trace_ != nullptr;
     step.instance = std::make_unique<ModuleInstance>(module->second, std::move(options));
     sync_step_state(step);
 
@@ -448,8 +449,11 @@ bool Engine::lifecycle_call(Step& step, const char* phase,
     const CallResult result = call(step, [&] { return ((*step.instance).*method)(text); });
     sync_step_state(step);
     if (result.outcome == CallOutcome::succeeded) {
+        trace_lookups(step);
         return true;
     }
+    // The lookups of a call that did not succeed are traced when the teardown starts, so that a
+    // trace that cannot be written never hides how the call ended.
     if (result.outcome == CallOutcome::cancelled) {
         stop_run(std::nullopt);
         return false;
@@ -662,6 +666,9 @@ bool Engine::run_step(Step& step, std::uint64_t tick, double logical_time,
     metrics_.record_invocation(resolved.id, CallOutcome::succeeded, result.duration, now_unix_ns(),
                                std::nullopt);
     sync_step_state(step);
+    // The lookups of an invoke that did not succeed, or whose result is invalid, are traced when
+    // the teardown starts, at the same place: nothing is traced in between.
+    trace_lookups(step);
     if (trace_ != nullptr && diagnostics && outputs.empty()) {
         trace_->write_diagnostics(tick, resolved.id, *diagnostics); // nothing else carries them
     }
@@ -680,6 +687,20 @@ bool Engine::run_step(Step& step, std::uint64_t tick, double logical_time,
          {"module", step.module},
          {"duration_ns", result.duration.count()}});
     return true;
+}
+
+void Engine::trace_lookups(Step& step) {
+    if (step.instance == nullptr) {
+        return;
+    }
+    const std::vector<ServiceLookup> lookups = step.instance->take_lookups();
+    if (trace_ == nullptr) {
+        return; // nothing is recorded then; whatever was, is dropped
+    }
+    for (const ServiceLookup& lookup : lookups) {
+        trace_->write_lookup(lookup.tick, step.resolved->id, lookup.phase, lookup.service,
+                             lookup.major, lookup.provided, lookup.count);
+    }
 }
 
 std::vector<std::pair<std::string, json>> Engine::check_result(Step& step, std::uint64_t tick,
@@ -1007,6 +1028,19 @@ void Engine::teardown() noexcept {
         }
     };
 
+    // The lookups of the calls not traced yet (a call that did not succeed, a failure's
+    // diagnostics), in schedule order, then those of each finalize and destroy. A write that fails
+    // leaves the trace's stream failed, which finish() reports.
+    const auto trace = [this](Step& step) noexcept {
+        try {
+            trace_lookups(step);
+        } catch (...) {
+        }
+    };
+    for (Step& step : steps_) {
+        trace(step);
+    }
+
     for (auto it = steps_.rbegin(); it != steps_.rend(); ++it) {
         Step& step = *it;
         if (step.instance == nullptr || step.instance->state() != StepState::ready) {
@@ -1015,6 +1049,7 @@ void Engine::teardown() noexcept {
         try {
             show_step_state(step, StepState::busy);
             const CallResult result = step.instance->finalize();
+            trace(step);
             if (result.outcome == CallOutcome::refused) {
                 keep(step, result.refused_by);
             } else if (result.outcome != CallOutcome::succeeded) {
@@ -1040,7 +1075,9 @@ void Engine::teardown() noexcept {
             continue; // an unresponsive instance is never destroyed
         }
         show_step_state(*it, StepState::busy);
-        if (it->instance->destroy() == CallOutcome::refused) {
+        const CallOutcome destroyed = it->instance->destroy();
+        trace(*it);
+        if (destroyed == CallOutcome::refused) {
             keep(*it, it->instance->last_refusal());
         }
         sync_step_state(*it);

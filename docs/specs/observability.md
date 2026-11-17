@@ -169,22 +169,42 @@ writer keeps a status snapshot there for other processes:
 ## Message trace
 
 With `outputs.trace_messages: true` (or `praenora run --trace`) and an output directory, a run writes
-every message that goes into or comes out of a step to `trace/messages.jsonl`:
+every message that goes into or comes out of a step, and the runtime services each step looked up,
+to `trace/messages.jsonl`:
 
-- Each line is the canonical JSON of `{"tick", "step", "direction", "port", "envelope"}`, plus
-  `"diagnostics"` when the step's result had a diagnostics object, followed by `\n`.
-- An `in` record is written, before the call, for each envelope a step receives; workflow inputs
-  appear there with source `inputs.<name>`. An `out` record is written for each envelope a step
-  produces. A result with diagnostics but no outputs gets an `out` record with `port` and `envelope`
-  null.
-- The trace is byte-deterministic like the recorded outputs. A tick cut short by a stop keeps the
-  lines already written. The run record's `execution.trace` gives the file, its SHA-256 and the
-  number of envelopes in it.
+- Each line is the canonical JSON of one record followed by `\n`: a message record or a lookup
+  record. Message records have `direction`, lookup records `phase`.
+- A message record is `{"tick", "step", "direction", "port", "envelope"}`, plus `"diagnostics"` when
+  the step's result had a diagnostics object. An `in` record is written, before the call, for each
+  envelope a step receives; workflow inputs appear there with source `inputs.<name>`. An `out`
+  record is written for each envelope a step produces. A result with diagnostics but no outputs
+  gets an `out` record with `port` and `envelope` null.
+- A lookup record is `{"tick", "step", "phase", "service", "major", "provided", "count"}`: the
+  lookups of runtime service `service` at major version `major` (`get_service`,
+  [module-abi.md](module-abi.md#host-api)) that one call into the step's instance made. `phase`
+  names the call (`create`, `initialize`, `invoke`, `finalize`, `destroy` or `diagnostics`), `tick`
+  is the invocation's tick and null for every other call, `provided` says whether a table was
+  returned and `count` how many lookups the record stands for. A call has one record per service,
+  major version and outcome, in the order of each one's first lookup. A service name that is not
+  valid UTF-8 is written with what is not UTF-8 replaced by U+FFFD.
+- A call's lookup records are written as soon as it returns: for an invocation, after its `in`
+  records and before its `out` records; for `create` and `initialize`, before tick 0, in schedule
+  order; for `finalize` and `destroy`, at the end, in teardown order. The lookups of a call that
+  does not succeed (an invocation whose result is invalid included), and of the `diagnostics` call
+  that a failure makes, are written when the teardown starts, which is the same place, since
+  nothing is written in between: a trace that cannot be written never hides how a call ended. Only
+  lookups made while a call is in flight are traced, from any thread of the module (a call that
+  never returns has those it made before it was abandoned); lookups between calls are only logged.
+- The trace is byte-deterministic like the recorded outputs, for modules that are deterministic
+  themselves: lookups that a module makes from several threads during one call are recorded in the
+  order they happen. A tick cut short by a stop keeps the lines already written. The run record's
+  `execution.trace` gives the file, its SHA-256 and the number of envelopes in it (lookup records
+  and records with diagnostics only are not counted).
 - Without an output directory no trace is written, and a warning (event `trace.skipped`) says so.
-- Runtime-service lookups are not traced; they are logged (event `service.lookup`, debug, on the
-  step's logger), whether the service is a provider's or built in. Which provider serves each
-  service of a run is recorded in the run record's reproducibility section (`services`), not in the
-  logs ([reproducibility.md](reproducibility.md#run-fingerprint)).
+- Every runtime-service lookup is also logged (event `service.lookup`, debug, on the step's
+  logger), traced or not, whether the service is a provider's or built in. Which provider serves
+  each service of a run is recorded in the run record's reproducibility section (`services`), not
+  in the trace or the logs ([reproducibility.md](reproducibility.md#run-fingerprint)).
 
 ## Debug aids
 
@@ -200,6 +220,8 @@ every message that goes into or comes out of a step to `trace/messages.jsonl`:
 
 - [ADR-0015](../adr/ADR-0015-observability.md): observability.
 - [ADR-0020](../adr/ADR-0020-message-envelope-and-asyncapi.md): the message trace's records.
+- [ADR-0032](../adr/ADR-0032-service-lookups-in-the-message-trace.md): service lookups in the
+  message trace.
 - [OpenTelemetry logs data model](https://opentelemetry.io/docs/specs/otel/logs/data-model/).
 - [error-taxonomy.md](error-taxonomy.md): the codes in error records.
 - [user-guide.md](../user-guide.md#status-and-health): status files and health.

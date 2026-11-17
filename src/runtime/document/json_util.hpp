@@ -32,6 +32,10 @@ std::string json_pointer_escape(std::string_view token);
 
 bool is_valid_utf8(std::string_view text);
 
+// `text` with each part that is not valid UTF-8 replaced by U+FFFD, as nlohmann/json's serializer
+// replaces it; valid text is returned as it is.
+std::string replace_invalid_utf8(std::string_view text);
+
 // A decimal number written [+-]digits[.digits][(e|E)[+-]digits] (".5" and "5." are accepted too),
 // read independently of the global locale; nullopt for any other text, and for values beyond the
 // range of a double.

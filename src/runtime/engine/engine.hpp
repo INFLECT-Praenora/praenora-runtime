@@ -35,7 +35,13 @@
 //      outputs, and the recorded ones (outputs.record) are appended to outputs/<output>.jsonl.
 //   5. With tracing, every envelope that went into or came out of a step is in the trace, the
 //      result's diagnostics object on the lines of its outputs (on a line of its own when the
-//      result has no outputs). The metrics count the tick.
+//      result has no outputs), and between them the runtime-service lookups the invocation made.
+//      The metrics count the tick.
+// With tracing, the lookups of every other call into a step's instance (create, initialize,
+// diagnostics, finalize, destroy) are in the trace too, without a tick, right after the call. The
+// lookups of a call that did not succeed (an invoke whose result is invalid included) and of a
+// failure's diagnostics call are written when the teardown starts, which is the same place:
+// nothing is traced in between. So a trace that cannot be written never hides how a call ended.
 // Validating payloads (EngineSettings::validate_payloads; "strict" in the run record) also checks
 // each input's data against its message type (TARGET_DATA_INVALID) and every envelope against
 // pmp-envelope. Only a defect of the runtime can break an envelope the engine built, so that is
@@ -242,6 +248,10 @@ private:
                  std::optional<nlohmann::json>& diagnostics);
     // Makes a call into the step's instance (`body`) reachable by request_stop() while it runs.
     template <class Call> CallResult call(Step& step, Call&& body);
+    // Takes the runtime-service lookups of the calls into the step's instance that ended since
+    // the last time (ModuleInstance::take_lookups()) and, with tracing, writes them to the trace.
+    // Throws like TraceWriter::write_lookup().
+    void trace_lookups(Step& step);
 
     // Ends the run as failed because of `error`, in the context `failure`; returns the error to
     // throw.

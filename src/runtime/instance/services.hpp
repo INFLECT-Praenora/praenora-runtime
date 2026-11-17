@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -32,6 +33,19 @@ std::string to_string(const ServiceVersion& service);
 // "<name>@<major>", for example "praenora.simulation@0": the key of a service in a run's
 // reproducibility section, whatever its minor.
 std::string service_key(const ServiceVersion& service);
+
+// The lookups of one runtime service (get_service()) that one call into a module made, for the
+// message trace: the call (`phase`: "create", "initialize", "invoke", "finalize", "destroy",
+// "diagnostics" or "self_test"), the tick of the invocation (none outside invoke), the service's
+// name and major as the module gave them, whether a table was returned, and how many lookups.
+struct ServiceLookup {
+    std::string phase;
+    std::optional<std::uint64_t> tick;
+    std::string service;
+    std::uint32_t major = 0;
+    bool provided = false;
+    std::uint64_t count = 0;
+};
 
 class ServiceRegistry {
 public:

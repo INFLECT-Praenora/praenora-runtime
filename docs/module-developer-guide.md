@@ -527,7 +527,9 @@ praenora_add_module(simulating_module
   once, in `create`, and keeps the table: tables live until the process ends. It gets the table of
   every declared service that resolved, NULL for an optional one that did not, and NULL for any
   provider service it did not declare. Check for NULL, and that the table's `header.struct_size`
-  covers the fields you use.
+  covers the fields you use. A traced run (`--trace`) lists the lookups each call made, and whether
+  they got a table, in its message trace
+  ([specs/observability.md](specs/observability.md#message-trace)).
 - The run record names each service with its provider and engine, so the run fingerprint changes
   when the engine does ([specs/reproducibility.md](specs/reproducibility.md)).
 - `praenora modules check` resolves the services and loads their providers as part of its

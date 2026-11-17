@@ -197,7 +197,7 @@ One entry per step of the definition, under the step's id: no more and no fewer
 |---|---|---|---|
 | `directory` | path or `null` | `null` | Where the run writes its run record, outputs and trace; `null` writes nothing. `--output-dir` (or `WorkflowOptions::output_dir`) wins. A directory that already holds a run record is refused unless overwrite is requested. |
 | `record` | list of workflow output names | every output | The workflow outputs written to `outputs/<output>.jsonl`; an empty list records none, an unknown name is `CONFIG_INVALID`. |
-| `trace_messages` | boolean | `false` | Write every envelope into and out of a step to `trace/messages.jsonl`. `--trace` turns it on. Without an output directory nothing is traced, and a warning says so. |
+| `trace_messages` | boolean | `false` | Write every envelope into and out of a step, and the runtime services each call into a step's module looked up, to `trace/messages.jsonl`. `--trace` turns it on. Without an output directory nothing is traced, and a warning says so. |
 
 The files are described in [user-guide.md](user-guide.md#what-a-run-writes).
 

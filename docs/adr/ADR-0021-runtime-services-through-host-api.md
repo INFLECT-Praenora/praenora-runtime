@@ -25,6 +25,7 @@ Some modules will need shared facilities, for example simulating a model from a 
 - Later: [ADR-0030](ADR-0030-library-gate-across-runs.md) keeps those instances whenever a call into them is refused because an abandoned call may still be running in their library, whichever run abandoned it; their services are withdrawn the same way, also by `ModuleInstance`'s destructor (event `instance.kept`).
 - The test-only `test.gate` service (major 0) is the C struct `praenora_test_gate_v0` in `tests/support/test_gate.h`: the common table header, a context pointer and `is_open(context)`.
 - The message trace (`trace/messages.jsonl`) holds envelopes and result diagnostics only, so runtime-service lookups do not appear in it: in this version the Decision's "logged in the trace" is met by the `service.lookup` log event.
+- Later: [ADR-0032](ADR-0032-service-lookups-in-the-message-trace.md) puts the lookups in the message trace when tracing is on: one record per service a call into the instance looked up, with the number of lookups. The `service.lookup` log event stays.
 
 ## Alternatives considered
 

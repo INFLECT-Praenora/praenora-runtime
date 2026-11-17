@@ -246,13 +246,14 @@ order:
    has format 0.1.
 
 The rules are those of [runtime-services.md](runtime-services.md#visibility). Each lookup is logged
-at debug level (event `service.lookup`). Once an instance is unresponsive, or kept after another
-instance of its library became unresponsive, `get_service` returns NULL for every service. A
-service's table, and what the module does with it, follow the service's own specification (for
-`praenora.simulation@0`, [simulation-service.md](simulation-service.md), with the table in the
-SDK's [`simulation.h`](../../include/praenora/sdk/simulation.h)); provider tables live until the
-process ends
-([ADR-0021](../adr/ADR-0021-runtime-services-through-host-api.md),
+at debug level (event `service.lookup`) and, when the run writes a message trace and the lookup is
+made during a call into the instance, traced ([observability.md](observability.md#message-trace)).
+Once an instance is unresponsive, or kept after another instance of its library became
+unresponsive, `get_service` returns NULL for every service. A service's table, and what the module
+does with it, follow the service's own specification (for `praenora.simulation@0`,
+[simulation-service.md](simulation-service.md), with the table in the SDK's
+[`simulation.h`](../../include/praenora/sdk/simulation.h)); provider tables live until the process
+ends ([ADR-0021](../adr/ADR-0021-runtime-services-through-host-api.md),
 [ADR-0026](../adr/ADR-0026-runtime-service-providers.md)).
 
 ## Sinks

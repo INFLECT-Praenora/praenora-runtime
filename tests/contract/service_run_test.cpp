@@ -3,7 +3,8 @@
 // and the built-in ones, and nothing else; the run's providers are loaded and started before any
 // module instance is created; a module whose manifest has format 0.1 sees no provider service.
 // The modules are built from fx-service (tests/fixtures/modules), which reports what it found;
-// the providers are fixture providers (tests/fixtures/providers).
+// the providers are fixture providers (tests/fixtures/providers). With tracing, the lookups each
+// call into a module made are in the message trace.
 #include "api/validation.hpp"
 #include "engine/engine.hpp"
 #include "instance/services.hpp"
@@ -26,7 +27,10 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
+#include <fstream>
 #include <memory>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -49,8 +53,9 @@ using praenora::test::write_text_file;
 namespace {
 
 // A configuration of `workflow` (test.single or test.chain) over source.json, one tick, with
-// `steps` (a YAML block).
-std::string config(const std::string& workflow, const std::string& steps) {
+// `steps` (a YAML block) and `more` (top-level YAML, such as an outputs section).
+std::string config(const std::string& workflow, const std::string& steps,
+                   const std::string& more = "") {
     return "kind: workflow-config\n"
            "format_version: \"0.1.0\"\n"
            "workflow: { name: " +
@@ -60,7 +65,35 @@ std::string config(const std::string& workflow, const std::string& steps) {
            "inputs:\n"
            "  source: { source: json-document, path: source.json }\n"
            "steps:\n" +
-           steps;
+           steps + more;
+}
+
+// Writes the run's record, outputs and message trace to out/.
+const std::string kTraced = "outputs: { directory: out, trace_messages: true }\n";
+
+std::string read_file(const fs::path& file) {
+    std::ifstream in(file, std::ios::binary);
+    std::ostringstream text;
+    text << in.rdbuf();
+    return text.str();
+}
+
+// The JSON lines of `file`, parsed.
+std::vector<json> json_lines(const fs::path& file) {
+    std::vector<json> lines;
+    std::istringstream text(read_file(file));
+    for (std::string line; std::getline(text, line);) {
+        lines.push_back(json::parse(line));
+    }
+    return lines;
+}
+
+// A lookup record of the message trace, of step `step`.
+json lookup(const char* phase, json tick, const char* service, std::uint32_t major, bool provided,
+            std::uint64_t count = 1, const char* step = "a") {
+    return {{"tick", std::move(tick)}, {"step", step},   {"phase", phase},
+            {"service", service},      {"major", major}, {"provided", provided},
+            {"count", count}};
 }
 
 // A step block binding `id` to fixture module `module` with `parameters`.
@@ -211,4 +244,123 @@ TEST(ServiceRun, StopRequestedBeforeStartLoadsNoProvider) {
     ASSERT_TRUE(summary.error.has_value());
     EXPECT_EQ(summary.error->code, praenora::ErrorCode::RUN_STOPPED);
     EXPECT_EQ(index_of(run.bodies(), "fx-service:create"), -1);
+}
+
+TEST(ServiceRun, LookupsAreTraced) {
+    // fx-service looks up test.other@1, which no provider of the run serves, in create, invoke and
+    // finalize, and test.echo@0 (test-echo's) in invoke. Each call's lookups follow the call:
+    // create and finalize without a tick, invoke's between the envelope going in and the one coming
+    // out.
+    const auto context = praenora::test::make_provider_context({"test-echo"});
+    ServiceRunFixture run;
+    Engine& engine =
+        run.open(config("test.single",
+                        step("a", "fx-service",
+                             "{ lookups: [\"test.other@1\"], lookup_in: [create, invoke, "
+                             "finalize] }"),
+                        kTraced),
+                 *context);
+    static_cast<void>(run.run_one_tick());
+    ASSERT_EQ(engine.state(), WorkflowState::completed);
+
+    const auto trace = json_lines(run.dir.path() / "out" / "trace" / "messages.jsonl");
+    ASSERT_EQ(trace.size(), 6u);
+    EXPECT_EQ(trace[0], lookup("create", nullptr, "test.other", 1, false));
+    EXPECT_EQ(trace[1].at("direction"), "in");
+    EXPECT_EQ(trace[1].at("tick"), 0);
+    EXPECT_EQ(trace[2], lookup("invoke", 0, "test.echo", 0, true));
+    EXPECT_EQ(trace[3], lookup("invoke", 0, "test.other", 1, false));
+    EXPECT_EQ(trace[4].at("direction"), "out");
+    EXPECT_EQ(trace[5], lookup("finalize", nullptr, "test.other", 1, false));
+    // The run record still counts the envelopes only.
+    const json record = json::parse(read_file(run.dir.path() / "out" / "run-record.json"));
+    EXPECT_EQ(record.at("execution").at("trace").at("messages"), 2);
+}
+
+TEST(ServiceRun, LookupsOfAFailingCallAreTraced) {
+    // test-order's test.echo@0 is only a header, so fx-service's invoke fails (require_echo); its
+    // lookups are traced, and so are those of the diagnostics call that the failure makes, and of
+    // the finalize that ends the run.
+    const auto context = praenora::test::make_provider_context({"test-order"});
+    ServiceRunFixture run;
+    Engine& engine =
+        run.open(config("test.single",
+                        step("a", "fx-service",
+                             "{ require_echo: true, lookups: [\"test.other@1\"], repeat: 2, "
+                             "lookup_in: [invoke, diagnostics, finalize] }"),
+                        kTraced),
+                 *context);
+    engine.start();
+    EXPECT_THROW(static_cast<void>(engine.run_tick()), praenora::Error);
+    ASSERT_EQ(engine.state(), WorkflowState::failed);
+
+    const auto trace = json_lines(run.dir.path() / "out" / "trace" / "messages.jsonl");
+    ASSERT_EQ(trace.size(), 5u);
+    EXPECT_EQ(trace[0].at("direction"), "in");
+    EXPECT_EQ(trace[1], lookup("invoke", 0, "test.echo", 0, true));
+    EXPECT_EQ(trace[2], lookup("invoke", 0, "test.other", 1, false, 2));
+    EXPECT_EQ(trace[3], lookup("diagnostics", nullptr, "test.other", 1, false, 2));
+    EXPECT_EQ(trace[4], lookup("finalize", nullptr, "test.other", 1, false, 2));
+}
+
+TEST(ServiceRun, LookupsOfAFailedStepComeBeforeTheTeardown) {
+    // Step a's invoke fails in tick 0, so step b, which needs its output, is never invoked. The
+    // lookups of a's invoke and of its diagnostics are traced when the teardown starts, before
+    // those of the finalize of b, which is finalized first.
+    const auto context = praenora::test::make_provider_context({"test-order"});
+    ServiceRunFixture run;
+    Engine& engine =
+        run.open(config("test.chain",
+                        step("a", "fx-service",
+                             "{ require_echo: true, lookups: [\"test.other@1\"], "
+                             "lookup_in: [invoke, diagnostics, finalize] }") +
+                            step("b", "fx-service-optional",
+                                 "{ lookups: [\"test.other@1\"], lookup_in: [finalize] }"),
+                        kTraced),
+                 *context);
+    engine.start();
+    EXPECT_THROW(static_cast<void>(engine.run_tick()), praenora::Error);
+    ASSERT_EQ(engine.state(), WorkflowState::failed);
+
+    const auto trace = json_lines(run.dir.path() / "out" / "trace" / "messages.jsonl");
+    ASSERT_EQ(trace.size(), 6u);
+    EXPECT_EQ(trace[0].at("direction"), "in");
+    EXPECT_EQ(trace[1], lookup("invoke", 0, "test.echo", 0, true));
+    EXPECT_EQ(trace[2], lookup("invoke", 0, "test.other", 1, false));
+    EXPECT_EQ(trace[3], lookup("diagnostics", nullptr, "test.other", 1, false));
+    EXPECT_EQ(trace[4], lookup("finalize", nullptr, "test.other", 1, false, 1, "b"));
+    EXPECT_EQ(trace[5], lookup("finalize", nullptr, "test.other", 1, false));
+}
+
+TEST(ServiceRun, LookupsOfAFailedCreateAreTraced) {
+    const auto context = praenora::test::make_provider_context({"test-echo"});
+    ServiceRunFixture run;
+    Engine& engine = run.open(config("test.single",
+                                     step("a", "fx-service",
+                                          "{ lookups: [\"test.echo@0\"], lookup_in: [create], "
+                                          "fail_in: [create] }"),
+                                     kTraced),
+                              *context);
+    EXPECT_THROW(engine.start(), praenora::Error);
+    ASSERT_EQ(engine.state(), WorkflowState::failed);
+    const auto trace = json_lines(run.dir.path() / "out" / "trace" / "messages.jsonl");
+    EXPECT_EQ(trace, std::vector<json>{lookup("create", nullptr, "test.echo", 0, true)});
+}
+
+TEST(ServiceRun, TraceWithLookupsIsDeterministic) {
+    const auto context = praenora::test::make_provider_context({"test-echo"});
+    std::string traces[2];
+    for (std::string& trace : traces) {
+        ServiceRunFixture run;
+        run.open(config("test.single",
+                        step("a", "fx-service",
+                             "{ lookups: [\"test.other@1\", \"test.echo@0\"], repeat: 3, "
+                             "lookup_in: [create, initialize, invoke, finalize, destroy] }"),
+                        kTraced),
+                 *context);
+        static_cast<void>(run.run_one_tick());
+        trace = read_file(run.dir.path() / "out" / "trace" / "messages.jsonl");
+    }
+    EXPECT_EQ(std::count(traces[0].begin(), traces[0].end(), '\n'), 12);
+    EXPECT_EQ(traces[0], traces[1]);
 }
