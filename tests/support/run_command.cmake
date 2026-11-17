@@ -10,16 +10,24 @@
 #   problem", whatever the exit code: a sanitizer build may report a problem and still exit with 0.
 #
 # praenora_test_fail(<what> <problem> <command> <exit code> <stdout> <stderr>)
-#   Fails the test with "<what>: <problem>", then the command (a ;-list), its exit code and both
-#   outputs. The command is shown on one line, its arguments separated by spaces. An argument that
-#   is empty or holds whitespace (a space, tab, line feed, vertical tab, form feed or carriage
-#   return) or a quote character (" or ') is shown in double quotes, inside which a backslash
-#   precedes each \ and ", and a tab, line feed, vertical tab, form feed or carriage return is
-#   written \t, \n, \v, \f or \r. Every other argument is shown as it is. The line starts with a
-#   space: message() prints a line that starts with a space as it is, and formats every other line,
-#   one that starts with a tab included, as a paragraph wrapped at spaces. An empty element of the
-#   list is shown as "", though praenora_test_run() does not pass it: CMake drops empty elements
-#   when it expands a list unquoted.
+#   Fails the test with a report in one message(FATAL_ERROR): "<what>: <problem>", then the
+#   command (a ;-list), its exit code and both outputs, each output under a heading. Each line of
+#   the report starts with a space: message() prints such a line as it is, after its own indent of
+#   two spaces, and formats every other line, one that starts with a tab included, as a paragraph,
+#   wrapped near 77 columns at spaces, its runs of spaces collapsed, set apart by blank lines. So
+#   the problem and both outputs are shown line by line as they were printed, each line with a
+#   space added at its start. An output that ends with a line feed thus ends with a line that holds
+#   only that space, and an empty output is shown as one such line. The outputs are not printed
+#   apart with message(NOTICE), which prints a text as it is: that would print them before CMake's
+#   "CMake Error at" line, away from the rest of the report.
+#
+#   The command is shown on one line, its arguments separated by spaces. An argument that is empty
+#   or holds whitespace (a space, tab, line feed, vertical tab, form feed or carriage return) or a
+#   quote character (" or ') is shown in double quotes, inside which a backslash precedes each \
+#   and ", and a tab, line feed, vertical tab, form feed or carriage return is written \t, \n, \v,
+#   \f or \r. Every other argument is shown as it is. An empty element of the list is shown as "",
+#   though praenora_test_run() does not pass it: CMake drops empty elements when it expands a list
+#   unquoted.
 include_guard(GLOBAL)
 
 function(praenora_test_fail what problem command exit_code out err)
@@ -40,11 +48,14 @@ function(praenora_test_fail what problem command exit_code out err)
         endif()
         string(APPEND shown " ${argument}")
     endforeach()
-    message(FATAL_ERROR "${what}: ${problem}\n"
-        " command:${shown}\n"
+    string(CONCAT report "${what}: ${problem}\n"
+        "command:${shown}\n"
         "exit code: ${exit_code}\n"
         "--- stdout ---\n${out}\n"
-        "--- stderr ---\n${err}\n")
+        "--- stderr ---\n${err}")
+    # Each line of the report starts with a space.
+    string(REPLACE "\n" "\n " report " ${report}")
+    message(FATAL_ERROR "${report}")
 endfunction()
 
 function(praenora_test_run prefix what)

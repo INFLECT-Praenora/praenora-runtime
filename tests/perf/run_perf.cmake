@@ -24,7 +24,7 @@ string(STRIP "${RUN_OUT}" report)
 
 # Fails the test, showing what the probe did.
 function(_fail problem)
-    praenora_test_fail("praenora_perf" "${problem}" "${command}" "${RUN_EXIT}" "${report}"
+    praenora_test_fail("praenora_perf" "${problem}" "${command}" "${RUN_EXIT}" "${RUN_OUT}"
         "${RUN_ERR}")
 endfunction()
 

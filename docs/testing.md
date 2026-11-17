@@ -169,9 +169,9 @@ positive.
 A failing test names its component, and the failure message names an error code, a JSON pointer or
 `file:line`, and the step and tick where they matter. The CLI, install, perf and provider-file
 drivers show a command that failed on one line, with each argument that is empty or holds
-whitespace or a quote character shown in double quotes
-([`tests/support/run_command.cmake`](../tests/support/run_command.cmake) gives the rule). Start
-from the label:
+whitespace or a quote character shown in double quotes, and its outputs line by line as they were
+printed ([`tests/support/run_command.cmake`](../tests/support/run_command.cmake) gives the rules).
+Start from the label:
 
 | Failing label | Component | Likely owner |
 |---|---|---|

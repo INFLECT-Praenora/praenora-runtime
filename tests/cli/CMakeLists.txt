@@ -527,8 +527,8 @@ if(PRAENORA_BUILD_EXAMPLES)
 endif()
 
 # The driver itself: when a command fails, it shows the command on one line, with each argument
-# that is empty or holds whitespace or a quote character shown in double quotes
-# (check_driver.cmake).
+# that is empty or holds whitespace or a quote character shown in double quotes, and its outputs
+# line by line as they were printed (check_driver.cmake).
 add_test(NAME cli.driver.shows_failing_command
     COMMAND "${CMAKE_COMMAND}" -P "${CMAKE_CURRENT_SOURCE_DIR}/check_driver.cmake")
 set_tests_properties(cli.driver.shows_failing_command PROPERTIES LABELS cli)
