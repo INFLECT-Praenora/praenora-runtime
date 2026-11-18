@@ -58,9 +58,14 @@ foreach(_praenora_template IN LISTS _praenora_layout_templates)
 endforeach()
 
 # praenora_add_gtest(<name> LABEL <label> [WHITEBOX] SOURCES <source>... [LINK <library>...])
+# praenora_add_gtest(<name> NO_TESTS [WHITEBOX] SOURCES <source>... [LINK <library>...])
 #
 # Adds a GoogleTest executable whose tests are discovered when CTest runs (CTest names
 # Suite.Case) and carry the CTest label <label>.
+# - NO_TESTS: the executable is built, so its sources compile in every build, but none of its
+#   tests is registered: the caller registers them (gtest_discover_tests()) when they can run,
+#   adding ${_praenora_test_environment} if they load module libraries, and giving each property
+#   one value (as for the official AsyncAPI schema below).
 # - WHITEBOX: links the runtime's object library and dependencies directly, so tests can use
 #   internal headers (praenora::detail). PRAENORA_RUNTIME_STATIC_DEFINE is defined because the
 #   objects are linked into the executable rather than imported from the shared library.
@@ -79,12 +84,16 @@ if(APPLE AND "address" IN_LIST PRAENORA_SANITIZERS)
 endif()
 
 function(praenora_add_gtest name)
-    cmake_parse_arguments(PARSE_ARGV 1 arg "WHITEBOX" "LABEL" "SOURCES;LINK")
+    cmake_parse_arguments(PARSE_ARGV 1 arg "WHITEBOX;NO_TESTS" "LABEL" "SOURCES;LINK")
     if(arg_UNPARSED_ARGUMENTS)
         message(FATAL_ERROR
             "praenora_add_gtest(${name}): unexpected arguments: ${arg_UNPARSED_ARGUMENTS}")
     endif()
-    if(NOT arg_LABEL)
+    if(arg_NO_TESTS AND arg_LABEL)
+        message(FATAL_ERROR "praenora_add_gtest(${name}): NO_TESTS registers no test to label; "
+            "the caller labels the tests it registers")
+    endif()
+    if(NOT arg_NO_TESTS AND NOT arg_LABEL)
         message(FATAL_ERROR "praenora_add_gtest(${name}): LABEL is required")
     endif()
     if(NOT arg_SOURCES)
@@ -118,9 +127,11 @@ function(praenora_add_gtest name)
     praenora_target_warnings(${name})
     praenora_copy_runtime_dlls(${name})
 
-    gtest_discover_tests(${name}
-        DISCOVERY_MODE PRE_TEST
-        PROPERTIES LABELS ${arg_LABEL} ${_praenora_test_environment})
+    if(NOT arg_NO_TESTS)
+        gtest_discover_tests(${name}
+            DISCOVERY_MODE PRE_TEST
+            PROPERTIES LABELS ${arg_LABEL} ${_praenora_test_environment})
+    endif()
 endfunction()
 
 praenora_add_gtest(praenora_unit_tests LABEL unit WHITEBOX
@@ -184,23 +195,44 @@ praenora_add_gtest(praenora_protocol_tests LABEL protocol WHITEBOX
         protocol/catalog_test.cpp
         protocol/graph_test.cpp
         protocol/graph_export_test.cpp)
-# With PRAENORA_ASYNCAPI_SCHEMA, a local copy of the official AsyncAPI 3.0.0 JSON Schema that the
-# build never downloads: the committed AsyncAPI documents checked against it
-# (protocol/asyncapi_official_schema_test.cpp). PRAENORA_TEST_ASYNCAPI_SCHEMA names the copy.
+# The committed AsyncAPI documents against the official AsyncAPI 3.0.0 JSON Schema
+# (protocol/asyncapi_official_schema_test.cpp), in an executable of their own that every build
+# compiles. Its tests are registered, with the label protocol, only when PRAENORA_ASYNCAPI_SCHEMA
+# names a local copy of that schema, which the build never downloads; CTest then gives them the
+# copy's path in the environment variable PRAENORA_TEST_ASYNCAPI_SCHEMA. They load no module
+# library, so they need no PRAENORA_DEBUG_KEEP_LIBRARIES.
+praenora_add_gtest(praenora_asyncapi_official_schema_tests NO_TESTS WHITEBOX
+    SOURCES protocol/asyncapi_official_schema_test.cpp)
 if(NOT PRAENORA_ASYNCAPI_SCHEMA STREQUAL "")
     # cmake_path() reads the value as one path (file(TO_CMAKE_PATH) reads it as a search path and
-    # splits it at ':' on Linux and macOS); on Windows it turns backslashes into '/', which keeps
-    # the C string literal below free of escapes.
+    # splits it at ':' on Linux and macOS); on Windows it turns backslashes into '/'. A ';', '['
+    # or ']' would split, or stop splitting, the CMake lists below, and gtest_discover_tests()
+    # writes the values into brackets ([[...]]).
     cmake_path(SET _praenora_asyncapi_schema NORMALIZE "${PRAENORA_ASYNCAPI_SCHEMA}")
     if(NOT IS_ABSOLUTE "${_praenora_asyncapi_schema}" OR NOT EXISTS "${_praenora_asyncapi_schema}"
-            OR IS_DIRECTORY "${_praenora_asyncapi_schema}")
-        message(FATAL_ERROR "PRAENORA_ASYNCAPI_SCHEMA must be the absolute path of a file, a copy "
-            "of the official AsyncAPI 3.0.0 JSON Schema (docs/testing.md); it is "
-            "'${PRAENORA_ASYNCAPI_SCHEMA}'")
+            OR IS_DIRECTORY "${_praenora_asyncapi_schema}"
+            OR _praenora_asyncapi_schema MATCHES "[];[]")
+        message(FATAL_ERROR "PRAENORA_ASYNCAPI_SCHEMA must be the absolute path, without ';', '[' "
+            "or ']', of a copy of the official AsyncAPI 3.0.0 JSON Schema (docs/testing.md); it "
+            "is '${PRAENORA_ASYNCAPI_SCHEMA}'")
     endif()
-    target_sources(praenora_protocol_tests PRIVATE protocol/asyncapi_official_schema_test.cpp)
-    target_compile_definitions(praenora_protocol_tests PRIVATE
-        "PRAENORA_TEST_ASYNCAPI_SCHEMA=\"${_praenora_asyncapi_schema}\"")
+    # Each property holds one value: gtest_discover_tests() before CMake 3.31 splits a property's
+    # list value into separate arguments.
+    set(_praenora_asyncapi_properties LABELS protocol
+        ENVIRONMENT "PRAENORA_TEST_ASYNCAPI_SCHEMA=${_praenora_asyncapi_schema}")
+    if("address" IN_LIST PRAENORA_SANITIZERS)
+        # Compiling the official schema trips AddressSanitizer's container-overflow check when
+        # json-schema-validator is a library built without AddressSanitizer, and the report is
+        # false (docs/testing.md). Only these tests run with that check off, appended to the
+        # ASAN_OPTIONS that CTest runs with; the rest of the protocol label keeps it. Drop this
+        # once the json-schema-validator that sanitizer builds link is built with AddressSanitizer
+        # (docs/platforms.md builds it without).
+        list(APPEND _praenora_asyncapi_properties
+            ENVIRONMENT_MODIFICATION "ASAN_OPTIONS=string_append::detect_container_overflow=0")
+    endif()
+    gtest_discover_tests(praenora_asyncapi_official_schema_tests
+        DISCOVERY_MODE PRE_TEST
+        PROPERTIES ${_praenora_asyncapi_properties})
 endif()
 
 praenora_add_gtest(praenora_negative_tests LABEL negative WHITEBOX

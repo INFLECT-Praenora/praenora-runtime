@@ -41,14 +41,15 @@ A GoogleTest executable can also run on its own, with GoogleTest's options:
 
 The tests write files only under the system's temporary directory or the build tree, use no
 network, and need nothing from the environment: tests that read `PRAENORA_*` variables set them
-themselves.
+themselves, except the tests of the official AsyncAPI schema, to which CTest gives the schema's
+path ([below](#the-official-asyncapi-schema)).
 
 ## Labels
 
 | Label | What it covers | Tests |
 |---|---|---|
 | `unit` | Runtime internals, white-box: documents and YAML, canonical JSON, SHA-256, versions, durations, seeds, CSV and other input sources, configuration, logging, metrics, health, status files, run records, the error table against `status.h`, the SDK's headers, adapter and test kit, and the antimony provider's rules that read a source's text alone. | `praenora_unit_tests` |
-| `protocol` | Every schema and catalog entry, valid and invalid documents per kind, graph validation and schedules, graph export, and the committed AsyncAPI documents, also against the official AsyncAPI 3.0.0 schema when the build names a copy of it ([below](#the-official-asyncapi-schema)). | `praenora_protocol_tests` |
+| `protocol` | Every schema and catalog entry, valid and invalid documents per kind, graph validation and schedules, graph export, and the committed AsyncAPI documents, also against the official AsyncAPI 3.0.0 schema when the build names a copy of it ([below](#the-official-asyncapi-schema)). | `praenora_protocol_tests`, `praenora_asyncapi_official_schema_tests` |
 | `contract` | Manifests and discovery, the loader, module instances, the engine and the contract checks, through the real loader and the fixture modules; service providers and runs that use their services, with the fixture providers; the service checks of the simulation and model conversion services; provider libraries as files: their exported symbols, and the same results in two processes, and how the driver of the latter shows two outputs that differ and a run that fails. | `praenora_contract_tests`, `providers.<provider>.exports`, `providers.<provider>.processes`, `providers.run_twice.shows_first_difference` |
 | `negative` | What must be refused: bad manifests, configurations and graphs, incompatible modules, failing validations, services no provider serves, providers that do not load in a run, each with its code and location. | `praenora_negative_tests` |
 | `lifecycle` | Call order and cleanup, timeouts, unresponsive modules, cancellation and stop requests, calls into one library from instances of several loads of it (they take turns, and are refused behind an abandoned call), and the runtime services an instance is served. | `praenora_lifecycle_tests` |
@@ -178,9 +179,20 @@ cmake --build --preset dev
 ctest --preset dev -R '^GraphExport\.'
 ```
 
+Every build of the tests compiles `tests/protocol/asyncapi_official_schema_test.cpp` into an
+executable of its own, `praenora_asyncapi_official_schema_tests`, so a change to what it uses
+breaks the build at once; only a build with the variable registers its tests. CTest gives them the
+copy's path in the environment variable `PRAENORA_TEST_ASYNCAPI_SCHEMA`. Run on its own, the
+executable needs that variable, and without it each test fails and says so:
+
+```bash
+PRAENORA_TEST_ASYNCAPI_SCHEMA="$HOME/asyncapi-3.0.0.json" \
+    ./build/dev/bin/praenora_asyncapi_official_schema_tests
+```
+
 CMake makes a relative value absolute against the current directory; a value that then does not
-name a file fails the configuration. Configuring with an empty value (`-DPRAENORA_ASYNCAPI_SCHEMA=`)
-and building again removes the three tests.
+name a file, or that holds a `;`, `[` or `]`, fails the configuration. Configuring with an empty
+value (`-DPRAENORA_ASYNCAPI_SCHEMA=`) removes the three tests; the executable is still built.
 
 The tests pass in the ThreadSanitizer tree as they are. In the AddressSanitizer tree, compiling the
 official schema trips AddressSanitizer's container-overflow check when json-schema-validator is a
@@ -188,10 +200,15 @@ library built without AddressSanitizer, as the commands in
 [platforms.md](platforms.md#json-schema-validator) build it. The report is false: only the
 instrumented copies of the container code mark a container's unused capacity, so a container that
 the uninstrumented library fills looks overrun. With the validator's own sources built with
-AddressSanitizer, the same check reports nothing. Run the tests there with that one check off:
+AddressSanitizer, the same check reports nothing. So, in a build whose `PRAENORA_SANITIZERS` holds
+`address`, CTest runs only these three tests with that check off: it appends
+`:detect_container_overflow=0` to the `ASAN_OPTIONS` it runs with, and every other test keeps the
+check. Run on its own there, the executable needs the same option:
 
 ```bash
-ASAN_OPTIONS=detect_container_overflow=0 ctest --preset dev-asan -R '^GraphExport\.'
+ASAN_OPTIONS=detect_container_overflow=0 \
+    PRAENORA_TEST_ASYNCAPI_SCHEMA="$HOME/asyncapi-3.0.0.json" \
+    ./build/dev-asan/bin/praenora_asyncapi_official_schema_tests
 ```
 
 ## Sanitizer builds
@@ -214,9 +231,10 @@ ctest --preset dev-tsan
   stay loaded: the sanitizer keeps an unloaded library's globals registered, which would trip false
   reports against a library loaded later at the same address. Unloading is tested by every other
   build, ThreadSanitizer included.
-- In an AddressSanitizer tree configured with `PRAENORA_ASYNCAPI_SCHEMA`, two of the tests of the
-  official AsyncAPI schema fail on a false report when json-schema-validator is not instrumented;
-  run them with one check off ([The official AsyncAPI schema](#the-official-asyncapi-schema)).
+- In an AddressSanitizer tree configured with `PRAENORA_ASYNCAPI_SCHEMA`, the tests of the
+  official AsyncAPI schema run with AddressSanitizer's container-overflow check off, because a
+  json-schema-validator that is not instrumented trips a false report there; every other test keeps
+  the check ([The official AsyncAPI schema](#the-official-asyncapi-schema)).
 - `python.unittest` is registered but disabled: an instrumented extension cannot be loaded into an
   interpreter that is not instrumented. A run of the label alone therefore matches no test that
   runs, and the presets' "no tests" rule makes it fail with exit code 8:
@@ -321,7 +339,12 @@ gate in every build that has them: the contract tests run the checks on them.
   [`tests/CMakeLists.txt`](../tests/CMakeLists.txt), or a new executable with
   `praenora_add_gtest(<name> LABEL <label> [WHITEBOX] SOURCES ...)`. With `WHITEBOX` it links the
   runtime's object library and may include internal headers (`praenora::detail`); without it, only
-  the shared library and the public API. Name tests `Suite.Case` in PascalCase, the suite naming the
+  the shared library and the public API. `NO_TESTS` in place of `LABEL` builds the executable but
+  registers none of its tests, for tests that need what a build may lack. The caller then
+  registers them with `gtest_discover_tests()` when they can run, as for
+  [the official AsyncAPI schema](#the-official-asyncapi-schema): with the build's own test
+  environment if they load module libraries, and with one value per property
+  (`tests/CMakeLists.txt` says why). Name tests `Suite.Case` in PascalCase, the suite naming the
   component (`Loader.LoadsModuleFromUnicodePath`); the case may end in `_WhenCondition`. Assertions
   should print the error code's name, the JSON pointer or `file:line`, and the step and tick where
   they matter.

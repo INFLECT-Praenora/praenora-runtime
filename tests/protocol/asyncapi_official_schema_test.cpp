@@ -1,10 +1,13 @@
 // The AsyncAPI documents committed under spec/asyncapi/ against the official AsyncAPI 3.0.0 JSON
-// Schema (schemas/3.0.0.json of github.com/asyncapi/spec-json-schemas). This file is built only
-// when the cache variable PRAENORA_ASYNCAPI_SCHEMA names a local copy of that schema, which the
-// build defines as PRAENORA_TEST_ASYNCAPI_SCHEMA: neither the build nor the tests download it
-// (docs/testing.md says which release was checked and how to get it). The schema is compiled by
-// the validator that checks Praenora's own documents (detail::CompiledSchema).
+// Schema (schemas/3.0.0.json of github.com/asyncapi/spec-json-schemas). Every build compiles this
+// file into an executable of its own, praenora_asyncapi_official_schema_tests; CTest runs its
+// tests only when the cache variable PRAENORA_ASYNCAPI_SCHEMA names a local copy of that schema,
+// and gives them the copy's path in the environment variable PRAENORA_TEST_ASYNCAPI_SCHEMA.
+// Neither the build nor the tests download it (docs/testing.md says which release was checked
+// and how to get it). The schema is compiled by the validator that checks Praenora's own
+// documents (detail::CompiledSchema).
 #include "document/schema.hpp"
+#include "platform/platform.hpp"
 
 #include "test_support.hpp"
 
@@ -34,8 +37,17 @@ json read_json(const fs::path& file) {
     return json::parse(in);
 }
 
+// The local copy of the official schema, named by PRAENORA_TEST_ASYNCAPI_SCHEMA.
 json official_schema_document() {
-    return read_json(praenora::test::utf8_path(PRAENORA_TEST_ASYNCAPI_SCHEMA));
+    const std::optional<std::string> path =
+        praenora::detail::environment_variable("PRAENORA_TEST_ASYNCAPI_SCHEMA");
+    if (!path || path->empty()) {
+        throw std::runtime_error(
+            "PRAENORA_TEST_ASYNCAPI_SCHEMA is empty or not set: it names a copy of the official "
+            "AsyncAPI 3.0.0 JSON Schema, and CTest sets it when the build's "
+            "PRAENORA_ASYNCAPI_SCHEMA names one (docs/testing.md)");
+    }
+    return read_json(praenora::test::utf8_path(*path));
 }
 
 // The official schema, compiled once.
