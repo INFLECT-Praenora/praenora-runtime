@@ -32,6 +32,12 @@ option(PRAENORA_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
 # (cmake/PraenoraRoadrunner.cmake, docs/platforms.md).
 option(PRAENORA_WITH_ROADRUNNER
     "Build the roadrunner service provider (needs installed libRoadRunner 2.11 and LLVM)" OFF)
+# The libAntimony service provider (src/providers/antimony), which needs libAntimony 3.3 built from
+# source as a static library, and the libSBML and SBMLNetwork it was built against (for example
+# libRoadRunner's dependencies); they are never downloaded (cmake/PraenoraAntimony.cmake,
+# docs/platforms.md).
+option(PRAENORA_WITH_ANTIMONY
+    "Build the antimony service provider (needs libAntimony 3.3 built from source and libSBML)" OFF)
 set(PRAENORA_SANITIZERS "" CACHE STRING
     "Sanitizers for GCC and Clang builds, for example address;undefined or thread")
 set_property(CACHE PRAENORA_SANITIZERS PROPERTY STRINGS "" "address;undefined" "thread")

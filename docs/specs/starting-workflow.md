@@ -98,13 +98,17 @@ and feeds an optional input, and the delay-0 connections form no cycle.
   the data and in each item, so module teams can try out fields before the shapes are final.
 - The row fields of the two stable types are in [protocol.md](protocol.md#message-types).
 
-## Runtime services (planned)
+## Runtime services
 
 Steps that simulate models or convert model descriptions are expected to use runtime services
-through the host API's `get_service()` rather than bundle their own engines: a simulation service
-backed by libRoadRunner (`praenora.simulation@0`) and a model-conversion service backed by
-libAntimony (`praenora.model-conversion@0`). Neither exists in this version
-([ADR-0021](../adr/ADR-0021-runtime-services-through-host-api.md)).
+through the host API's `get_service()` rather than bundle their own engines
+([ADR-0021](../adr/ADR-0021-runtime-services-through-host-api.md)): the simulation service
+`praenora.simulation@0` ([simulation-service.md](simulation-service.md)), offered by the provider
+`roadrunner` with libRoadRunner, and the model conversion service `praenora.model-conversion@0`
+([model-conversion-service.md](model-conversion-service.md)), offered by the provider `antimony`
+with libAntimony. Both providers are optional parts of a build
+([runtime-services.md](runtime-services.md)), and a module declares the services it requires in
+its manifest.
 
 ## Assessment variant (planned)
 

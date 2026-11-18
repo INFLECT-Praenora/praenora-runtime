@@ -1,0 +1,120 @@
+{
+  "kind": "module-test-vectors",
+  "format_version": "0.1.0",
+  "cases": [
+    {
+      "name": "text-to-json",
+      "capability": { "id": "test.echo", "version": "0.1.0" },
+      "ticks": [
+        {
+          "inputs": {},
+          "expect": {
+            "outputs": {
+              "out": {
+                "sha256": "12ada44092ad2242ca92525e7a5095f08ee1171c0a390a74fbcd4adc0dc63c08",
+                "bytes": 78,
+                "report": {
+                  "from": "test-decay-text",
+                  "module": "main",
+                  "to": "test-decay",
+                  "warnings": []
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "comments-and-hold-stay-out-of-the-output",
+      "capability": { "id": "test.echo", "version": "0.1.0" },
+      "parameters": {
+        "model": "# x halves every time unit\nstate x 8\nstate y 3  # y stays\nparameter k_x 0.6931471805599453\nparameter k_y 0\nhold 0\n"
+      },
+      "ticks": [
+        {
+          "inputs": {},
+          "expect": {
+            "outputs": {
+              "out": {
+                "sha256": "12ada44092ad2242ca92525e7a5095f08ee1171c0a390a74fbcd4adc0dc63c08",
+                "bytes": 78,
+                "report": {
+                  "from": "test-decay-text",
+                  "module": "main",
+                  "to": "test-decay",
+                  "warnings": ["hold 0 ignored in output"]
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "json-to-text",
+      "capability": { "id": "test.echo", "version": "0.1.0" },
+      "parameters": {
+        "model": "{\"states\": {\"x\": 8, \"y\": 3}, \"parameters\": {\"k_x\": 0.6931471805599453, \"k_y\": 0}}",
+        "from": "test-decay",
+        "to": "test-decay-text",
+        "module": "main"
+      },
+      "ticks": [
+        {
+          "inputs": {},
+          "expect": {
+            "outputs": {
+              "out": {
+                "sha256": "84e7335b3c5b808474d71393ed0bf521818772531cc3d11aeef1e03f5a93b8a8",
+                "bytes": 75,
+                "report": {
+                  "from": "test-decay",
+                  "module": "main",
+                  "to": "test-decay-text",
+                  "warnings": []
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "convert-and-simulate",
+      "capability": { "id": "test.echo", "version": "0.1.0" },
+      "parameters": {
+        "simulate": {
+          "time_domain": { "start": 0, "end": 2 },
+          "output": { "save_at": "explicit_times", "times": [0, 1, 2], "quantities": ["total"] }
+        }
+      },
+      "ticks": [
+        {
+          "inputs": {},
+          "expect": {
+            "outputs": {
+              "out": {
+                "sha256": "12ada44092ad2242ca92525e7a5095f08ee1171c0a390a74fbcd4adc0dc63c08",
+                "bytes": 78,
+                "report": {
+                  "from": "test-decay-text",
+                  "module": "main",
+                  "to": "test-decay",
+                  "warnings": []
+                },
+                "result": {
+                  "ok": true,
+                  "columns": ["time", "x", "y", "total"],
+                  "rows": [[0, 8, 3, 11], [1, 4, 3, 7], [2, 2, 3, 5]],
+                  "solver": { "method": "analytic" }
+                }
+              }
+            },
+            "tolerance": { "relative": 1e-12 }
+          }
+        }
+      ]
+    }
+  ]
+}

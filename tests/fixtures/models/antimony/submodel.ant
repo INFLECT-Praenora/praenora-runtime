@@ -1,0 +1,18 @@
+// A submodule used twice by the main module pair: in SBML the main module is flattened (the
+// elements of its submodules A and B get the prefixes A_ and B_); decay_unit translates alone.
+model decay_unit(s, k)
+  compartment cell = 1;
+  species s in cell;
+  J0: s => ; k * s;
+  s = 1;
+  k = 0.1;
+end
+
+model *pair()
+  A: decay_unit(a, k_a);
+  B: decay_unit(b, k_b);
+  a = 10;
+  b = 4;
+  k_a = 0.5;
+  k_b = 1.5;
+end

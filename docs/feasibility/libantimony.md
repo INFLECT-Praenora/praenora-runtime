@@ -1,368 +1,448 @@
-# libAntimony model conversion service: feasibility design
+# libAntimony model conversion service: upstream facts and future work
 
-- **Status:** Feasibility design, informative. Nothing in this document is implemented. The build
-  option `PRAENORA_WITH_ANTIMONY` is a name proposed here; it does not exist
-  ([`PraenoraOptions.cmake`](../../cmake/PraenoraOptions.cmake)). The service table below is a
-  draft: it is not part of ABI v0, and adopting it is a versioned change with its own ADR
-  ([compatibility-policy.md](../specs/compatibility-policy.md)).
-- **Decision record:** [ADR-0021](../adr/ADR-0021-runtime-services-through-host-api.md) (Proposed).
-  The companion simulation service is in [libroadrunner.md](libroadrunner.md).
-- **Sources:** upstream facts were checked on 2026-11-11 against libAntimony 3.3.0. They are cited
-  as [A1] to [A17] and listed under Sources at the end. A claim that could not be checked is marked
+- **Status:** Informative. The model conversion service `praenora.model-conversion@0` is specified
+  in [model-conversion-service.md](../specs/model-conversion-service.md),
+  [`model_conversion.h`](../../include/praenora/sdk/model_conversion.h) and
+  [ADR-0035](../adr/ADR-0035-model-conversion-service-v0.md), and built: the service provider
+  `antimony` ([ADR-0026](../adr/ADR-0026-runtime-service-providers.md),
+  [runtime-services.md](../specs/runtime-services.md)), which translates Antimony to SBML and back
+  with libAntimony 3.3, built only with the build option `PRAENORA_WITH_ANTIMONY=ON`
+  ([`PraenoraOptions.cmake`](../../cmake/PraenoraOptions.cmake)). Hierarchical SBML output, CellML
+  and a WebAssembly build are future work ([Future work](#future-work)). Where this document and the
+  specifications differ, the specifications hold.
+- **Decision records:** [ADR-0035](../adr/ADR-0035-model-conversion-service-v0.md) (Proposed),
+  which amends [ADR-0021](../adr/ADR-0021-runtime-services-through-host-api.md) as
+  [ADR-0026](../adr/ADR-0026-runtime-service-providers.md) requires; the open questions OQ-29 and
+  OQ-30 in [open-questions.md](../open-questions.md). The companion simulation service is in
+  [libroadrunner.md](libroadrunner.md).
+- **Sources:** facts from upstream documentation were checked on 2026-11-11 against libAntimony
+  3.3.0 and are cited as [A1] to [A17]. Facts about libAntimony 3.3.0's source, its build and the
+  libraries it was built against were checked on 2026-11-17, when the provider was built, and are
+  cited as [A18] to [A20]; a fact of [A1] to [A17] that the build checked again is cited with them,
+  and its row under [Sources](#sources) says so. A claim that could not be checked is marked
   "(unverified)".
 
-## Question and recommendation
+## What this document holds
 
-**Question.** Can the runtime offer translation between Antimony and SBML to modules as the runtime
-service `praenora.model-conversion@0`, backed by libAntimony? libAntimony keeps process-global state
-and opens the files that an Antimony `import` statement names, and `ode-uq-spec` requires Antimony
-sources to be checked for `import` before they are translated. What would a safe service look like,
-and how would it be built and packaged?
+It began as the feasibility design of a conversion service backed by libAntimony and compiled into
+the runtime. The service is now specified and built, as a service provider, so this document keeps
+what the specifications do not hold: the options that were compared, facts about libAntimony 3.3.0
+and the libraries it links (each with where it was checked), what the build corrected in the first
+version of this document, the alignment with `ode-uq-spec`, platforms and licensing, future work,
+and the risks and checks that remain.
 
-**Recommendation.** It is feasible as an optional runtime service:
+What the specifications own, and where to find it:
 
-- Build it only with `PRAENORA_WITH_ANTIMONY=ON` (default OFF), with libAntimony and libSBML linked
-  statically and PRIVATE into the runtime, behind its hidden symbol visibility. The runtime's copy of
-  libAntimony's global state is then its own: no module can reach it.
-- Serialize every use of libAntimony behind one process-wide mutex, and run each conversion as a
-  complete sequence under that lock (clear, load, translate, copy out, free, clear), so that no state
-  survives a call.
-- Apply the `ode-uq-spec` rules before anything is translated: refuse an Antimony source that
-  contains an `import` statement, and refuse SBML text that contains a document type declaration or
-  requires a Level 3 package. Load text only, through the loader for the declared format, and never
-  through a function that takes a file name or guesses the format.
-- When both services are built, each has its own libSBML: the simulation service's is inside its
-  provider, so a process holds two copies unless both services come from one provider.
-- The service can be part of a WebAssembly build of the runtime: libAntimony has been compiled with
-  Emscripten ([webassembly.md](webassembly.md)).
+- The service table, its options, report, errors, size limits and order of work:
+  [`model_conversion.h`](../../include/praenora/sdk/model_conversion.h) and
+  [model-conversion-service.md](../specs/model-conversion-service.md).
+- What the provider `antimony` converts, its rules for each format, modules, engine failures,
+  warnings, its lock and the sequence of calls under it, and the process state it changes:
+  [model-conversion-service.md](../specs/model-conversion-service.md#the-antimony-provider).
+- Why a provider, why one of its own, and the calls made while building it:
+  [ADR-0035](../adr/ADR-0035-model-conversion-service-v0.md).
+- Providers, their discovery, loading and lifetime, and the engine in the run fingerprint:
+  [runtime-services.md](../specs/runtime-services.md) and
+  [ADR-0026](../adr/ADR-0026-runtime-service-providers.md).
+- Building libAntimony and the provider: [platforms.md](../platforms.md#the-antimony-provider) and
+  [developer-guide.md](../developer-guide.md#the-antimony-provider).
+- The test provider `test-conversion` and the service checks:
+  [model-conversion-service.md](../specs/model-conversion-service.md#the-test-provider-test-conversion).
 
 ## Options compared
 
-| Option | Summary | For | Against |
-|---|---|---|---|
-| C1. Runtime service (recommended) | `PRAENORA_WITH_ANTIMONY=ON` compiles the service into `praenora_runtime`; it is registered when a `Runtime` is constructed. | One audited place applies the `ode-uq-spec` checks and serializes the global state; modules stay small. | The runtime carries libAntimony and libSBML when built with the option. |
-| C2. Each module bundles libAntimony | Possible today. | No runtime change. | Every module must implement the import check itself. Two modules that load the same shared libAntimony share one copy of its global state, because the dynamic loader returns the same handle for the same library [A14], and no lock covers both. |
-| C3. Out-of-process conversion | A helper executable per conversion. | Isolates the global state and could run without file system access. | The runtime has no subprocess facility; process start per conversion; out of scope for the MVP (ADR-0021). |
-| C4. libAntimony compiled to WebAssembly, run by an embedded engine | A converter module inside the engine of [webassembly.md](webassembly.md), Model B, with no file system imports. | The sandbox makes `import` harmless: there is no file to open. | Depends on Model B existing; slower than native. A later option. |
-| C5. No conversion | Modules accept SBML only. | Nothing to build. | `ode-uq-spec` allows Antimony model sources, so a module that reads `ode-uq-spec` models would bundle a translator anyway (C2). |
-
-## Integration design
-
-### Where the service plugs in
-
-As the simulation service was first planned, before service providers took it out of the runtime
-library ([ADR-0026](../adr/ADR-0026-runtime-service-providers.md)): the runtime registers one
-static table in its [`ServiceRegistry`](../../src/runtime/instance/services.hpp) as
-`praenora.model-conversion` at major 0 before instances use the registry; a module looks it up with
-`get_service(context, "praenora.model-conversion", 25, 0)` and gets NULL from a runtime built
-without the option. Lookups are logged as `service.lookup`
-([module-abi.md](../specs/module-abi.md#host-api)). The table and the service's state live until the
-process ends, because an abandoned instance may still be inside a call
-([threading-and-ownership.md](../specs/threading-and-ownership.md#unresponsive-instances)).
-
-### Draft service table (not part of ABI v0)
-
-```c
-/* DRAFT: praenora.model-conversion@0, for discussion only. Not part of ABI v0 and not
- * implemented. */
-#include <praenora/sdk/abi.h>
-
-#define PRAENORA_MODEL_CONVERSION_SERVICE "praenora.model-conversion"
-#define PRAENORA_MODEL_CONVERSION_SERVICE_MAJOR 0u
-
-typedef struct praenora_model_conversion_v0 {
-    praenora_api_header header; /* abi_major: the service major (0); abi_minor; struct_size of
-                                   this table as compiled into the runtime; reserved: 0 */
-    void* context;              /* service-owned; pass it to every function */
-
-    /* Writes the service's identity: {"service", "version" {major, minor}, "engine" {name,
-     * version, libsbml}, "formats": ["antimony", "sbml"]}. Thread-safe, free of side effects. */
-    praenora_status (PRAENORA_CALL *describe)(void* context, praenora_sink* out_json);
-
-    /* Translates one self-contained model source. `options_json` is a JSON object
-     * {"from": "antimony" | "sbml", "to": "sbml" | "antimony", "module": optional name}; `source` is
-     * the model text (UTF-8, not NUL-terminated). On success writes the translated text to
-     * out_text and {"module", "warnings": [...], "engine" {...}} to report_json. On failure returns
-     * a status other than OK and writes an error document to error_json. `host` is the calling
-     * instance's host API: the service logs through it and polls cancel_requested() while it waits
-     * for the lock. Thread-safe: calls are serialized inside. */
-    praenora_status (PRAENORA_CALL *convert)(void* context, const praenora_host_api* host,
-                                             praenora_bytes options_json, praenora_bytes source,
-                                             praenora_sink* out_text, praenora_sink* report_json,
-                                             praenora_sink* error_json);
-} praenora_model_conversion_v0;
-```
-
-The rules are those of the simulation table, which mirror the module ABI: the header carries the
-service's version and minor versions only append; the module passes sinks it owns and the service
-writes through them during the call; inputs are borrowed for the call; statuses are the general
-codes of [`status.h`](../../include/praenora/sdk/status.h); errors have the `pmp-error` shape with
-`details.service` and, for a libAntimony failure, `details.engine_error`; no exception or `longjmp`
-leaves a service function. The source travels as raw text rather than inside JSON, so a large SBML
-document need not be escaped into a JSON string.
-
-### The conversion sequence
-
-`convert` does this, in this order:
-
-1. **Check the request** without the lock: the options are a JSON object with known fields, the
-   source is valid UTF-8, contains no NUL byte (libAntimony's loaders take NUL-terminated strings
-   [A4]) and is within the size limit (for example 16 MiB).
-2. **Apply the security checks** described under Security below, still without the lock. A refused
-   source never reaches libAntimony or libSBML.
-3. **Take the lock**, polling `cancel_requested()` while waiting; return
-   `PRAENORA_STATUS_CANCELLED` if it turns nonzero.
-4. `clearPreviousLoads()` and `clearDirectories()`, so no earlier load and no search directory is
-   left over.
-5. Load with `loadAntimonyString()` or `loadSBMLString()`, according to `from`. Both return the index
-   of the stored set, or -1 with the error saved [A4].
-6. Choose the module: `module` from the options, else `getMainModuleName()`.
-7. Translate with `getSBMLString(module)` or `getAntimonyString(module)` [A4], and copy the text into
-   `out_text`; copy `getWarnings()` and the error text, if any, into the report or the error
-   document. Error text is made valid UTF-8 first: `ode-uq-spec`'s reference validator
-   (`tools/validate.py`) handles libAntimony error text that quotes part of a non-ASCII character.
-8. `freeAll()`, then `clearPreviousLoads()`, then release the lock.
-
-The service never calls `free` on a pointer libAntimony returned: `freeAll()` frees every pointer the
-library handed out, and calling it after freeing any of them yourself crashes the program [A4]. Using
-`freeAll()` inside the lock also avoids freeing across C runtimes on Windows, a pitfall libSBML
-documents for static MSVC runtimes [A12].
-
-### The C API used
-
-| Function | Upstream behavior [A4] | Use |
+| Option | Summary | Outcome |
 |---|---|---|
-| `long loadAntimonyString(const char*)` | Parses Antimony; returns the index of the stored set, or -1 with the error saved and nothing stored. | Antimony input. |
-| `long loadSBMLString(const char*)` | Parses SBML with libSBML; "By default, function definitions are removed." | SBML input. |
-| `loadString`, `loadFile`, `loadAntimonyFile`, `loadSBMLFile` | Any format the library knows, CellML included; file names are absolute or relative to the directory the executable runs from. | Never used. |
-| `char* getMainModuleName()` | NULL only when there are no modules. | Default module. |
-| `char* getSBMLString(const char*)`, `char* getAntimonyString(const char*)` | The translated text of a module; `getAntimonyString` returns NULL on failure and sets an error. | Output. |
-| `char* getLastError()`, `char* getWarnings()` | No handle: the last error and warnings of the process. | Error document and report. |
-| `void clearPreviousLoads()` | Clears memory of all loaded files; every successful load is kept until then. | Start and end of each call. |
-| `void addDirectory(const char*)`, `void clearDirectories()` | Directories searched for imported files and for a `.antimony` file of rules about where imports are found. | `clearDirectories()` at the start of each call; `addDirectory` never. |
-| `void freeAll()` | Frees every pointer the library handed out. | End of each call. |
-| `char* getVersionStr()` | The library's version. | `describe` and the report. |
+| C1. Compiled into the runtime | `PRAENORA_WITH_ANTIMONY=ON` compiles the service into `praenora_runtime`, which registers it when a `Runtime` is constructed. | Recommended by this document's first version; rejected ([ADR-0035](../adr/ADR-0035-model-conversion-service-v0.md), following [ADR-0026](../adr/ADR-0026-runtime-service-providers.md)): every runtime built with the option would carry and load libAntimony and libSBML, also when no run converts, and the run fingerprint would not record the engine. |
+| C2. Each module bundles libAntimony | Possible: nothing stops a module from linking it. | Not supported: every such module must apply the rules itself, and two modules that load the same shared libAntimony share one copy of its global state, because the dynamic loader returns the same handle for the same library [A14], and no lock covers both. |
+| C3. Out-of-process conversion | A helper process that owns libAntimony. | Not needed yet. It would isolate libAntimony's global state, could run without file system access and could stop a translation (OQ-5, OQ-30), at the cost of a process and of copying every source and text. |
+| C4. libAntimony compiled to WebAssembly, run by an embedded engine | A converter inside the engine of [webassembly.md](webassembly.md), Model B, with no file system imports. | Future work ([WebAssembly](#webassembly)): the sandbox would leave no file to open. |
+| C5. No conversion | Modules accept SBML only. | Rejected: `ode-uq-spec` allows Antimony model sources, so a module that reads them would bundle a translator anyway (C2). |
+| C6. A service provider of its own | A separately built library, shipped with the runtime, that the runtime loads only when a run needs its service: one engine per process. | Chosen and built ([ADR-0035](../adr/ADR-0035-model-conversion-service-v0.md)): the provider `antimony`. |
+| C7. Inside the provider `roadrunner` | One provider offers both services, with one libSBML. | Rejected ([ADR-0035](../adr/ADR-0035-model-conversion-service-v0.md)): conversion would need libRoadRunner and LLVM, one engine object would describe two engines, and a change to either would change the fingerprint of runs that use only the other. A process that loads both providers holds two copies of libSBML, which is accepted. |
 
-The header, generated from the template `src/antimony_api.h.in` [A6], calls these functions "a
-plain C API" and declares them with C linkage macros. Returned strings are allocated with `malloc`
-and owned by the caller, and the library returns NULL when it runs out of memory for a returned
-pointer [A4].
+## libAntimony 3.3.0: checked facts
 
-### Error mapping
+Building and testing the provider on macOS arm64, with libAntimony 3.3.0 built from its source at
+the tag `v3.3.0` [A18][A19] against the libraries that the release binaries of libRoadRunner 2.11.0
+hold [A20], and reading that source [A18], settled the following on 2026-11-17. A fact that one of
+the provider's tests pins names the test.
 
-| Condition | Outcome |
-|---|---|
-| Options are not a JSON object, have an unknown field, or `from` and `to` are not a supported pair | `PRAENORA_STATUS_INVALID_ARGUMENT` |
-| The source is not valid UTF-8 or contains a NUL byte | `PRAENORA_STATUS_INVALID_ARGUMENT` |
-| A security check refuses the source (import, document type declaration, required package, external model reference) | `PRAENORA_STATUS_DATA_INVALID`, with `details.rule` naming the check |
-| libAntimony cannot parse or translate the source (a load returns -1, or a translation returns NULL with an error set) | `PRAENORA_STATUS_DATA_INVALID`, with libAntimony's message in `details.engine_error` |
-| The requested module does not exist | `PRAENORA_STATUS_NOT_FOUND` |
-| The source exceeds the size limit, `std::bad_alloc`, or NULL from the library for lack of memory | `PRAENORA_STATUS_RESOURCE_EXHAUSTED` |
-| A sink refuses a write | The status `write` returned |
-| `cancel_requested()` turned nonzero while waiting for the lock | `PRAENORA_STATUS_CANCELLED` |
-| Any other exception | `PRAENORA_STATUS_INTERNAL` |
+### Build and link
 
-## The libSBML dependency
+- **Built from source.** No archive of the C library for C or C++ consumers is among the release's
+  assets, which are Python wheels, Julia archives and a macOS debug archive [A2], and PyPI has
+  Python wheels only [A3], so the provider's libAntimony was built from the tag `v3.3.0` (commit
+  `f13a50bce91ff2d16ec4b6c5179a8d43edff9f9b`), Release, with `ANT_DEPENDENCIES_INSTALL_PREFIX`
+  (where its build finds libSBML, SBMLNetwork and expat), with `WITH_QTANTIMONY`, `WITH_PYTHON`,
+  `WITH_CELLML`, `WITH_GTEST` and `WITH_JULIA` off, and with position-independent code, so that its
+  static library links into a `MODULE` library [A1][A19];
+  [platforms.md](../platforms.md#the-antimony-provider) has the commands. libAntimony's own build
+  printed ten compiler warnings (`-Wswitch`) and six linker warnings in the build checked; the
+  provider's build has none.
+- **The installation** holds `include/antimony_api.h` with the headers it includes, the static
+  library `libantimony-static.a` and a shared library, and no CMake package configuration [A19].
+  The provider's build finds libAntimony, and SBMLNetwork, which has no package either, by header
+  and library on `CMAKE_PREFIX_PATH`, and libSBML by its package `sbml-static`
+  ([`PraenoraAntimony.cmake`](../../cmake/PraenoraAntimony.cmake)).
+- **Dependencies from libRoadRunner.** libAntimony requires libSBML and SBMLNetwork, and its README
+  points to `libroadrunner-deps` for them and recommends expat [A1]; libRoadRunner itself links a
+  static libSBML of at least 5.20.5 [A16]. The release binaries of libRoadRunner 2.11.0 hold all of
+  them: libSBML 5.21.2 as a static library with the packages comp, fbc, distrib, layout and render
+  among others, SBMLNetwork 0.5.12 as a static library, expat 2.9.0, zlib and bzip2, with CMake
+  packages for all but SBMLNetwork [A20]. That libSBML links neither zlib nor bzip2 (`nm -u`), so
+  the provider's build makes them available without requiring them.
+- **A probe at configuration.** The provider's build links libAntimony, SBMLNetwork and libSBML
+  into a small program and runs it when the build is configured. The program prints the versions
+  the three libraries report: libAntimony's `getVersionStr()` (`v3.3.0`, with a leading `v`),
+  libSBML's `getLibSBMLDottedVersion()` (5.21.2) and SBMLNetwork's `getLibraryVersion()` (0.5.12, a
+  function in the global namespace), and whether libSBML has the package comp. That it links and
+  runs shows that the three go together, and the versions become the provider's engine object. A
+  libAntimony other than 3.3.x is refused, so that a new lexer is read before it is used
+  ([Risks](#risks)).
+- **Behind an export list.** The provider library links all of them statically and PRIVATE and
+  exports only `praenora_provider_get_api` (the test `providers.antimony.exports`); SBMLNetwork's
+  global `getLibraryVersion` and libAntimony's lexer stay inside it. It is a `.so` bundle of about
+  12 MB in a Debug build, about 8 MB stripped, that needs only libSystem and libc++.
+- **macOS 14.** The release binaries of libRoadRunner 2.11.0 are built for macOS 14.0 [A20], so
+  libAntimony is built against them for 14.0, and a build with the provider needs a deployment
+  target of at least 14.0 instead of the project default of 11.0.
+- **Windows.** libAntimony's header declares its functions for import from a DLL
+  (`__declspec(dllimport)`) on Windows unless its own build defines `LIB_EXPORTS` [A19], so linking
+  the static library there may need a definition that the provider's build does not give
+  (unverified).
+- **Linux.** SBMLNetwork needs `libdl`, which the provider's build adds (not built on Linux).
 
-- libAntimony depends on libSBML and on SBMLNetwork; its README points to prebuilt versions in
-  `libroadrunner-deps` and recommends expat as libSBML's XML library [A1].
-- libSBML is at release 5.21 (the repository badges show 5.21.0; the API reference documents
-  5.21.2), is distributed under the LGPL 2.1, and can use Xerces, Expat or libxml2 [A10][A11]. The
-  parsers "behave slightly differently when reading files" [A12], so the service is built with one,
-  expat, as the Emscripten build of libAntimony is [A8].
-- libRoadRunner finds a static libSBML of at least 5.20.5 [A16]. The simulation service's libSBML
-  is linked into the provider `roadrunner`, a separate library that exports only its entry point
-  ([ADR-0026](../adr/ADR-0026-runtime-service-providers.md)), and that provider also calls libSBML
-  itself. A libSBML linked into the runtime for this service would be a second, separate copy with
-  its own process-wide state, so the two neither collide at link time nor share state (unverified
-  with both built); they would share one copy only if both services came from one provider.
-- libSBML keeps a process-wide singleton, the package extension registry [A11]. Neither the
-  registry's page nor the list of known pitfalls says anything about thread safety [A11][A12]; the
-  service's lock covers its own libSBML use. The simulation service's provider uses its own copy,
-  with its own registry, so this lock need not cover it (unverified with both built).
-- Linking LGPL-2.1 code statically into a distributed binary brings the conditions of section 6 of
-  that license, such as means to relink with a modified library [A15]. This needs the same legal
-  review as for the simulation service.
+### The C API
 
-## Global state and thread safety
+The functions the provider calls, and the upstream facts their use rests on. Where no other source
+is cited, a fact is from the header [A4], which the 3.3.0 build generates from its template [A6] and
+installs [A19]:
 
-- libAntimony's state is global: its registry is declared `extern Registry g_registry;`, holds the
-  files, directories and current imports of the parse, and its header has no mutex or thread
-  declaration [A5]. The last error and the warnings have no handle [A4], and loaded models stay in
-  memory until `clearPreviousLoads()` [A4].
-- Hence one process-wide mutex, held for the whole sequence. Concurrent callers queue; the wait is
-  cancellable, the translation is not (the header documents no way to interrupt it, unverified), and
-  the size limit bounds how long the lock is held.
-- The mutex protects only the runtime's copy. A module that loads a shared libAntimony of its own,
-  at the same path as one the runtime loaded, would share that copy's state, because `dlopen()` of
-  the same object returns the same handle [A14]; Windows behaves the same way for a DLL already
-  loaded (unverified). Static linking with hidden symbols gives the runtime a private copy, which is
-  why it is recommended.
-- The calls are short and serialized, so the service does not care which thread calls it: a module's
-  worker thread or one of the module's own threads, which must be joined before its `destroy`
-  returns ([threading-and-ownership.md](../specs/threading-and-ownership.md#what-a-module-must-do)).
+- **Loading.** `loadAntimonyString` and `loadSBMLString` return the index of the stored set, or -1
+  with the error saved and nothing stored. `loadString`, `loadFile` and the file loaders read any
+  format the library knows, CellML included when it is built with it, and take file names absolute
+  or relative to the directory the program runs from; the provider never calls them.
+- **Antimony text is read as SBML first.** `loadAntimonyString` hands its text to the registry's
+  `OpenString`, which first parses it with libSBML's `readSBMLFromString`; a text that parses as
+  SBML is loaded as SBML, reading the documents that its comp external model definitions name, and
+  then refused as not Antimony [A18]; their `source` may be a URL, a URN or a file location [A13].
+  So Antimony text that is an SBML document can read files without an `import`, although its load
+  fails; the rule `xml` refuses it before libAntimony sees it.
+- **Modules.** Every load has the module `__main`, for statements outside every module, besides the
+  modules the source defines; `getMainModuleName()`, `getNumModules()` and `getNthModuleName()` name
+  them (`AntimonyProvider.MainModuleFollowsTheRule`). An empty Antimony source loads as an empty
+  `__main`, as the build showed; the rule `empty` refuses it.
+- **Writing.** `getSBMLString(module)` writes the module flattened: the elements of its submodules
+  renamed and placed in one model. `getAntimonyString(module)` writes Antimony, and returns NULL on
+  failure, with an error set. `getCompSBMLString(module)` writes SBML with the package comp,
+  keeping the module's hierarchy; the provider does not offer it ([Future work](#future-work)).
+- **Settings.** `setRemoveFunctionDefinitions(bool)` says whether loading SBML removes function
+  definitions (`true` by default), and `setWriteSBMLTimestamp(bool)` whether written SBML holds a
+  time stamp [A19] (`false` by default in 3.3.0 [A18]). `clearPreviousLoads()` clears the loaded
+  files and leaves these settings alone [A18], so the provider sets them once, when it starts.
+- **Results of the process.** `getLastError()` and `getWarnings()` take no handle: they return the
+  last error and the warnings of the process.
+- **Directories and `.antimony` files.** `addDirectory` and `clearDirectories` set the directories
+  searched for imported files. A `.antimony` file, of rules about where imports are found, is read
+  only while an `import` is resolved, and directories are added only by opening a file and by
+  `addDirectory` [A18].
+- **Memory.** Returned strings are allocated with `malloc` and owned by the caller; `freeAll()`
+  frees every pointer the library handed out, and calling it after freeing one of them yourself
+  crashes the program; the library returns NULL when it runs out of memory for a returned pointer.
+  The provider copies each result at once and calls `freeAll()` under its lock, never `free()`,
+  which also avoids freeing across C runtimes on Windows [A12].
 
-## Determinism, threading and security
+### Global state, the locale and time
+
+- **Global state.** libAntimony's registry is the global `g_registry`, which holds the loaded files,
+  the directories and the imports of a parse, with no mutex [A5][A18]. libSBML keeps process-wide
+  state too: its package extension registry is a singleton, documented with nothing about threads
+  [A11], and its writer keeps a process-wide setting. One process-wide lock in the provider covers
+  every call into either.
+- **The locale.** `loadAntimonyString`, `getAntimonyString` and other functions set the process's
+  locale to `C` (`setlocale(LC_ALL, "C")`) and restore it before they return [A18]; libSBML
+  switches it too [A20]. `setlocale` is process-wide, and the provider's lock does not cover other
+  code: the host application, a module or another provider that formats or parses numbers through
+  the C locale while a conversion runs may see `C`, and switches that overlap on different threads
+  can leave the process in `C`. The runtime does not depend on the locale.
+- **The C library's random numbers.** SBMLNetwork's automatic layout
+  (`libsbmlnetwork_autolayout.cpp.o` in its static library [A20]) calls `srand(time(NULL))` and
+  then `rand()`, and its Fruchterman-Reingold placement calls `rand()` too. libAntimony runs it for
+  a module that asks for a layout, when it checks the module after loading (which builds its SBML)
+  and again when it writes the SBML [A18]. Such a conversion reseeds `rand()` for the whole process,
+  and its layout changes from one second to the next (Layouts, under Determinism).
+- **Output.** On the paths the provider uses, libAntimony and libSBML write nothing to standard
+  output or standard error: libAntimony's writes there are commented out [A18], and nothing reached
+  standard error in the conversions checked.
+- **Time.** The header names no function that interrupts a translation. Its time grows faster than
+  the source: a generated chain of 500 reactions translated to SBML in about 0.3 s, of 700 reactions
+  (42 KB) in about 0.55 s and of 1000 (60 KB) in about 0.8 s on the machine where this was measured,
+  and 700 took about 1.3 s in a ThreadSanitizer build of the tests. How long one translation may
+  hold the provider's lock is OQ-30.
+
+### Reading Antimony
+
+- **Imports open files.** An Antimony source imports another file with `import "file"`, SBML
+  files included, resolved against the working file's directory or configured directories, and
+  `.antimony` files can redirect imports [A7]. An `import` of a file that does not exist fails with
+  libAntimony's error `Could not open` [A18]; the provider's tests show that no source they convert
+  reaches that error (`AntimonyProvider.ImportOfAMissingFileIsTheServicesRefusal`,
+  `AntimonyProvider.CommentedAndQuotedImportsReachLibAntimonyHarmlessly`).
+- **The lexer** of libAntimony 3.3 (`antimony.ypp`) [A18]: `//` and `#` start a line comment that
+  ends before the next CR or LF; `/*` starts a block comment that ends after the next `*/`; `"`
+  starts a string, in which a backslash takes the next character, CR and LF included, and which a
+  line end without a backslash interrupts, after which the string's content is read again as code;
+  one backtick is a character, two an empty string, three open a block that ends after the next
+  three, and four are one token. A number followed by letters is two tokens, so `1import "f"`
+  imports. Keywords are compared with their letter case (`Import` is no keyword), and words are
+  ASCII letters, digits and `_`. The provider's check of imports reads sources as this lexer does,
+  and refuses more than it would, never less
+  ([model-conversion-service.md](../specs/model-conversion-service.md#the-antimony-provider)); its
+  tests convert 196 sources that hold an import of a missing file inside comments, strings and
+  blocks, and none opens it
+  (`AntimonyProvider.CommentedAndQuotedImportsReachLibAntimonyHarmlessly`).
+- **Line numbers.** libAntimony's error names a line (`Error in model string, line <n>:`), but its
+  count skips the line ends inside block comments and triple-backtick blocks and counts a run of
+  continued lines as one [A18], so after such a block it is not the source's line. The provider's
+  libAntimony errors therefore have no `details.line`
+  (`AntimonyProvider.EngineFailureHasNoLineAfterMultiLineBlocks`).
+- **Byte order mark and CR LF.** libAntimony refuses a UTF-8 byte order mark, and keeps the CR of a
+  CR LF inside a block that spans lines; the provider hands it the text without the mark and with
+  LF line ends (`AntimonyProvider.BomAndCrLfSourcesConvertLikeTheirPlainForms`).
+- **The main module** is the module marked `*` (the last of them, with a warning, when several
+  are), else `__main` when statements stand outside every module, else the last module defined:
+  the rule of `ode-uq-spec` ([Alignment with ode-uq-spec](#alignment-with-ode-uq-spec)), in its
+  three cases (`AntimonyProvider.MainModuleFollowsTheRule`).
+- **Flattening.** The elements of submodules become elements of the module's model, their ids
+  prefixed with the submodule's name and `_` (`A_J0` for reaction `J0` of submodule `A`).
+
+### Reading and writing SBML
+
+- **Function definitions.** By default `loadSBMLString` removes function definitions [A4][A19],
+  replacing each call by the function's body. With `setRemoveFunctionDefinitions(false)` they are
+  kept, and SBML translated to Antimony keeps them as functions; the provider sets it and says so in
+  its engine object, `"function_definitions": "kept"`
+  (`AntimonyProvider.FunctionDefinitionsAreKept`).
+- **What `getSBMLString` writes.** SBML Level 3 Version 2, flattened, beginning with the comment
+  `<!-- Created by libAntimony version v3.3.0 with libSBML version 5.21.2. -->`, with no time
+  stamp, libAntimony 3.3.0's default, which the provider sets again when it starts
+  (`setWriteSBMLTimestamp(false)`; libSBML keeps the setting for the whole process) [A18]. A source
+  that asks for a layout (`model.layout = on`, the autolayout settings, an element's position or
+  style, a default style) gets SBMLNetwork's layout and render, in the packages layout and render,
+  which the document does not require; the provider refuses that SBML (below).
+- **Distributions.** libAntimony writes the package distrib, with `required="true"`, into the SBML
+  of a model that uses a distribution [A18]; the provider's rule against required packages then
+  refuses that SBML on the way back (`AntimonyProvider.DistributionsDoNotConvertBack`).
+- **libSBML 5.21.2** [A20] reports a comp declaration whose `required` is `false` as an error of its
+  own, which is why the provider's rule `comp` comes before libSBML's errors. It counts columns from
+  0, and reads a document that does not start with an XML declaration as if it began with one. An
+  entity reference without a declaration is an error, and it interprets neither XInclude elements
+  nor style-sheet processing instructions: none of them made it read a file that exists
+  (`AntimonyProvider.SbmlNeverOpensReferencedFiles`). Documents of Level 2 Version 4 and Level 3
+  Versions 1 and 2 translate to Antimony.
 
 ### Determinism
 
-- A translation is a pure function of the source text, the options and the library versions:
-  nothing else enters it, because each call starts and ends with `clearPreviousLoads()`. That two
-  identical calls give byte-identical text, in one process and across processes, is expected and
-  checked by the spike (unverified).
-- The report carries the libAntimony and libSBML versions. Offered by a service provider, the
-  service would enter the run's reproducibility section as the simulation service does (its
-  `services` entry: provider identity, digests and the manifest's `engine` object,
-  [reproducibility.md](../specs/reproducibility.md#run-fingerprint)), with no change to the run
-  record format. Registered in the runtime library, as under
-  [Where the service plugs in](#where-the-service-plugs-in), it would not be recorded (the section
-  holds only services that providers serve), and recording it would be a run record format change
-  with its own ADR.
-- Main module: `ode-uq-spec` 0.0.0 defines an Antimony source's meaning as the flattened SBML of
-  its main module: the module marked `*`, else `__main` when the file has top-level statements, else
-  the last module defined (`specification.md`, Model specification). The service uses
-  `getMainModuleName()`; that it applies the same rule in every case is unverified.
-- `loadSBMLString()` removes function definitions by default [A4], so an SBML to Antimony
-  translation may not keep them as function definitions (whether their uses are expanded in place is
-  unverified); the report says so when the source has any.
+- The same conversion gives the same bytes on repeated calls
+  (`Antimony/ModelConversionService.RepeatedCallsAreIdentical/Antimony`) and in two fresh processes
+  (`providers.antimony.processes`), on one machine, except for a layout.
+- **Layouts.** The SBML of an Antimony source that asks for a layout differs from one second to the
+  next: SBMLNetwork seeds its random positions from the wall clock (the same four-reaction source
+  gave 30086 and 30091 bytes, with other positions, in two processes 5 s apart). libAntimony runs
+  the layout already while it loads the source, and its C API shows nothing of the request before
+  it writes, so the provider reads the SBML it wrote with libSBML and refuses it when it declares
+  layout or render (`UNSUPPORTED`, `details.reason` `"layout"`;
+  `AntimonyProvider.LayoutRequestsAreRefused`, which straddles a second of the wall clock). SBML
+  that holds a layout converts to the same Antimony in different seconds: libAntimony writes the
+  positions it read, and the layout it runs while loading does not reach the text
+  (`AntimonyProvider.LaidOutSbmlConvertsTheSameAcrossSeconds`).
+- Antimony to SBML, back to Antimony and to SBML again gives the first SBML once the source declares
+  its elements in the order libAntimony writes them; from another order, the first round can differ
+  from later ones (`AntimonyProvider.RoundTripIsAFixpoint`).
 
-### Threading
+## What the build corrected
 
-See Global state and thread safety. The service needs no worker thread of its own and starts none.
+The first version of this document (sources read on 2026-11-11) was a design. Building the provider
+showed otherwise in these points:
 
-### Security
+| The first version said | The build showed |
+|---|---|
+| Compile the service into `praenora_runtime` (option C1), registered in its `ServiceRegistry`; a service registered there would not be in the run fingerprint. | The service comes from the provider `antimony` (option C6, [ADR-0035](../adr/ADR-0035-model-conversion-service-v0.md)), as [ADR-0026](../adr/ADR-0026-runtime-service-providers.md) requires of heavy engines; its engine object enters the fingerprint through the provider mechanism. |
+| A libSBML in the runtime and the one in the provider `roadrunner` would neither collide nor share state (unverified with both built). | Each provider links a copy of its own, from the one libSBML package; both load in one process, and a model converted by one simulates in the other (`Api.AntimonyModelSimulatesThroughRoadrunner`). |
+| libAntimony needs libSBML and SBMLNetwork; whether its installation has a CMake package was unverified, and a find module would be used. | The release binaries of libRoadRunner 2.11.0 hold libSBML, SBMLNetwork and expat [A20]. libAntimony and SBMLNetwork install no CMake package, so the build finds them by header and library, and a probe at configuration proves that the three libraries link together and gives their versions for the engine object. |
+| No C library archive is visible among the release's assets. | None was found among the assets; the provider's libAntimony is built from source. |
+| Build for the project's deployment target of 11.0 (unverified). | The dependencies are built for macOS 14, so libAntimony and the provider are too. |
+| That `getMainModuleName()` applies the `ode-uq-spec` rule in every case was unverified. | It does, in the rule's three cases. |
+| `loadSBMLString()` removes function definitions by default, and the report would say so when a source has any. | The provider keeps them (`setRemoveFunctionDefinitions(false)`), and its engine object says so. |
+| Byte-identical output was expected (unverified). | Verified on one machine, on repeated calls and in two processes, except for layouts: SBMLNetwork seeds an automatic layout from the wall clock and reseeds the C library's `rand()`, so the provider refuses Antimony that asks for a layout; SBML that holds one converts to the same Antimony in different seconds. |
+| The import check removes comments (`//`, `#`, `/* */`), double-quoted strings and triple-backtick blocks, then refuses the word `import`. | It must read as libAntimony 3.3's lexer does: a backslash escapes in a string, a line end leaves a string unterminated (refused, rule `unterminated`), a CR ends a line comment, four backticks are code, and `import` right after a number is an import. A scan that ended strings at their next quote would let `x is "a\" // "; import "f"` through, and one that took digits for letters `M.sboTerm = 1import "f"`; libAntimony opens `f` for both. |
+| An Antimony source reaches other files through `import`, and `.antimony` files can redirect imports. | It can without an `import` too: `loadAntimonyString` reads its text as SBML first, and SBML with comp external model definitions reads the documents they name, so Antimony text that is an XML document is refused (rule `xml`). |
+| A document that declares a required package is refused, which refuses comp's external model definitions. | Every declaration of comp is refused, required or not, before libSBML's errors, since libSBML reports comp with `required="false"` as an error; the rule `package` applies to Level 3, where packages exist. |
+| libAntimony's message goes into `details.engine_error`. | It does, as libAntimony wrote it, but the line it names is not the source's after a block comment or a triple-backtick block that spans lines, so libAntimony's errors carry no `details.line`. libSBML's errors do, once its columns from 0 and the declaration line it adds are mapped back to the source. |
+| Not considered. | libAntimony switches the process's locale to `C` while it works. |
+| Not considered. | A model that uses a distribution converts to SBML but not back: libAntimony writes distrib as required. |
+| Not considered. | An empty Antimony source translates into an empty module `__main`: every format refuses an empty source (rule `empty`). |
+| Translations are expected to be short (unverified), and the size limit bounds how long the lock is held. | Translation time grows faster than the source: the size limit bounds the source, not the time (OQ-30). |
 
-The runtime never evaluates expressions or model sources; this service is the first place where
-runtime code would parse model sources, so it applies `ode-uq-spec`'s rules itself.
+The draft service table, the conversion sequence and the error mapping of the first version are
+replaced by [model-conversion-service.md](../specs/model-conversion-service.md), which differs from
+them: `describe` lists pairs of formats (`conversions`) rather than formats, a pair the provider
+does not convert is `UNSUPPORTED` rather than `INVALID_ARGUMENT`, and the report holds `from`,
+`to`, `module` and `warnings`, while the engine is in `describe` and the run fingerprint.
 
-- **The rules.** `ode-uq-spec` 0.0.0 treats expression strings and model sources as data, not code;
-  forbids XML document type declarations in model sources, which enable entity-expansion attacks;
-  says Antimony sources must not `import` other files; and says to check for `import` before
-  translating, because libAntimony opens imported files (`conventions.md`, Security). Its
-  normative text adds that an Antimony source must be self-contained, with no `import`, and that an
-  SBML source must not require a Level 3 package, which excludes `comp` (`specification.md`, Model
-  specification).
-- **How libAntimony imports.** An Antimony file imports another with `import "file"`; SBML files can
-  be imported the same way; a relative name is resolved against the directory of the working file;
-  other directories can be configured; and `.antimony` files can redirect imports [A7][A4]. The C API
-  documents no function or flag that turns import processing off [A4].
-- **The import check.** Before calling libAntimony, the service removes comments (`//` and `#` to
-  the end of the line, `/* ... */`), double-quoted strings and text between triple backticks, and
-  refuses the source if the word `import` remains, in any letter case. This is the check of
-  `ode-uq-spec`'s reference validator (`tools/validate.py`). It refuses a little more than
-  necessary (an identifier spelled `Import`, for instance), which is the safe direction.
-- **Defense in depth.** `clearDirectories()` before each call; no file name is ever passed; the
-  runtime never changes the process's working directory; CellML support is left out of the build (the
-  loaders skip CellML when built without it [A4], and the Emscripten build turns it off [A8]).
-- **SBML input.** Text containing `<!DOCTYPE`, in any letter case, is refused before any XML parser
-  sees it. After parsing with libSBML, a document that declares a required package is refused, which
-  also refuses the `comp` package's external model definitions, whose `source` may be a URL, URN or
-  file location [A13].
-- **Limits.** A size limit on the source and the sink limits on the output bound memory and time; a
-  translation runs under the lock, so a pathological source delays other callers, never the whole
-  process.
+## Alignment with ode-uq-spec
 
-## WebAssembly outlook
+`ode-uq-spec` 0.0.0 treats model sources as data, not code, and states rules for them
+(`conventions.md`, Security, and `specification.md`, Model specification): XML document type
+declarations are forbidden, since they enable entity-expansion attacks; an Antimony source is
+self-contained, without `import`, and is checked for `import` before it is translated, because
+libAntimony opens imported files; an SBML source must not require a Level 3 package, which excludes
+comp; and an Antimony source means the flattened SBML of its main module, the module marked `*`,
+else `__main` when the file has top-level statements, else the last module defined. The provider
+applies each: the rules `import`, `unterminated` and `xml` for Antimony, `document_type`, `comp`
+and `package` for SBML, and flattened SBML of the main module, which libAntimony chooses by the
+same rule
+([model-conversion-service.md](../specs/model-conversion-service.md#the-antimony-provider)).
+
+The first version described the check of imports as the one of `ode-uq-spec`'s reference validator
+(`tools/validate.py`). The provider's check refuses more. The validator reads strings with
+backslash escapes and ends them at a line end, so it refuses the first of the two forms under
+[What the build corrected](#what-the-build-corrected); it looks for `import` between word
+boundaries, and a digit and a letter have none between them, so `M.sboTerm = 1import "f"` passes
+it, and libAntimony then opens `f`.
+
+## Platforms
+
+| Platform | Project presets | Upstream libAntimony 3.3.0 binaries [A3] | Notes |
+|---|---|---|---|
+| macOS arm64 | `macos-arm64-*` | `macosx_14_0_arm64` Python wheel | Built and tested ([platforms.md](../platforms.md#the-antimony-provider)): libAntimony from source against the release binaries of libRoadRunner 2.11.0, for macOS 14.0. |
+| Linux x86-64 | `linux-x64-*` | `manylinux_2_28_x86_64` Python wheel | Not built. The provider's export list is a version script there, and SBMLNetwork needs `libdl`. |
+| Windows x86-64 | `windows-x64-*` | `win_amd64` Python wheel | Not built. libAntimony builds with MSVC x64 [A1]; its header declares its functions for import from a DLL ([Build and link](#build-and-link)). Keep the shared MSVC runtime; the provider frees libAntimony's memory only through `freeAll()`. |
+| macOS x86-64 | none | `macosx_15_0_x86_64` Python wheel | Not a project platform. |
+| Linux arm64, Windows arm64 | none | none listed | Building from source should be possible (unverified). |
+
+The wheels hold the Python bindings, not a C library to link against. How the engine is built and
+distributed is OQ-29.
+
+### Licensing facts
+
+These are facts about upstream projects, gathered for the license decision (OQ-1) and for
+distribution (OQ-13, OQ-29). This project states no license of its own.
+
+| Component | License as stated upstream |
+|---|---|
+| libAntimony | BSD-3-Clause on its repository page [A1]; MIT in the PyPI metadata of 3.3.0 [A3]. The discrepancy should be settled upstream before redistribution. |
+| libSBML | LGPL 2.1 [A10] |
+| SBMLNetwork, expat | Not checked (unverified) |
+
+The provider links libSBML statically. A distributed binary that contains a statically linked
+LGPL-2.1 library must, among other conditions, give users the means to relink it with a modified
+library, or use a shared-library mechanism instead (section 6) [A15]. The provider `roadrunner`
+links the same libSBML release, so one legal review can cover both (OQ-27, OQ-29).
+
+## Future work
+
+Nothing in this section is specified or built.
+
+### WebAssembly
 
 - **The runtime compiled to WebAssembly** ([webassembly.md](webassembly.md), Model A).
   `libantimonyjs` builds expat, a static libSBML (with expat, without libxml2) and libAntimony
   (without CellML) with Emscripten's CMake and make wrappers, and links them into a single-file
   JavaScript and WebAssembly module with memory growth, exporting C functions such as `_loadString`,
   `_getSBMLString` and `_freeAll` [A8]. MakeSBML, a client-side web application that converts
-  between Antimony and SBML [A9], loads that `libantimony.js` module [A17]. The service can therefore
-  be compiled into a WebAssembly runtime with the same flags. The import check still applies: the
-  in-memory file system holds whatever the embedder wrote into it.
-- **WebAssembly modules in a native runtime** (Model B). The service stays native; WebAssembly
-  modules would reach it through host imports that mirror the table above, in a later version.
-  Running libAntimony itself as a sandboxed WebAssembly module (option C4) would remove file access
-  altogether.
+  between Antimony and SBML [A9], loads that `libantimony.js` module [A17]. A WebAssembly runtime
+  would need the provider's code compiled into it, and the design of Model A, older than service
+  providers, registers modules statically and loads no provider; whether `libantimonyjs` builds
+  libAntimony 3.3, which requires SBMLNetwork [A1], was not checked (unverified). The rules still
+  apply there: an in-memory file system holds whatever the embedder wrote into it.
+- **WebAssembly modules in a native runtime** (Model B). The provider stays native; WebAssembly
+  modules would reach the service through host imports that mirror the table of
+  `model_conversion.h`. Running libAntimony itself as a sandboxed WebAssembly module (option C4)
+  would remove file access altogether, and leave the rules as a second defense.
 
-## Packaging and build
+### Hierarchical SBML
 
-- **Upstream packages.** libAntimony 3.3.0 (2026-10-28) is on PyPI as wheels only, for `win_amd64`,
-  `manylinux_2_28_x86_64`, `macosx_15_0_x86_64` and `macosx_14_0_arm64`, 2.7 to 5.6 MB each, with no
-  source distribution [A3]. The GitHub release carries zipped Python wheels and Julia archives; no C
-  library archive is visible among its listed assets [A2]. A C or C++ consumer builds from source.
-- **Upstream build.** CMake, with libSBML and SBMLNetwork required; Python, Qt (for its editor),
-  Julia and GoogleTest optional; options such as `ANT_DEPENDENCIES_INSTALL_PREFIX`, `WITH_PYTHON`,
-  `WITH_QTANTIMONY`, `WITH_GTEST` and `WITH_JULIA`; Bison only to regenerate the parser; Windows
-  builds in an MSVC x64 environment [A1]. Whether an install provides a CMake package configuration
-  is unverified; this project would use a find module.
-- **In this project.** `PRAENORA_WITH_ANTIMONY` (OFF) in
-  [`PraenoraOptions.cmake`](../../cmake/PraenoraOptions.cmake); when ON, a static libAntimony and
-  libSBML found through `CMAKE_PREFIX_PATH`, compiled into `praenora_runtime` as an OBJECT library
-  with the third-party libraries linked PRIVATE ([ADR-0017](../adr/ADR-0017-dependency-management.md)).
-  No FetchContent pin in the first version: the dependency chain (libSBML, SBMLNetwork, expat) would
-  need pins of its own. A default build never uses the network.
-- **Linux x86-64.** Source build; the upstream wheels target manylinux 2.28. No Linux arm64 wheel is
-  published [A3].
-- **macOS arm64.** Source build for the project's deployment target of 11.0 (unverified that the
-  sources support it); the upstream arm64 wheel targets macOS 14 [A3].
-- **Windows x86-64.** Source build with MSVC [A1]. Keep the shared MSVC runtime, and free only
-  through `freeAll()` (see the conversion sequence).
-- **Licensing facts.** The repository page states BSD-3-Clause [A1], while the PyPI metadata of
-  3.3.0 states MIT [A3]; the discrepancy should be settled upstream before redistribution. libSBML is
-  LGPL 2.1 [A10]. The licenses of SBMLNetwork and expat were not checked (unverified). This project
-  states no license of its own (OQ-1).
+`getCompSBMLString` writes a module with its submodules kept as comp submodels [A19]. The provider
+writes flattened SBML only, and refuses comp in SBML it reads, since comp's external model
+definitions name other documents. Hierarchical output would be a format of its own among the
+conversions that `describe` lists, which a provider may add at any time
+([model-conversion-service.md](../specs/model-conversion-service.md#evolution)); reading such SBML
+back would need a rule for external model definitions.
+
+### CellML
+
+libAntimony reads and writes CellML when it is built with libCellML [A4][A19]; the provider's
+libAntimony is built without it (`WITH_CELLML=OFF`), so its loaders skip CellML. A format
+`cellml` would need libCellML in the build and rules for CellML's own imports, which name other
+documents (unverified how libAntimony resolves them).
+
+### Other
+
+- The simulation service reading Antimony itself: today a module converts the source first and
+  simulates the SBML.
+- A conversion command in the `praenora` tool or the Python package.
+- Providers that use the services of other providers.
+- Pinned downloads of libAntimony (FetchContent): its dependency chain (libSBML, SBMLNetwork, expat)
+  would need pins of its own ([ADR-0017](../adr/ADR-0017-dependency-management.md)).
+- An engine out of process (option C3; OQ-5, OQ-30).
 
 ## Risks
 
 | Risk | Effect | Mitigation |
 |---|---|---|
-| An `import`, or a reference to another document, slips past the checks | libAntimony or libSBML opens a file chosen by the source | The validator's conservative check, `clearDirectories()`, no file names, SBML package and document type checks; spike tests in every comment and string form; later, option C4. |
-| Another copy of libAntimony in the process shares global state | Races between the service and a module | Static, hidden linking of the runtime's copy; module authors told to use the service rather than their own copy. |
-| Two libSBML copies in one process (the runtime's and the provider's) | Unexpected interaction | Test both options together. |
-| Function definitions removed on SBML load | An SBML to Antimony translation differs in form, or in meaning, from its source | Warning in the report; spike checks what the default does to models with function definitions. |
-| The main module chosen by libAntimony differs from the `ode-uq-spec` rule | Translations of multi-module files differ from other consumers | Spike checks the three cases of the rule. |
-| License discrepancy (BSD-3-Clause or MIT) and LGPL-2.1 libSBML | Distribution blocked | Ask upstream; legal review together with the simulation service (OQ-1, OQ-13). |
-| Long translations under one lock | Callers wait; deadlines pass while waiting | Size limit; cancellable wait; translations are expected to be short (unverified). |
+| An `import`, or a reference to another document, slips past the rules | libAntimony or libSBML opens a file chosen by the source | The check of imports reads as libAntimony 3.3's lexer and refuses unterminated forms; the rules `xml`, `document_type` and `comp`; no file name is passed and `clearDirectories()` runs on every call; the tests sweep imports of a missing file through every comment, string and block form; the build accepts libAntimony 3.3.x only, so a new lexer is read before it is used; later, option C4. |
+| Another copy of libAntimony in the process | Races between the provider and a module that links libAntimony | The provider's copy is static and hidden behind its export list; module authors use the service. |
+| libAntimony's switch of the process's locale | Code on another thread that formats or parses through the C locale sees `C` while a conversion runs | Stated in the specification; the runtime does not depend on the locale; the provider cannot prevent it. |
+| Long translations under one lock | Calls wait; deadlines pass while they wait | A cancellable wait; conversions in `create` or `initialize`; OQ-30. |
+| Linux and Windows builds are not done | The provider exists on macOS arm64 only | Build and test there (OQ-29). |
+| License discrepancy (BSD-3-Clause or MIT), a statically linked LGPL-2.1 libSBML, SBMLNetwork and expat unchecked | Distribution blocked or obligations unmet | Ask upstream; a license review with the simulation service's (OQ-1, OQ-13, OQ-27, OQ-29). |
+| Models with distributions | They convert to SBML only | Stated in the specification and tested; exempting distrib from the rule `package` would be a decision of its own. |
 
-## Spike plan
+## Remaining checks
 
-Each step has an exit criterion; the spike stops at the first that fails and records why.
+The checks that the first version planned were carried out by the provider's build and tests on
+macOS arm64: linking (into a provider rather than the runtime), round trips, the check of imports,
+the SBML rules, eight threads converting at once under ThreadSanitizer, determinism in one process
+and across two, the three cases of the main module, and both providers in one process. What
+remains:
 
-1. **Link.** Build libAntimony 3.3.0 and libSBML 5.21 (expat) statically on macOS arm64 and link
-   them into a scratch OBJECT library of the runtime with hidden visibility. *Exit:* warning-free
-   build, `ctest --preset dev` unchanged, and the runtime exports exactly the symbols it exports
-   today.
-2. **Round trip.** Implement the draft table and translate a small self-contained Antimony model to
-   SBML and back. *Exit:* the two SBML documents agree on species, parameters, reactions and rules
-   (compared with libSBML).
-3. **Import check.** Fixtures with `import` in code, in each comment form, in strings, in triple
-   backticks and in other letter cases. *Exit:* every code-level `import` is refused with
-   `details.rule` before libAntimony is called (shown by a fixture whose import names a file that
-   does not exist: the error must be the service's, never libAntimony's file error), and every
-   mention inside a comment or string is accepted.
-4. **SBML checks.** Fixtures with a document type declaration, an entity, a required package and a
-   `comp` external model definition. *Exit:* each is refused before translation.
-5. **Concurrency.** Eight threads call `convert` at once under a ThreadSanitizer preset
-   (`macos-arm64-tsan`, `linux-x64-tsan`). *Exit:* no report, and outputs identical to sequential
-   calls.
-6. **Determinism.** The same conversion twice in one process and in two processes, and on Linux and
-   Windows. *Exit:* byte-identical text, or the differences are documented.
-7. **`ode-uq-spec` cases.** A file with a module marked `*`, one with top-level statements, and one
-   with neither. *Exit:* `getMainModuleName()` agrees with the `ode-uq-spec` rule in all three, or
-   the service implements the rule itself.
-8. **Both services.** Build with `PRAENORA_WITH_ANTIMONY` and `PRAENORA_WITH_ROADRUNNER` together.
-   *Exit:* both services' tests pass in one process, with the runtime's libSBML and the provider's.
-9. **WebAssembly.** Build the service with Emscripten using the flags of `libantimonyjs`. *Exit:*
-   steps 2 and 3 pass under Node.
+1. **Other platforms.** Build the provider on Linux x86-64 and Windows x86-64 and run its tests.
+   *Exit:* the same tests pass, and the Windows import declaration and the Linux export list are
+   confirmed or corrected here (OQ-29).
+2. **Determinism elsewhere.** Run `providers.antimony.processes` on a second machine and on the
+   other platforms. *Exit:* identical bytes, or the differences recorded.
+3. **License review.** *Exit:* a written answer on libAntimony's license, on linking libSBML, and on
+   SBMLNetwork and expat, recorded in an ADR before the provider is distributed (OQ-29).
+4. **A new libAntimony.** Before the build accepts a version other than 3.3.x, read its lexer and
+   its registry again against the check of imports and the rule `xml`. *Exit:* the provider's tests
+   pass, and the facts above are dated again.
+5. **Translation time.** Measure translation time against source size with real models. *Exit:* an
+   answer to OQ-30.
+6. **`ode-uq-spec`'s validator.** Report to that specification that its check of imports lets
+   `import` right after a number through (`1import "f"`), which libAntimony 3.3 reads as an import.
+   *Exit:* the report made, or the validator refuses that form.
+7. **WebAssembly.** Build libAntimony and the provider's code with Emscripten, with the flags of
+   `libantimonyjs`. *Exit:* the provider's conversion tests pass under Node.
 
 ## Sources
 
-Every page was read on 2026-11-11. The `ode-uq-spec` 0.0.0 rules cited by name above were read in
-that specification's own repository (`docs/conventions.md`, `docs/specification.md` and the
-reference validator `tools/validate.py`); no public URL is cited for it.
+Pages A1 to A17 were read on 2026-11-11; A18 to A20 were checked on 2026-11-17, when the provider
+was built, and the rows of A1, A4, A5, A6 and A7 say what was checked again then. The
+`ode-uq-spec` 0.0.0 rules cited by name above were read in that specification's own repository
+(`docs/conventions.md`, `docs/specification.md` and the reference validator `tools/validate.py`,
+whose check of imports was read again on 2026-11-17); no public URL is cited for it.
 
 | Id | Source | Supports |
 |---|---|---|
-| A1 | [sys-bio/antimony, repository page](https://github.com/sys-bio/antimony) | A modular, human-readable model definition language with a C/C++ library and Python and Julia bindings; BSD-3-Clause; libSBML and SBMLNetwork required, expat recommended; CMake options; optional Python, Qt, Julia and GoogleTest; Windows, macOS and Linux builds. |
+| A1 | [sys-bio/antimony, repository page](https://github.com/sys-bio/antimony) | A modular, human-readable model definition language with a C/C++ library and Python and Julia bindings; BSD-3-Clause; libSBML and SBMLNetwork required, expat recommended; CMake options; optional Python, Qt, Julia and GoogleTest; Windows, macOS and Linux builds. Checked again on 2026-11-17 by the build [A19]: libSBML and SBMLNetwork are required, and the options `ANT_DEPENDENCIES_INSTALL_PREFIX`, `WITH_QTANTIMONY`, `WITH_PYTHON`, `WITH_GTEST` and `WITH_JULIA` exist. |
 | A2 | [sys-bio/antimony, releases](https://github.com/sys-bio/antimony/releases) | v3.3.0 is the latest release (Julia bindings; zip and bzip support in libSBML); its visible assets are zipped Python wheels, Julia archives and a macOS debug archive, with no C library archive. |
 | A3 | [antimony on PyPI](https://pypi.org/project/antimony/#files) | 3.3.0 of 2026-10-28; wheels for four platforms, 2.7 to 5.6 MB, no source distribution; license metadata "MIT". |
-| A4 | [antimony `src/antimony_api.h.in`](https://raw.githubusercontent.com/sys-bio/antimony/HEAD/src/antimony_api.h.in) | The C API: loaders and their return values, translation functions, handle-less errors and warnings, `clearPreviousLoads`, `addDirectory`, `clearDirectories`, `.antimony` files, `freeAll` and its warning, `malloc`-owned results, `getVersionStr`, file names relative to the working directory, no function that disables imports. |
-| A5 | [antimony `src/registry.h`](https://raw.githubusercontent.com/sys-bio/antimony/HEAD/src/registry.h) | `extern Registry g_registry;` with file, directory and import state; no mutex or thread declarations. |
-| A6 | [antimony `src/` directory](https://github.com/sys-bio/antimony/tree/HEAD/src) | The API header is the template `antimony_api.h.in`; `registry.h` and `registry.cpp` hold the registry. |
-| A7 | [Antimony Reference](https://tellurium.readthedocs.io/en/latest/antimony.html) | `import "file"` syntax; SBML files can be imported; relative names resolved against the working file's directory; other directories configurable; `.antimony` files can redirect imports; bare declarations belong to `__main`. |
+| A4 | [antimony `src/antimony_api.h.in`](https://raw.githubusercontent.com/sys-bio/antimony/HEAD/src/antimony_api.h.in) | The C API: loaders and their return values, translation functions, handle-less errors and warnings, `clearPreviousLoads`, `addDirectory`, `clearDirectories`, `.antimony` files, `freeAll` and its warning, `malloc`-owned results, `getVersionStr`, file names relative to the working directory, no function that disables imports. Checked again on 2026-11-17 in the header that the 3.3.0 build installed [A19]. |
+| A5 | [antimony `src/registry.h`](https://raw.githubusercontent.com/sys-bio/antimony/HEAD/src/registry.h) | `extern Registry g_registry;` with file, directory and import state; no mutex or thread declarations. Checked again on 2026-11-17 in the 3.3.0 source [A18]. |
+| A6 | [antimony `src/` directory](https://github.com/sys-bio/antimony/tree/HEAD/src) | The API header is the template `antimony_api.h.in`; `registry.h` and `registry.cpp` hold the registry. Checked again on 2026-11-17: the 3.3.0 build generates and installs `antimony_api.h` from it [A19]. |
+| A7 | [Antimony Reference](https://tellurium.readthedocs.io/en/latest/antimony.html) | `import "file"` syntax; SBML files can be imported; relative names resolved against the working file's directory; other directories configurable; `.antimony` files can redirect imports; bare declarations belong to `__main`. Checked again on 2026-11-17: an import of a missing file fails with `Could not open` in the 3.3.0 source [A18], and statements outside every module make `__main` the main module (`AntimonyProvider.MainModuleFollowsTheRule`). |
 | A8 | [sys-bio/libantimonyjs](https://github.com/sys-bio/libantimonyjs) | Emscripten build of expat, libSBML and libAntimony into a single-file module with memory growth; CellML off; exported C functions. |
 | A9 | [MakeSBML: A tool for converting between Antimony and SBML](https://arxiv.org/abs/2309.03344) | A client-based web application converting between Antimony and SBML. |
 | A10 | [sbmlteam/libsbml](https://github.com/sbmlteam/libsbml) | LGPL 2.1; release 5.21.0; Xerces, Expat or libxml2; Linux, Windows and macOS. |
@@ -373,3 +453,6 @@ reference validator `tools/validate.py`); no public URL is cited for it.
 | A15 | [GNU Lesser General Public License v2.1](https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html) | Section 6: conditions for distributing a work linked with the library. |
 | A16 | [roadrunner `CMakeLists.txt` (develop)](https://raw.githubusercontent.com/sys-bio/roadrunner/develop/CMakeLists.txt) | libRoadRunner requires a static libSBML of at least 5.20.5. |
 | A17 | [sys-bio/makesbml](https://github.com/sys-bio/makesbml) | The MakeSBML site loads a JavaScript wrapper of a WebAssembly build of libAntimony (`libantimony.js`) from the `libantimonyjs` repository. |
+| A18 | [libAntimony source at the tag v3.3.0](https://github.com/sys-bio/antimony/tree/v3.3.0) (commit `f13a50bce91ff2d16ec4b6c5179a8d43edff9f9b`) | `antimony.ypp` (the lexer: comments, strings and their escapes, backticks, numbers before words, the count of lines), `registry.cpp` (`OpenString` reading SBML first, `CheckAndAddSBMLIfGood` and `LoadSubmodelsFrom`, `OpenFile` and its `Could not open` error, `ClearAll`, `.antimony` files and search directories, no time stamp by default), `antimony_api.cpp` (the loaders and writers, `loadAntimonyString` refusing a text that is SBML, the time stamp setting passed to libSBML before each write, `setlocale`), `module-sbml.cpp` (distrib written as required; `CreateSBMLModel` calling SBMLNetwork's `autorender` and `autolayout` for a module that asks for a layout, and `LoadLayout` reading a layout from SBML), `module.cpp` (its writes to standard output commented out; `Finalize` building the module's SBML, and so its layout, while a source loads; the layout statements that ask for one). |
+| A19 | libAntimony 3.3.0 built from [A18] (Release; the options in [platforms.md](../platforms.md#the-antimony-provider)) and its installation | The installed `antimony_api.h` (the loaders, `setRemoveFunctionDefinitions`, `setWriteSBMLTimestamp`, `getCompSBMLString`, `getVersionStr`, CellML only with libCellML, `LIB_EXTERN` declaring `dllimport` on Windows), `libantimony-static.a` and a shared library, no CMake package; the library as the provider links and tests it. |
+| A20 | `roadrunner-2.11.0-macos-14-arm64-Release.zip` of the [release v2.11.0 of sys-bio/roadrunner](https://github.com/sys-bio/roadrunner/releases/tag/v2.11.0), unpacked (the same archive as in [libroadrunner.md](libroadrunner.md#sources)) | libSBML 5.21.2 (static, with comp, distrib, layout and render), SBMLNetwork 0.5.12 (static, without a CMake package), expat 2.9.0, zlib and bzip2, built for macOS 14.0; libSBML as the provider uses it (comp with `required="false"` an error, columns from 0, the declaration line it adds, `setlocale` in `libsbml-static.a`); SBMLNetwork's `libsbmlnetwork_autolayout.cpp.o` referencing `srand`, `time` and `rand`. |

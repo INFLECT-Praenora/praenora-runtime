@@ -20,7 +20,8 @@
 #   WITH_CLI, WITH_EXAMPLES     the build has the praenora tool, the example modules
 #   INSTALL_EXAMPLES            a default installation includes the example modules
 #   PROVIDERS                   the service providers a default installation includes (the
-#                               roadrunner provider, in a build with PRAENORA_WITH_ROADRUNNER)
+#                               roadrunner provider, in a build with PRAENORA_WITH_ROADRUNNER,
+#                               and the antimony provider, with PRAENORA_WITH_ANTIMONY)
 #
 # Steps, in order; the first failure ends the test, showing what ran and what it printed:
 #   1. cmake --install <BUILD_DIR> --prefix <WORK_DIR>/prefix. Each kind of installed file must

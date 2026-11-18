@@ -226,6 +226,25 @@ without a provider path. It offers `praenora.simulation@0.0` for models in the f
 text of an SBML document of Level 1, 2 or 3; what it accepts and refuses is in
 [specs/simulation-service.md](specs/simulation-service.md#the-roadrunner-provider).
 
+A build with `-DPRAENORA_WITH_ANTIMONY=ON` ([platforms.md](platforms.md#the-antimony-provider))
+holds the provider `antimony` in the same way. It offers `praenora.model-conversion@0.0`, which
+translates a model in the format `antimony`, Antimony text, to `sbml` and back; what it accepts and
+refuses is in
+[specs/model-conversion-service.md](specs/model-conversion-service.md#the-antimony-provider). A
+module that simulates an Antimony model converts it with `antimony`, then simulates the SBML with
+`roadrunner`. In a build with both providers (the local preset `dev-engines`,
+[developer-guide.md](developer-guide.md#the-antimony-provider)), the tool lists both without a
+provider path:
+
+```bash
+./build/dev-engines/bin/praenora providers list
+```
+
+```text
+antimony    0.2.0  macos-arm64  praenora.model-conversion@0.0  .../build/dev-engines/lib/praenora/providers/antimony/antimony.provider.json      usable
+roadrunner  0.2.0  macos-arm64  praenora.simulation@0.0        .../build/dev-engines/lib/praenora/providers/roadrunner/roadrunner.provider.json  usable
+```
+
 ## What a run writes
 
 Without an output directory (`--output-dir`, or `outputs.directory` in the configuration) a run

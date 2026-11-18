@@ -1,0 +1,41 @@
+// Created by libAntimony v3.3.0
+// Compartments and Species:
+species S1, S2, S3;
+
+// Reactions:
+J0: S1 -> S2; k*S1;
+J1: S2 -> S3; k*S2;
+
+// Species initializations:
+S1 = 10;
+S2 = 0;
+S3 = 0;
+
+// Variable initializations:
+k = 0.1;
+
+// Other declarations:
+const k;
+
+// General layout options
+model.layout = on
+model.layout.size = {558.94, 558.58}
+
+// Individual element layout information
+S1.position = {40.24, 30}
+S2.position = {30, 492.58}
+S3.position = {468.94, 379.11}
+J0.position = {55.12, 269.29}
+J0.S1.species_end = {69.62, 76}
+J0.S1.b1 = {66.01, 239.3}
+J0.S1.b2 = {66.01, 239.3}
+J0.S2.species_end = {60.62, 482.59}
+J0.S2.b1 = {64.24, 319.28}
+J0.S2.b2 = {64.24, 319.28}
+J1.position = {269.47, 443.85}
+J1.S2.species_end = {99.68, 500.33}
+J1.S2.b1 = {240.74, 463.86}
+J1.S2.b2 = {240.74, 463.86}
+J1.S3.species_end = {459.26, 407.37}
+J1.S3.b1 = {318.2, 443.84}
+J1.S3.b2 = {318.2, 443.84}

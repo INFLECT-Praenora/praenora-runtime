@@ -37,6 +37,7 @@ needs only a C or C++ compiler: no runtime library and no third-party package.
 | `praenora/sdk/abi.h` | The C ABI v0: the entry point, the function table, the host API, sinks (C99). |
 | `praenora/sdk/status.h` | The status codes `PRAENORA_STATUS_*` and `praenora_status_name()` (C99). |
 | `praenora/sdk/simulation.h` | The table of the simulation service `praenora.simulation@0` (C99; [Using the simulation service](#using-the-simulation-service)). |
+| `praenora/sdk/model_conversion.h` | The table of the model conversion service `praenora.model-conversion@0` (C99; [Using the model conversion service](#using-the-model-conversion-service)). |
 | `praenora/sdk/version.h` | The SDK and protocol versions the SDK was built with. |
 | `praenora/sdk/module.hpp` | The optional C++ adapter (header-only, C++17 standard library only). |
 | `praenora/sdk/testing.hpp` | The in-process test kit (header-only). |
@@ -662,6 +663,114 @@ complete module that does this, kernel included, and ships test vectors that run
   the toy model format `test-decay`, without an engine: `praenora modules check
   <manifest> --provider-path <build>/test-providers/test-simulation` (with `--catalog-path` for
   capabilities outside the built-in catalog) runs a module's vectors against it.
+
+## Using the model conversion service
+
+The model conversion service `praenora.model-conversion@0` translates a model source from one
+format to another with an engine that a service provider brings, for example an Antimony model to
+SBML; its normative specification is
+[specs/model-conversion-service.md](specs/model-conversion-service.md), and its table is declared in
+`praenora/sdk/model_conversion.h`. Require it in the manifest, and look it up once, as any service
+([Requiring services](#requiring-services)):
+
+```cmake
+praenora_add_module(converting_module
+    NAME converting-module VERSION 0.1.0 CAPABILITIES example.estimate@0.1.0
+    SOURCES src/module.c
+    REQUIRES_SERVICES praenora.model-conversion@0.0
+    OPTIONAL_SERVICES praenora.simulation@0.0)
+```
+
+A module that converts a model and then simulates it, as here, requires the conversion service and
+can use the simulation service, or requires both. The table has two functions, `describe` and
+`convert`, and hands out no objects. In C:
+
+```c
+#include <praenora/sdk/model_conversion.h>
+
+#include <stdlib.h>
+#include <string.h>
+
+/* A sink that keeps what the service writes, in memory of its own. */
+typedef struct text {
+    char* data;
+    size_t size;
+} text;
+
+static praenora_status PRAENORA_CALL text_write(void* context, const char* data, size_t size) {
+    text* out = (text*)context;
+    char* grown = realloc(out->data, out->size + size + 1);
+    if (grown == NULL) {
+        return PRAENORA_STATUS_RESOURCE_EXHAUSTED;
+    }
+    if (size != 0) {
+        memcpy(grown + out->size, data, size);
+    }
+    out->data = grown;
+    out->size += size;
+    out->data[out->size] = '\0';
+    return PRAENORA_STATUS_OK;
+}
+
+/* In create: the table, once. */
+const praenora_model_conversion_v0* conversion =
+    (const praenora_model_conversion_v0*)host->get_service(
+        host->context, PRAENORA_MODEL_CONVERSION_SERVICE, 25,
+        PRAENORA_MODEL_CONVERSION_SERVICE_MAJOR);
+if (conversion == NULL || conversion->header.abi_major != PRAENORA_MODEL_CONVERSION_SERVICE_MAJOR ||
+    conversion->header.reserved != 0 ||
+    conversion->header.struct_size < PRAENORA_MODEL_CONVERSION_V0_BASE_SIZE) {
+    return PRAENORA_STATUS_UNSUPPORTED; /* no usable praenora.model-conversion@0 */
+}
+
+/* In initialize: translate the Antimony source `model` (model_size bytes) to SBML. */
+static const char options[] = "{\"from\":\"antimony\",\"to\":\"sbml\"}";
+const praenora_bytes options_json = {options, sizeof options - 1};
+const praenora_bytes source = {model, model_size};
+text sbml = {NULL, 0}, report = {NULL, 0}, error = {NULL, 0};
+praenora_sink sbml_sink = {&sbml, text_write};
+praenora_sink report_sink = {&report, text_write};
+praenora_sink error_sink = {&error, text_write};
+const praenora_status status = conversion->convert(conversion->context, host, options_json, source,
+                                                   &sbml_sink, &report_sink, &error_sink);
+/* OK: sbml holds the SBML text, report {"from", "to", "module", "warnings"}. Otherwise error holds
+   the error document; free all three buffers when done. */
+```
+
+- **Options.** `{"from": <format>, "to": <format>}`, and optionally `"module": <name>` to translate
+  a module other than the source's main one. `describe` lists the pairs of formats the provider
+  converts, and its engine.
+- **Sources.** The source is the model's text, never a path: UTF-8, without NUL bytes, at most
+  16 MiB. A source that is empty or only white space is refused in every format (`DATA_INVALID`,
+  `details.rule` `"empty"`), and so is a source that one of the provider's rules refuses, for
+  example an Antimony `import`, which would read another file: `details.rule` names the rule. A
+  source the engine cannot read is `DATA_INVALID` with `details.engine_error`, and a module the
+  source does not have is `NOT_FOUND`.
+- **Threads and cancellation.** `convert` may be called from any thread; a provider whose engine
+  has process-wide state serializes conversions, so a call may wait for others. Pass your host API:
+  the wait returns `CANCELLED` when your call's deadline passes or a stop is requested. Convert in
+  `create` or `initialize`, not in `invoke`.
+- **Antimony and SBML.** The provider `antimony` (built with `PRAENORA_WITH_ANTIMONY`) converts
+  the format `antimony`, Antimony text, to `sbml` and back with libAntimony: SBML Level 3 Version 2,
+  flattened, of the source's main module or of the module the options name, and Antimony with its
+  function definitions kept. It refuses an Antimony source that imports another file or leaves a
+  comment, a string or a block open, Antimony text that is an XML document, and SBML that holds a
+  document type declaration, declares `comp` or, at Level 3, requires a package; the details are in
+  [specs/model-conversion-service.md](specs/model-conversion-service.md#the-antimony-provider).
+  An Antimony source that asks for a layout (`model.layout = on`, positions, colors) is refused
+  with `UNSUPPORTED` and `details.reason` `"layout"`, because the layout libAntimony makes depends
+  on the clock. Such a request, and SBML that holds a layout, reseed the C library's `rand()` for
+  the whole process: a module that needs random numbers uses a generator of its own, seeded from
+  its step's seed.
+- **Simulating what you converted.** Open a session of the simulation service with the converted
+  text and `{"format": <to>}` ([Using the simulation service](#using-the-simulation-service)).
+- **Reproducibility.** The run record names the provider and its engine, so the fingerprint changes
+  with the engine; record the report, or a digest of the converted text, with your results.
+- **Testing.** In this repository, the fixture provider `test-conversion` offers the service for
+  two toy formats, `test-decay` and `test-decay-text`, without an engine, and the fixture module
+  `converting-module`
+  ([`converting_module.cpp`](../tests/fixtures/modules/converting-module/converting_module.cpp))
+  converts with it and simulates the result with `test-simulation`.
 
 ## The test kit
 

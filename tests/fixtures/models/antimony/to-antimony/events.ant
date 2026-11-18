@@ -1,0 +1,29 @@
+// Created by libAntimony v3.3.0
+model *events()
+
+  // Compartments and Species:
+  compartment cell;
+  species x in cell;
+
+  // Reactions:
+  decay: x => ; k*x;
+
+  // Events:
+  dose: at time >= 5: x = x + 10;
+  reset: at x < threshold, priority = 1, t0=false: x = 10, k = k*2;
+  late: at time >= 8 after 0.5: k = 0.3;
+
+  // Species initializations:
+  x = 10;
+
+  // Compartment initializations:
+  cell = 1;
+
+  // Variable initializations:
+  threshold = 1;
+  k = 0.3;
+
+  // Other declarations:
+  var k;
+  const cell, threshold;
+end

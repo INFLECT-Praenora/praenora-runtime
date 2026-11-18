@@ -34,11 +34,18 @@ Since the MVP: service providers (engines loaded on demand, one per process, lis
 `praenora providers list`), module manifests 0.2 that declare the services a module requires, run
 records 0.2 that put each service's provider and engine into the fingerprint, and the simulation
 service `praenora.simulation@0` (`simulation.h`; level A simulates, level B hands out the compiled
-model's functions) with the fixture provider `test-simulation`. The optional provider `roadrunner`
+model's functions) with the fixture provider `test-simulation`, and the model conversion service
+`praenora.model-conversion@0` (`model_conversion.h`; translating one model source, such as Antimony
+to SBML and back) with the fixture provider `test-conversion`. The optional provider `roadrunner`
 (libRoadRunner) is built only with `PRAENORA_WITH_ROADRUNNER=ON`; it is verified on macOS arm64
 with libRoadRunner 2.11.0 and LLVM 13.0.1 (every test of a Debug build; the labels `unit`,
-`contract`, `negative`, `lifecycle`, `integration` and `install` of a ThreadSanitizer build).
-Compiling module code through libRoadRunner (level C) is future work.
+`contract`, `negative`, `lifecycle`, `integration` and `install` of a ThreadSanitizer build). The
+optional provider `antimony` (libAntimony) is built only with `PRAENORA_WITH_ANTIMONY=ON`; it is
+verified on macOS arm64 with libAntimony 3.3.0, built from source against libRoadRunner 2.11.0's
+dependencies (every test of a Debug build, alone and with the roadrunner provider; the labels
+`unit`, `contract` and `integration` of a ThreadSanitizer build). Compiling module code through
+libRoadRunner (level C) is future work, and so are hierarchical SBML output, CellML and a
+WebAssembly build of the conversion engine.
 
 ## Setup and commands
 
@@ -64,6 +71,10 @@ Python bindings SWIG 4.0+ and Python 3.10+ with headers.
   `roadrunner-static` and the packages it links) and the LLVM 13 it was built with, never
   downloaded; [docs/platforms.md](docs/platforms.md#the-roadrunner-provider) says what to install
   and how CMake finds it.
+- Optional, for the antimony provider only: libAntimony 3.3 built from source as a static library
+  (`antimony-static`) against libSBML (with comp), SBMLNetwork and expat, such as libRoadRunner's
+  dependencies, never downloaded; [docs/platforms.md](docs/platforms.md#the-antimony-provider) says
+  how to build it and how CMake finds it.
 
 **Local presets.** Copy `CMakeUserPresets.json.example` to `CMakeUserPresets.json` (git-ignored)
 and edit its hidden `dev-local` preset: `CMAKE_PREFIX_PATH` (dependency prefixes, `;`-separated),
@@ -75,7 +86,12 @@ about every such library. The `dev`, `dev-release`, `dev-asan` and `dev-tsan` pr
 roadrunner provider, add a hidden `dev-roadrunner-local` preset (the libRoadRunner and LLVM
 prefixes in `CMAKE_PREFIX_PATH`, `LLVM_INSTALL_PREFIX`, `PRAENORA_WITH_ROADRUNNER=ON`) and the
 presets `dev-roadrunner` and `dev-roadrunner-tsan`, which inherit it before `dev-local`
-([docs/developer-guide.md](docs/developer-guide.md#the-roadrunner-provider)).
+([docs/developer-guide.md](docs/developer-guide.md#the-roadrunner-provider)). For the antimony
+provider, likewise a hidden `dev-antimony-local` preset (the libAntimony and libSBML prefixes,
+`PRAENORA_WITH_ANTIMONY=ON`) with the presets `dev-antimony` and `dev-antimony-tsan`, and for both
+providers a hidden `dev-engines-local` preset (both prefix lists, `LLVM_INSTALL_PREFIX`, both
+options) with the preset `dev-engines`
+([docs/developer-guide.md](docs/developer-guide.md#the-antimony-provider)).
 
 **Configure, build, test.** Trees go to `build/<preset>`; installs go to `install/<preset>`.
 
@@ -96,16 +112,20 @@ ctest --preset dev -L docs -V                  # the documentation checked again
 ./build/dev/bin/praenora providers list --provider-path build/dev/test-providers/test-simulation
 ctest --preset dev-roadrunner                  # with the roadrunner provider (local presets)
 ctest --preset dev-roadrunner-tsan -L contract # its concurrency checks under ThreadSanitizer
+ctest --preset dev-antimony                    # with the antimony provider (local presets)
+ctest --preset dev-antimony-tsan -L 'contract|integration|unit'
+ctest --preset dev-engines                     # both providers, in one process too
 ```
 
 The Python line needs the interpreter the build found (`Python3_EXECUTABLE`): the extension is
 built for one Python version. An installation holds the `praenora` tool, the runtime library,
 the headers, the CMake package (`lib/cmake/Praenora`: `find_package(Praenora COMPONENTS Runtime
 ModuleSDK)`; `ModuleSDK` alone needs no other package), the schemas and catalog
-(`share/praenora`) and, when built, the roadrunner provider (`lib/praenora/providers/roadrunner`);
-it can be moved. The example modules are installed only with `PRAENORA_INSTALL_EXAMPLES=ON` or
-`--component Examples`; the fixture providers of the tests (`build/<preset>/test-providers`) are
-never installed. A wheel build (scikit-build-core) has only the Python package's install rules.
+(`share/praenora`) and, when built, the roadrunner provider (`lib/praenora/providers/roadrunner`)
+and the antimony provider (`lib/praenora/providers/antimony`); it can be moved. The example modules
+are installed only with `PRAENORA_INSTALL_EXAMPLES=ON` or `--component Examples`; the fixture
+providers of the tests (`build/<preset>/test-providers`) are never installed. A wheel build
+(scikit-build-core) has only the Python package's install rules.
 
 Project presets: `linux-x64-{debug,release,asan,tsan}`, `macos-arm64-{debug,release,asan,tsan}` and
 `windows-x64-{debug,release}`, each with configure, build and test presets. Labels: `unit`,
@@ -113,8 +133,10 @@ Project presets: `linux-x64-{debug,release,asan,tsan}`, `macos-arm64-{debug,rele
 `docs`. The `contract` label also holds the tests of provider libraries as files,
 `providers.<provider>.exports` (the library exports only the provider entry point) and
 `providers.<provider>.processes` (two fresh processes print the same bytes), for `test-simulation`
-and, when it is built, `roadrunner`. It also holds `providers.run_twice.shows_first_difference`,
-which checks how the driver of the `processes` tests shows two outputs that differ. The `cli` label
+and, when it is built, `roadrunner`, with `praenora_simulation_print`, and for `test-conversion`
+and, when it is built, `antimony`, with `praenora_conversion_print`. It also holds
+`providers.run_twice.shows_first_difference`, which checks how the driver of the `processes` tests
+shows two outputs that differ, and an output that shows no conversion. The `cli` label
 holds the CLI driver tests, named `cli.<command>.<case>`; `cli.driver.passes_empty_arguments`, which
 checks that each argument of a command reaches its program, an empty one included, and
 `cli.driver.shows_failing_command`, which checks how that driver shows a failing command; and the
@@ -127,20 +149,21 @@ label-only run of a sanitizer tree (`ctest --preset dev-asan -L python`, or `dev
 and exits 8, since the presets set `noTestsAction: error`; a full run of those trees is unaffected.
 The `install` label holds `install.consumer`: its driver, `tests/install/run_install_test.cmake`,
 installs the build into `build/<preset>/tests/install/work`, builds the consumer projects next to it
-and lists every step it checks; with the roadrunner provider it also checks the installed provider,
-which the installed tool lists as usable before and after the installation is moved. Builds without
-install rules (`PRAENORA_INSTALL=OFF`) do not have it. The `perf` label holds
+and lists every step it checks; with the roadrunner or the antimony provider it also checks each
+installed provider, which the installed tool lists as usable before and after the installation is
+moved. Builds without install rules (`PRAENORA_INSTALL=OFF`) do not have it. The `perf` label holds
 `perf.validation_strict` and `perf.validation_off`, which run `praenora_perf` for 2000 ticks and
 print its JSON report; they fail only when the probe fails or prints no report, never on timings.
 Both labels also pass in the sanitizer trees, whose flags reach the consumer builds. The `docs`
 label holds `docs.consistency`, the CMake script `tests/docs/check_docs.cmake`: every `ErrorCode`
 name is in `docs/specs/error-taxonomy.md`, every `spec/schemas/*.json` name in
 `docs/specs/protocol.md`, every ADR in `docs/adr/README.md`, every relative Markdown link of
-`README.md`, `AGENTS.md` and `docs/` resolves, and the open-questions register has its 28 rows.
+`README.md`, `AGENTS.md` and `docs/` resolves, and the open-questions register has its 30 rows.
 Build options are in `cmake/PraenoraOptions.cmake`, among them `PRAENORA_WITH_ROADRUNNER` (OFF),
 which builds the roadrunner provider; with it, the cache variable `LLVM_INSTALL_PREFIX`
-(`cmake/PraenoraRoadrunner.cmake`) names the LLVM that libRoadRunner was built with;
-[docs/testing.md](docs/testing.md) has the details.
+(`cmake/PraenoraRoadrunner.cmake`) names the LLVM that libRoadRunner was built with; and
+`PRAENORA_WITH_ANTIMONY` (OFF), which builds the antimony provider
+(`cmake/PraenoraAntimony.cmake`); [docs/testing.md](docs/testing.md) has the details.
 
 ## Repository map
 
@@ -151,19 +174,24 @@ cmake/                        options, versions, compiler checks, warnings, sani
                               dependencies, praenora_add_module(), praenora_embed_resources(),
                               install rules and package configuration (PraenoraInstall.cmake,
                               PraenoraConfig.cmake.in); praenora_add_provider()
-                              (PraenoraProvider.cmake, not installed) and the roadrunner
-                              provider's dependencies (PraenoraRoadrunner.cmake)
+                              (PraenoraProvider.cmake, not installed); the roadrunner and
+                              antimony providers' dependencies (PraenoraRoadrunner.cmake,
+                              PraenoraAntimony.cmake and its probe praenora_antimony_probe.cpp,
+                              and what both share, PraenoraEngineDependencies.cmake)
 include/praenora/runtime/     public C++ API (runtime.hpp, workflow.hpp, version.hpp, error.hpp,
                               status.hpp, options.hpp; export.h is generated)
 include/praenora/sdk/         SDK: abi.h, status.h, simulation.h (the simulation service),
-                              module.hpp, testing.hpp (version.h generated)
+                              model_conversion.h (the model conversion service), module.hpp,
+                              testing.hpp (version.h generated)
 src/runtime/                  runtime internals, one directory per component (api/, catalog/,
                               compat/, config/, core/, discovery/, document/, engine/, graph/,
                               instance/, io/, loader/, observability/, platform/{posix,windows}/,
                               provider/ (provider manifests, index and loader; the internal
                               provider interface provider_abi.h))
 src/providers/                service providers built with the runtime: roadrunner/
-                              (libRoadRunner; only with PRAENORA_WITH_ROADRUNNER=ON)
+                              (libRoadRunner; only with PRAENORA_WITH_ROADRUNNER=ON), antimony/
+                              (libAntimony; only with PRAENORA_WITH_ANTIMONY=ON), common/ (what
+                              providers share: cancellable_lock.hpp, header-only, never installed)
 src/sdk/                      Praenora::ModuleSDK target
 src/frontend/                 what the CLI and the Python extension share: frontend.hpp
                               (praenora::frontend; header-only, internal, never installed)
@@ -183,12 +211,15 @@ tests/                        unit/, protocol/, negative/, contract/, lifecycle/
                               consumer-app/), perf/ (performance probe praenora_perf and its
                               driver run_perf.cmake), providers/ (tests of provider libraries:
                               check_exports.cmake, run_twice.cmake, check_run_twice.cmake (its
-                              check) and praenora_simulation_print),
+                              check), praenora_simulation_print and praenora_conversion_print),
                               docs/ (documentation test check_docs.cmake), support/ (test
                               helpers, and run_command.cmake, which the CMake drivers share);
                               fixtures/: modules/ (fixture modules), providers/ (fixture
-                              providers, praenora_add_fixture_provider()), models/ (sbml/ and
-                              test-decay/ models of the simulation service), documents/,
+                              providers, praenora_add_fixture_provider(); test-simulation and
+                              test-conversion offer the public services), models/ (sbml/ and
+                              test-decay/ models of the simulation service, test-decay-text/
+                              sources of the model conversion service, antimony/ Antimony models
+                              and the antimony provider's expected outputs), documents/,
                               catalog/, catalog-bad/, catalog-shared-id/, manifests/ (bad module
                               and provider manifests, search-path layouts), configs/ (good, bad
                               and CLI configurations), data/ (target data), golden/ (golden
@@ -219,7 +250,9 @@ docs/                         index.md, the guides (architecture, user-guide, co
   `validate --load` or the contract checks need one of their services; each is started once and
   kept loaded, so a process holds one engine per provider. Modules declare the services they
   require or can use in their manifests (PMM 0.2), reach them only through the host API's
-  `get_service` and never link an engine; each service a run uses enters its fingerprint.
+  `get_service` and never link an engine; each service a run uses enters its fingerprint. The
+  repository builds two, each only with its build option: `roadrunner` (the simulation service,
+  libRoadRunner) and `antimony` (the model conversion service, libAntimony).
 - A YAML workflow configuration pins a versioned workflow definition from the protocol catalog and
   binds its steps to modules; connections come from the definition, never from the YAML. Every
   document is validated against an embedded JSON Schema (draft-07) before anything runs.
@@ -263,11 +296,12 @@ docs/                         index.md, the guides (architecture, user-guide, co
 - **Versions are not bumped for now.** Nothing outside this repository uses the runtime, the SDK,
   the ABI, the document formats or the catalog yet, so compatibility with earlier versions is not a
   concern. Every version stays as it is: the runtime package, the SDK, PMP, the module ABI, the
-  provider interface, the simulation service, each document format, each catalog entry and the
-  modules of this repository. Make each change within the current version: edit the schema file,
-  header, catalog entry, documentation, tests and fixtures it affects. Never raise a version number,
-  and never add a schema file or a catalog entry file for a new version. This holds until the
-  maintainers decide to bump versions again; until then, the bump rules of
+  provider interface, the simulation service, the model conversion service, each document format,
+  each catalog entry and the modules of this repository. Make each change within the current
+  version: edit the schema file, header, catalog entry, documentation, tests and fixtures it
+  affects. Never raise a version number, and never add a schema file or a catalog entry file for a
+  new version. This holds until the maintainers decide to bump versions again; until then, the bump
+  rules of
   [docs/specs/compatibility-policy.md](docs/specs/compatibility-policy.md#changing-a-version) and
   the specifications' rules that a change is a new version describe what will apply then, not what
   to do now.
@@ -298,14 +332,16 @@ docs/                         index.md, the guides (architecture, user-guide, co
   [module developer guide](docs/module-developer-guide.md), [testing](docs/testing.md),
   [Python](docs/python.md), [platforms](docs/platforms.md).
 - Normative specifications: `docs/specs/` (ABI, protocol, manifest, runtime services and
-  providers, the simulation service, workflow definitions, compatibility, error taxonomy, threading
-  and ownership, time and timeouts, observability, reproducibility, the draft starting workflow),
-  listed in [docs/index.md](docs/index.md); the two on services are
-  [runtime-services.md](docs/specs/runtime-services.md) and
-  [simulation-service.md](docs/specs/simulation-service.md).
-- Feasibility documents: [WebAssembly](docs/feasibility/webassembly.md) and
-  [libAntimony](docs/feasibility/libantimony.md) are designs, nothing of which is built;
-  [libRoadRunner](docs/feasibility/libroadrunner.md) holds the upstream facts behind the built
-  simulation service and its provider `roadrunner`, and the design of level C (future work).
+  providers, the simulation service, the model conversion service, workflow definitions,
+  compatibility, error taxonomy, threading and ownership, time and timeouts, observability,
+  reproducibility, the draft starting workflow), listed in [docs/index.md](docs/index.md); the
+  three on services are [runtime-services.md](docs/specs/runtime-services.md),
+  [simulation-service.md](docs/specs/simulation-service.md) and
+  [model-conversion-service.md](docs/specs/model-conversion-service.md).
+- Feasibility documents: [WebAssembly](docs/feasibility/webassembly.md) is a design, nothing of
+  which is built; [libRoadRunner](docs/feasibility/libroadrunner.md) holds the upstream facts
+  behind the built simulation service and its provider `roadrunner`, and the design of level C
+  (future work); [libAntimony](docs/feasibility/libantimony.md) holds the upstream facts behind the
+  built model conversion service and its provider `antimony`, and its future work.
 - [docs/adr/README.md](docs/adr/README.md): architecture decision records and their process.
 - [docs/open-questions.md](docs/open-questions.md): open-questions register.

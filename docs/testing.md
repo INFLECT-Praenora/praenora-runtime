@@ -47,9 +47,9 @@ themselves.
 
 | Label | What it covers | Tests |
 |---|---|---|
-| `unit` | Runtime internals, white-box: documents and YAML, canonical JSON, SHA-256, versions, durations, seeds, CSV and other input sources, configuration, logging, metrics, health, status files, run records, the error table against `status.h`, and the SDK's headers, adapter and test kit. | `praenora_unit_tests` |
+| `unit` | Runtime internals, white-box: documents and YAML, canonical JSON, SHA-256, versions, durations, seeds, CSV and other input sources, configuration, logging, metrics, health, status files, run records, the error table against `status.h`, the SDK's headers, adapter and test kit, and the antimony provider's rules that read a source's text alone. | `praenora_unit_tests` |
 | `protocol` | Every schema and catalog entry, valid and invalid documents per kind, graph validation and schedules, graph export, and the committed AsyncAPI documents. | `praenora_protocol_tests` |
-| `contract` | Manifests and discovery, the loader, module instances, the engine and the contract checks, through the real loader and the fixture modules; service providers and runs that use their services, with the fixture providers; the service checks of the simulation service; provider libraries as files: their exported symbols, and the same results in two processes, and how the driver of the latter shows two outputs that differ. | `praenora_contract_tests`, `providers.<provider>.exports`, `providers.<provider>.processes`, `providers.run_twice.shows_first_difference` |
+| `contract` | Manifests and discovery, the loader, module instances, the engine and the contract checks, through the real loader and the fixture modules; service providers and runs that use their services, with the fixture providers; the service checks of the simulation and model conversion services; provider libraries as files: their exported symbols, and the same results in two processes, and how the driver of the latter shows two outputs that differ and an output that shows no result. | `praenora_contract_tests`, `providers.<provider>.exports`, `providers.<provider>.processes`, `providers.run_twice.shows_first_difference` |
 | `negative` | What must be refused: bad manifests, configurations and graphs, incompatible modules, failing validations, services no provider serves, providers that do not load in a run, each with its code and location. | `praenora_negative_tests` |
 | `lifecycle` | Call order and cleanup, timeouts, unresponsive modules, cancellation and stop requests, calls into one library from instances of several loads of it (they take turns, and are refused behind an abandoned call), and the runtime services an instance is served. | `praenora_lifecycle_tests` |
 | `integration` | The public API through the shared library only, and the example workflow end to end: golden outputs, determinism, the fingerprint, files on disk, status queries during a run. | `praenora_integration_tests` |
@@ -63,9 +63,9 @@ The suites of the GoogleTest labels name the components they test:
 
 | Label | Suites |
 |---|---|
-| `unit` | `Adapter`, `Config`, `Csv`, `Duration`, `Error`, `ErrorTaxonomy`, `Fingerprint`, `Health`, `Json`, `JsonDocument`, `JsonNear`, `Locale`, `Logging`, `Metrics`, `MetricsJson`, `ObservationCsv`, `OutputDir`, `OutputRecorder`, `PathAnchors`, `Paths`, `Platform`, `ProviderAbi`, `Resources`, `RunRecord`, `RuntimeContext`, `Schema`, `SchemaRegistry`, `SdkAbi`, `Seed`, `SemVer`, `Sha256`, `SimulationAbi`, `StatusFile`, `StatusJson`, `StatusNames`, `TestKit`, `Time`, `TraceWriter`, `ValidationReport`, `Version`, `Yaml` |
+| `unit` | `Adapter`, `AntimonyImportCheck`, `AntimonyTextCheck`, `Config`, `Csv`, `Duration`, `Error`, `ErrorTaxonomy`, `Fingerprint`, `Health`, `Json`, `JsonDocument`, `JsonNear`, `Locale`, `Logging`, `Metrics`, `MetricsJson`, `ModelConversionAbi`, `ObservationCsv`, `OutputDir`, `OutputRecorder`, `PathAnchors`, `Paths`, `Platform`, `ProviderAbi`, `Resources`, `RunRecord`, `RuntimeContext`, `SbmlTextCheck`, `Schema`, `SchemaRegistry`, `SdkAbi`, `Seed`, `SemVer`, `Sha256`, `SimulationAbi`, `StatusFile`, `StatusJson`, `StatusNames`, `TestKit`, `Time`, `TraceWriter`, `ValidationReport`, `Version`, `Yaml` |
 | `protocol` | `Catalog`, `Graph`, `GraphExport`, `Schemas` |
-| `contract` | `Discovery`, `Engine`, `Envelope`, `Instance`, `Loader`, `Manifest`, `ModuleCheck`, `ProviderDiscovery`, `ProviderIndex`, `ProviderLoader`, `ProviderManifest`, `ServiceRun`, `Services`, the parameterized `SimulationService` (the service checks: `<Provider>/SimulationService.<Check>/<ParameterSet>`), and, with the roadrunner provider, `RoadrunnerProvider` |
+| `contract` | `Discovery`, `Engine`, `Envelope`, `Instance`, `Loader`, `Manifest`, `ModuleCheck`, `ProviderDiscovery`, `ProviderIndex`, `ProviderLoader`, `ProviderManifest`, `ServiceRun`, `Services`, `TestConversionProvider`, the parameterized `SimulationService` and `ModelConversionService` (the service checks: `<Provider>/SimulationService.<Check>/<ParameterSet>` and `<Provider>/ModelConversionService.<Check>/<ParameterSet>`), and `RoadrunnerProvider` with the roadrunner provider and `AntimonyProvider` with the antimony provider |
 | `negative` | `Compat`, `Config`, `ConfigBadFixtures`, `Graph`, `Manifest`, `ProviderLoadFailure`, `ProviderManifest`, `ServiceValidation`, `Validation` |
 | `lifecycle` | `Cancel`, `Lifecycle`, `ServiceLookups`, `ServiceVisibility`, `Timeout` |
 | `integration` | `Api`, `Example` |
@@ -107,6 +107,45 @@ expects no provider of `praenora.simulation@0` there (`cli.providers.list_empty`
 `tests/fixtures/models/sbml/`. `ctest --preset dev-roadrunner-tsan -L contract` runs the concurrency
 checks under ThreadSanitizer, which sees only the provider's own code: libRoadRunner, LLVM and the
 code they generate are not instrumented.
+
+### The antimony provider
+
+A build with `PRAENORA_WITH_ANTIMONY`
+([developer-guide.md](developer-guide.md#the-antimony-provider)) adds tests of the antimony provider
+([specs/model-conversion-service.md](specs/model-conversion-service.md#the-antimony-provider)),
+most in the `contract` label:
+
+- the service checks with Antimony and SBML (`Antimony/ModelConversionService.<Check>/Antimony`,
+  from `tests/contract/model_conversion_service_antimony_test.cpp`): exact translations both ways
+  (decay, function definitions, events, rules, a submodel flattened, a submodule chosen by
+  `module`, SBML Level 2 Version 4 and Level 3 Versions 1 and 2), the sources each rule refuses, a
+  layout request (`UNSUPPORTED`), a syntax error, and a generated chain of 700 reactions whose
+  translation holds the provider's lock;
+- `AntimonyProvider.*` (`tests/contract/antimony_provider_test.cpp`): an import of a missing file,
+  refused in code and harmless in every form of comment, string and block; the round trip; the main
+  module and the option `module`; function definitions; libSBML's errors with their line and
+  column; warnings; the engine object against what the libraries report; byte order marks and
+  CR LF; non-ASCII text; error text that is valid UTF-8; libAntimony's errors, which have no line;
+  SBML that names other files, which are never read; distributions, which do not convert back;
+  layout requests, refused the same way in different seconds of the wall clock; and SBML that holds
+  a layout (`tests/fixtures/models/sbml/laid-out.xml`), which converts to the same Antimony in
+  different seconds (both tests sleep until just past the next second between their calls);
+- `providers.antimony.exports` and `providers.antimony.processes`
+  ([Adding tests](#adding-tests), provider files);
+- `Api.TheBuildTreeRuntimeFindsTheAntimonyProvider` (label `integration`) and, in a build with the
+  roadrunner provider too, `Api.AntimonyModelSimulatesThroughRoadrunner`, which converts an
+  Antimony model with `antimony` and simulates the SBML with `roadrunner` in one process, to a
+  relative 1e-9 of the exact solution; and `install.consumer` checks that the installation holds the
+  provider and that the installed tool lists it, usable.
+
+The unit tests of the rules that read a source's text alone (`AntimonyImportCheck.*`,
+`AntimonyTextCheck.*` and `SbmlTextCheck.*`, in `tests/unit/antimony_source_checks_test.cpp`) need
+no libAntimony and run in every build. As with roadrunner, `cli.providers.list_empty` is left out
+of such a build. The Antimony models and the expected outputs are in
+`tests/fixtures/models/antimony/`. `ctest --preset dev-antimony-tsan -L 'contract|integration|unit'`
+runs the concurrency checks under ThreadSanitizer, which sees only the provider's own code:
+libAntimony, libSBML and SBMLNetwork are not instrumented. The local preset `dev-engines` builds
+both providers and runs the tests of both in one tree.
 
 ## Sanitizer builds
 
@@ -256,23 +295,42 @@ gate in every build that has them: the contract tests run the checks on them.
   `test-simulation` offers the simulation service for the toy model format `test-decay`
   ([specs/simulation-service.md](specs/simulation-service.md#the-test-provider-test-simulation)),
   and the fixture module `simulating-module` uses it in workflows and in its own test vectors.
-- **Provider files.** `tests/providers/` tests a provider library as a file, for `test-simulation`
-  and, when built, `roadrunner`: `providers.<provider>.exports` lists its exported symbols with `nm`
-  (`check_exports.cmake`; not on Windows) and requires the entry point to be the only one, and
-  `providers.<provider>.processes` runs `praenora_simulation_print` twice, each time in a new
-  process (`run_twice.cmake`): it simulates a model of `tests/fixtures/models/`, runs a kernel and a
-  plan's batch, prints every double exactly, and the two outputs must be the same bytes. When they
-  are not, the report names the first line where they differ and shows it as each run printed it; it
-  says which output is shorter when one is a prefix of the other, and otherwise names the byte of
-  that line where they first differ; the first run's outputs follow, and then the second run's
-  command, exit code and outputs; `providers.run_twice.shows_first_difference`
-  (`check_run_twice.cmake`) checks that report.
+  `test-conversion` offers the model conversion service for the toy formats `test-decay` and
+  `test-decay-text`
+  ([specs/model-conversion-service.md](specs/model-conversion-service.md#the-test-provider-test-conversion)),
+  and the fixture module `converting-module` uses it, with `test-simulation` to simulate what it
+  converted, in workflows (`Api.ConvertingModule*`) and in its own test vectors
+  (`ModuleCheck.ConvertingModulePassesWithTheConversionService`).
+- **Provider files.** `tests/providers/` tests a provider library as a file, for `test-simulation`,
+  `test-conversion` and, when built, `roadrunner` and `antimony`: `providers.<provider>.exports`
+  lists its exported symbols with `nm` (`check_exports.cmake`; not on Windows) and requires the
+  entry point to be the only one, and `providers.<provider>.processes` runs a print tool twice, each
+  time in a new process (`run_twice.cmake`), and the two outputs must be the same bytes. For the
+  simulation providers the tool is `praenora_simulation_print`: it simulates a model of
+  `tests/fixtures/models/`, runs a kernel and a plan's batch, and prints every double exactly. For
+  the conversion providers it is `praenora_conversion_print`: it converts a source and the result
+  back, `tests/fixtures/models/test-decay-text/two-states.txt` to `test-decay` for `test-conversion`
+  and `tests/fixtures/models/antimony/decay.ant` to `sbml` for `antimony`, and prints both texts and
+  reports verbatim. An output that shows no simulation and batch, or no conversion and conversion
+  back, fails the test. When the outputs differ, the report names the
+  tool and the first line where they differ and shows it as each run printed it; it says which
+  output is shorter when one is a prefix of the other, and otherwise names the byte of that line
+  where they first differ; the first run's outputs follow, and then the second run's command, exit
+  code and outputs; `providers.run_twice.shows_first_difference` (`check_run_twice.cmake`) checks
+  that report, and the report on a conversion output that shows no conversion.
 - **Service checks.** The simulation service's checks
   ([`tests/contract/simulation_service_checks.hpp`](../tests/contract/simulation_service_checks.hpp))
   are a parameterized suite: a provider of the service is checked by a source file that instantiates
   `SimulationService` with its parameter sets (provider manifest, model format and text, ids, exact
   solution, tolerances), as `tests/contract/simulation_service_test.cpp` does for `test-simulation`.
-  Add the file to `praenora_contract_tests` in `tests/CMakeLists.txt`.
+  The model conversion service's checks
+  ([`tests/contract/model_conversion_service_checks.hpp`](../tests/contract/model_conversion_service_checks.hpp))
+  work the same way: `ModelConversionService` with a parameter set (provider manifest, engine
+  object, conversions, exact translations, refusals, an engine failure, optionally a source with
+  several modules and one that holds the provider's lock), as
+  `tests/contract/model_conversion_service_test.cpp` does for `test-conversion` and
+  `tests/contract/model_conversion_service_antimony_test.cpp` for `antimony`. Add the file to
+  `praenora_contract_tests` in `tests/CMakeLists.txt`.
 - **CLI tests.** Add one with `praenora_add_cli_test(cli.<command>.<case> CMD ... EXPECT_EXIT ...)`
   in [`tests/cli/CMakeLists.txt`](../tests/cli/CMakeLists.txt); the driver checks the exit code,
   regular expressions on both outputs, values in the JSON output and files left behind. The tests

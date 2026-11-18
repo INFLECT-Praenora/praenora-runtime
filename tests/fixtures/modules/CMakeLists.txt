@@ -134,3 +134,14 @@ praenora_add_fixture_module(simulating-module
     LINK_LIBRARIES nlohmann_json::nlohmann_json
     TEST_VECTORS vectors.json
     REQUIRES_SERVICES praenora.simulation@0.0)
+
+# converting-module requires the model conversion service praenora.model-conversion@0.0, which the
+# fixture provider test-conversion offers for the toy formats "test-decay" and "test-decay-text",
+# and can use the simulation service to simulate what it converted; its test vectors run both
+# services through the contract checks.
+praenora_add_fixture_module(converting-module
+    SOURCES converting-module/converting_module.cpp
+    LINK_LIBRARIES nlohmann_json::nlohmann_json
+    TEST_VECTORS vectors.json
+    REQUIRES_SERVICES praenora.model-conversion@0.0
+    OPTIONAL_SERVICES praenora.simulation@0.0)

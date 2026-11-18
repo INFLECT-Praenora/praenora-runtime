@@ -554,6 +554,37 @@ TEST(ModuleCheck, SimulatingModulePassesWithTheSimulationService) {
         << shown(refused);
 }
 
+TEST(ModuleCheck, ConvertingModulePassesWithTheConversionService) {
+    // converting-module's own test vectors convert both ways through the model conversion service
+    // of the fixture provider test-conversion, and simulate a converted model through the
+    // simulation service of test-simulation, which the module can use.
+    const auto context =
+        praenora::test::make_provider_context({"test-conversion", "test-simulation"});
+    const ModuleCheckReport report = praenora::detail::check_module(
+        fixture_manifest("converting-module"), std::nullopt, *context, nullptr);
+    EXPECT_EQ(ids_of(report), kCheckIds);
+    EXPECT_TRUE(report.passed()) << shown(report);
+    for (const char* id : {"library.load", "lifecycle.full", "invoke.result_schema",
+                           "invoke.expected_outputs", "invoke.determinism"}) {
+        EXPECT_EQ(check_of(report, id).status, "pass") << id << "\n" << shown(report);
+    }
+    const std::string& load = check_of(report, "library.load").message;
+    EXPECT_TRUE(contains(load, "praenora.model-conversion@0 from provider test-conversion@0.1.0"))
+        << load;
+    EXPECT_TRUE(contains(load, "praenora.simulation@0 from provider test-simulation@0.1.0"))
+        << load;
+
+    // Without the conversion provider, the module cannot be checked.
+    const auto without = praenora::test::make_provider_context({"test-simulation"});
+    const ModuleCheckReport refused = praenora::detail::check_module(
+        fixture_manifest("converting-module"), std::nullopt, *without, nullptr);
+    EXPECT_EQ(check_of(refused, "library.load").status, "fail") << shown(refused);
+    EXPECT_EQ(check_of(refused, "library.load").message.rfind("SERVICE_UNAVAILABLE: ", 0), 0u)
+        << shown(refused);
+    EXPECT_TRUE(contains(check_of(refused, "library.load").message, "praenora.model-conversion"))
+        << shown(refused);
+}
+
 namespace {
 
 // A call into fixture module `name`'s library that was abandoned, as an unresponsive invoke of

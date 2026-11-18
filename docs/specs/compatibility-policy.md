@@ -29,6 +29,7 @@ and identity.
 | Provider interface (internal) | `major.minor` | 0.0 | [`provider_abi.h`](../../src/runtime/provider/provider_abi.h); the table header; the provider manifest's `abi` | The major is equal. |
 | Service providers | SemVer | the provider's | the provider manifest's `provider.version` and `describe()` | Its `runtime_version` equals the runtime's version. |
 | Simulation service `praenora.simulation` | `major.minor` | 0.0 | [`simulation.h`](../../include/praenora/sdk/simulation.h); the table header; a provider manifest's `services` | A requirement is satisfied by the same major at a minor of at least the required one; a module uses only the functions that the table's `struct_size` covers ([simulation-service.md](simulation-service.md#evolution)). |
+| Model conversion service `praenora.model-conversion` | `major.minor` | 0.0 | [`model_conversion.h`](../../include/praenora/sdk/model_conversion.h); the table header; a provider manifest's `services` | As for the simulation service ([model-conversion-service.md](model-conversion-service.md#evolution)). |
 
 `praenora version --json` prints `{"ok": true, "result": ...}`, whose `result` holds the runtime,
 SDK, PMP and ABI versions and the format version of every document kind that carries
@@ -164,6 +165,7 @@ above, which the runtime enforces whatever the versions.
 | A change to a catalog entry | The entry's version (a new file) | Regenerated AsyncAPI documents when a workflow definition, message type or the envelope changes. |
 | A change to the provider interface | `PRAENORA_PROVIDER_ABI_MAJOR` or `PRAENORA_PROVIDER_ABI_MINOR` in [`provider_abi.h`](../../src/runtime/provider/provider_abi.h) | An ADR. |
 | A change to the simulation service | `PRAENORA_SIMULATION_SERVICE_MAJOR` (breaking) or `PRAENORA_SIMULATION_SERVICE_MINOR` (appended functions, optional document fields) in [`simulation.h`](../../include/praenora/sdk/simulation.h), and the SDK version | An ADR; [simulation-service.md](simulation-service.md) and the service checks together. |
+| A change to the model conversion service | `PRAENORA_MODEL_CONVERSION_SERVICE_MAJOR` (breaking) or `PRAENORA_MODEL_CONVERSION_SERVICE_MINOR` (appended functions, optional option and report fields) in [`model_conversion.h`](../../include/praenora/sdk/model_conversion.h), and the SDK version | An ADR; [model-conversion-service.md](model-conversion-service.md) and the service checks together. |
 | A runtime release | `project(VERSION)` | Rebuilt service providers: a provider is usable only with the runtime version it was built with. |
 
 - The runtime's shared library carries `VERSION` 0.2.0 and `SOVERSION` 0.2

@@ -38,41 +38,18 @@
 #   PRAENORA_LLVM_VERSION          LLVM's version, from llvm-config --version
 #   PRAENORA_SUNDIALS_VERSION      SUNDIALS's version, from its package
 #   PRAENORA_LIBSBML_VERSION       libSBML's version, from its package
-# One status line per dependency reports its version and where it came from.
+# One status line per dependency reports its version and where it came from. The messages and the
+# repair are those that cmake/PraenoraEngineDependencies.cmake gives every engine's finder.
 
 include_guard(GLOBAL)
+include("${CMAKE_CURRENT_LIST_DIR}/PraenoraEngineDependencies.cmake")
 
 set(LLVM_INSTALL_PREFIX "" CACHE PATH
     "LLVM installation that libRoadRunner was built with (PRAENORA_WITH_ROADRUNNER)")
 
 # _praenora_roadrunner_missing(<what> <how>)
 function(_praenora_roadrunner_missing what how)
-    message(FATAL_ERROR "PRAENORA_WITH_ROADRUNNER is ON, but ${what} was not found. ${how} "
-        "docs/platforms.md lists what the roadrunner provider needs. Nothing is downloaded.")
-endfunction()
-
-# _praenora_roadrunner_report(<label> <version> <where>)
-function(_praenora_roadrunner_report label version where)
-    message(STATUS "Praenora: dependency ${label} ${version} (found at ${where})")
-endfunction()
-
-# _praenora_roadrunner_drop_system_libraries(<target>...)
-# Removes m, dl and pthread from the targets' INTERFACE_LINK_LIBRARIES (macOS only).
-function(_praenora_roadrunner_drop_system_libraries)
-    if(NOT APPLE)
-        return()
-    endif()
-    foreach(target IN LISTS ARGN)
-        if(NOT TARGET ${target})
-            continue()
-        endif()
-        get_target_property(libraries ${target} INTERFACE_LINK_LIBRARIES)
-        if(NOT libraries)
-            continue()
-        endif()
-        list(REMOVE_ITEM libraries m dl pthread)
-        set_target_properties(${target} PROPERTIES INTERFACE_LINK_LIBRARIES "${libraries}")
-    endforeach()
+    praenora_engine_dependency_missing(PRAENORA_WITH_ROADRUNNER roadrunner "${what}" "${how}")
 endfunction()
 
 macro(praenora_find_roadrunner)
@@ -120,7 +97,7 @@ directories (${_praenora_rr_includes})" "The libRoadRunner installation is incom
             "${PRAENORA_ROADRUNNER_VERSION} was found (${_praenora_rr_cmake_dir}); the roadrunner "
             "provider needs libRoadRunner 2.11.x.")
     endif()
-    _praenora_roadrunner_report(libRoadRunner "${PRAENORA_ROADRUNNER_VERSION}"
+    praenora_engine_dependency_found(libRoadRunner "${PRAENORA_ROADRUNNER_VERSION}"
         "${_praenora_rr_cmake_dir}")
     if(NOT PRAENORA_ROADRUNNER_VERSION VERSION_EQUAL 2.11.0)
         message(STATUS "Praenora: libRoadRunner ${PRAENORA_ROADRUNNER_VERSION} is not verified "
@@ -160,8 +137,8 @@ ${_praenora_rr_target}), which libRoadRunner's static library links"
         _praenora_roadrunner_missing("the versions of SUNDIALS and libSBML in their packages"
             "The libRoadRunner installation is incomplete.")
     endif()
-    _praenora_roadrunner_report(SUNDIALS "${PRAENORA_SUNDIALS_VERSION}" "${SUNDIALS_DIR}")
-    _praenora_roadrunner_report(libSBML "${PRAENORA_LIBSBML_VERSION}" "${sbml-static_DIR}")
+    praenora_engine_dependency_found(SUNDIALS "${PRAENORA_SUNDIALS_VERSION}" "${SUNDIALS_DIR}")
+    praenora_engine_dependency_found(libSBML "${PRAENORA_LIBSBML_VERSION}" "${sbml-static_DIR}")
 
     # LLVM: LLVM_INSTALL_PREFIX, else an llvm-config on CMAKE_PREFIX_PATH. Not cached, so a changed
     # LLVM_INSTALL_PREFIX is searched again (a cache entry of an older tree is removed first).
@@ -200,7 +177,7 @@ built with (LLVM_INSTALL_PREFIX is '${LLVM_INSTALL_PREFIX}')"
     get_filename_component(_praenora_llvm_prefix "${PRAENORA_LLVM_CONFIG}" DIRECTORY)
     get_filename_component(_praenora_llvm_prefix "${_praenora_llvm_prefix}" DIRECTORY)
     set(_praenora_llvm_lib_dir "${_praenora_llvm_prefix}/lib")
-    _praenora_roadrunner_report(LLVM "${PRAENORA_LLVM_VERSION}" "${_praenora_llvm_prefix}")
+    praenora_engine_dependency_found(LLVM "${PRAENORA_LLVM_VERSION}" "${_praenora_llvm_prefix}")
 
     # roadrunner-static's absolute library paths that do not exist: the LLVM installation's.
     get_target_property(_praenora_rr_libraries roadrunner-static::roadrunner-static
@@ -227,7 +204,7 @@ built with (LLVM_INSTALL_PREFIX is '${LLVM_INSTALL_PREFIX}')"
     endif()
     set_target_properties(roadrunner-static::roadrunner-static PROPERTIES
         INTERFACE_LINK_LIBRARIES "${_praenora_rr_relinked}")
-    _praenora_roadrunner_drop_system_libraries(roadrunner-static::roadrunner-static
+    praenora_engine_drop_system_libraries(roadrunner-static::roadrunner-static
         clapack::blas clapack::lapack clapack::f2c expat::expat sbml-static)
 
     if(NOT TARGET praenora_roadrunner_engine)

@@ -42,12 +42,16 @@ foreach(_praenora_pair IN ITEMS PREFIX_PATH:CMAKE_PREFIX_PATH
     list(APPEND _praenora_install_settings "-D${_praenora_name}=${_praenora_value}")
 endforeach()
 
-# The service providers that a default installation includes.
+# The service providers that a default installation includes. The list reaches the driver as one
+# argument because that argument is quoted; escaping its separators would keep the backslashes, and
+# the driver would read one name.
 set(_praenora_installed_providers "")
 if(PRAENORA_WITH_ROADRUNNER)
     list(APPEND _praenora_installed_providers roadrunner)
 endif()
-string(REPLACE ";" "\\;" _praenora_installed_providers "${_praenora_installed_providers}")
+if(PRAENORA_WITH_ANTIMONY)
+    list(APPEND _praenora_installed_providers antimony)
+endif()
 
 add_test(NAME install.consumer
     COMMAND "${CMAKE_COMMAND}"

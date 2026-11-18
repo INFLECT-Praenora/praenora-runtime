@@ -25,6 +25,7 @@ with `find_package` in CONFIG mode:
 | SWIG | 4.0 | the Python bindings |
 | Python, with its headers | 3.10 | the Python bindings |
 | libRoadRunner (C++, `roadrunner-static`) and the LLVM it was built with | 2.11 | the roadrunner provider, with `PRAENORA_WITH_ROADRUNNER` only ([platforms.md](platforms.md#the-roadrunner-provider)) |
+| libAntimony (`antimony-static`, built from source) and the libSBML, SBMLNetwork and expat it was built against | 3.3 | the antimony provider, with `PRAENORA_WITH_ANTIMONY` only ([platforms.md](platforms.md#the-antimony-provider)) |
 
 The third-party libraries link privately into the runtime, so neither the installed headers nor the
 installed CMake package mention them. The commands that install them on each platform are in
@@ -113,6 +114,7 @@ Options are cache variables, set in a preset or on the configure line
 | `PRAENORA_SANITIZERS` | empty | `address;undefined` or `thread`, for GCC and Clang. |
 | `PRAENORA_WITH_ROADRUNNER` | OFF | The roadrunner service provider ([below](#the-roadrunner-provider)). |
 | `LLVM_INSTALL_PREFIX` | empty | With `PRAENORA_WITH_ROADRUNNER`: the LLVM that libRoadRunner was built with. |
+| `PRAENORA_WITH_ANTIMONY` | OFF | The antimony service provider ([below](#the-antimony-provider)). |
 | `CMAKE_OSX_DEPLOYMENT_TARGET` | 11.0 | The oldest macOS the build runs on. |
 
 `BUILD_SHARED_LIBS` is never read: the runtime is always a shared library and modules are always
@@ -133,6 +135,7 @@ The build tree holds:
 | `build/<preset>/test-modules/<name>/` | The fixture modules of the tests. |
 | `build/<preset>/test-providers/<name>/` | The fixture service providers of the tests. |
 | `build/<preset>/lib/praenora/providers/roadrunner/` | The roadrunner provider, with `PRAENORA_WITH_ROADRUNNER`: where the build tree's runtime looks for the providers of its installation. |
+| `build/<preset>/lib/praenora/providers/antimony/` | The antimony provider, with `PRAENORA_WITH_ANTIMONY`, beside it. |
 | `build/<preset>/python/` | The importable Python package, with `PRAENORA_BUILD_PYTHON`. |
 | `build/<preset>/include/` | Generated headers: `praenora/runtime/export.h`, `praenora/sdk/version.h`. |
 
@@ -185,6 +188,55 @@ provider links libRoadRunner statically, so the first build links for a while lo
 tests load a large library in each test process. Configuring a tree without the option removes the
 provider that an earlier configuration of that tree built into it, so the tree's runtime no longer
 finds it.
+
+### The antimony provider
+
+The service provider `antimony`
+([specs/model-conversion-service.md](specs/model-conversion-service.md#the-antimony-provider)) is
+built with `PRAENORA_WITH_ANTIMONY=ON`, from libAntimony 3.3 built from source against
+libRoadRunner's dependencies; [platforms.md](platforms.md#the-antimony-provider) says how to build
+it and how CMake finds it. As for roadrunner, keep it in presets of its own: in
+`CMakeUserPresets.json`, a hidden `dev-antimony-local` preset with the prefixes, presets that
+inherit it before `dev-local`, and, for both providers in one build, a hidden `dev-engines-local`
+preset whose `CMAKE_PREFIX_PATH` joins the two lists, with `LLVM_INSTALL_PREFIX` and both options:
+
+```json
+{
+  "name": "dev-antimony",
+  "displayName": "Local development with the antimony provider, Debug",
+  "inherits": ["macos-arm64-debug", "dev-antimony-local", "dev-local"]
+},
+{
+  "name": "dev-antimony-tsan",
+  "displayName": "Local development with the antimony provider, ThreadSanitizer",
+  "inherits": ["macos-arm64-tsan", "dev-antimony-local", "dev-local"]
+},
+{
+  "name": "dev-engines",
+  "displayName": "Local development with the roadrunner and antimony providers, Debug",
+  "inherits": ["macos-arm64-debug", "dev-engines-local", "dev-local"]
+}
+```
+
+with build and test presets of the same names (`CMakeUserPresets.json.example` holds them all). The
+macOS deployment target must be at least 14.0 here too. Then:
+
+```bash
+cmake --preset dev-antimony
+cmake --build --preset dev-antimony
+ctest --preset dev-antimony
+ctest --preset dev-antimony-tsan -L 'contract|integration|unit'
+ctest --preset dev-engines
+./build/dev-antimony/bin/praenora providers list
+```
+
+The build tree's tool lists `antimony` without a provider path. The tests add the service checks
+against the provider, its own tests (`AntimonyProvider.*`), the tests of its library file
+(`providers.antimony.*`) and, in `dev-engines`, an integration test that converts an Antimony
+model with `antimony` and simulates it with `roadrunner` in one process. The unit tests of its
+rules that read a source's text alone (`AntimonyImportCheck.*`, `AntimonyTextCheck.*`,
+`SbmlTextCheck.*`) need no libAntimony and run in every build. Configuring a tree without the
+option removes the provider from it, as for roadrunner.
 
 ## Debugging modules
 

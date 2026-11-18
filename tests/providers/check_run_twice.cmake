@@ -1,7 +1,8 @@
 # Checks how run_twice.cmake, the driver of the providers.<name>.processes tests, shows two outputs
-# that differ: the driver of providers.run_twice.shows_first_difference
-# (tests/providers/CMakeLists.txt). Script mode, cmake -P, with WORK set to a directory of the build
-# tree, which it deletes and fills; it needs only CMake.
+# that differ, and an output that shows no result: the driver of
+# providers.run_twice.shows_first_difference (tests/providers/CMakeLists.txt). Script mode, cmake
+# -P, with WORK set to a directory of the build tree, which it deletes and fills; it needs only
+# CMake.
 #
 # Each case writes two outputs to first.txt and second.txt in a directory of its own and runs
 # run_twice.cmake with this script as the printer: PRINT is cmake, and MANIFEST, FORMAT, MODEL and
@@ -21,6 +22,11 @@
 #    of the second, and ends in the line that differs.
 # 4. The second output is the first's and one more line, an empty one: the first is shorter, a
 #    prefix of the second, and ends before that line, which the report shows empty.
+# Cases 1 to 4 run run_twice.cmake without TOOL, as praenora_simulation_print's driver. One more
+# case runs it with TOOL=praenora_conversion_print:
+# 5. Both outputs are the same lines of a conversion without its two report lines (no conversion
+#    and no conversion back): the report names praenora_conversion_print and says so, then shows the
+#    first run's command, exit code and outputs, checked in the same way.
 cmake_minimum_required(VERSION 3.24)
 
 if(DEFINED FIRST AND DEFINED SECOND)
@@ -156,3 +162,59 @@ string(CONCAT problem "two processes printed different results: their standard o
     "--- line 6 of the second run's stdout ---\n\n"
     "${first_outputs}")
 _check(4 "${first}" "${first}\n" "${problem}")
+
+# Runs run_twice.cmake as praenora_conversion_print's driver (TOOL=praenora_conversion_print) on
+# the output `output`, printed by both runs, and checks its report: the tool, the problem that the
+# output shows no conversion and conversion back, the first run's command (whose arguments are not
+# checked), exit code and outputs, each line shown whole, with no line after them.
+function(_check_shows_no_conversion case output)
+    set(directory "${WORK}/${case}")
+    file(MAKE_DIRECTORY "${directory}")
+    file(WRITE "${directory}/first.txt" "${output}")
+    file(WRITE "${directory}/second.txt" "${output}")
+    execute_process(COMMAND "${CMAKE_COMMAND}" "-DPRINT=${CMAKE_COMMAND}"
+            "-DTOOL=praenora_conversion_print"
+            "-DMANIFEST=-DFIRST=${directory}/first.txt"
+            "-DFORMAT=-DSECOND=${directory}/second.txt" "-DMODEL=-P"
+            "-DEND=${CMAKE_CURRENT_LIST_FILE}" -P "${driver}"
+        RESULT_VARIABLE exit_code
+        OUTPUT_VARIABLE out
+        ERROR_VARIABLE err)
+    if(exit_code STREQUAL "0")
+        _fail("${case}: run_twice.cmake did not fail on an output that shows no conversion.")
+    endif()
+    string(CONCAT shown_problem "\npraenora_conversion_print: no conversion and conversion back in "
+        "the output\ncommand: ")
+    string(CONCAT shown_outputs "\nexit code: 0\n--- stdout ---\n${output}\n"
+        "--- stderr ---\nprinted by the first run\n")
+    string(REPLACE "\n" "\n   " shown_problem "${shown_problem}")
+    string(REPLACE "\n" "\n   " shown_outputs "${shown_outputs}")
+    string(APPEND shown_outputs "\n")
+    string(FIND "${err}" "${shown_problem}" problem_position)
+    string(FIND "${err}" "${shown_outputs}" outputs_position)
+    string(LENGTH "${shown_problem}" problem_length)
+    string(LENGTH "${shown_outputs}" outputs_length)
+    math(EXPR arguments_position "${problem_position} + ${problem_length}")
+    math(EXPR arguments_length "${outputs_position} - ${arguments_position}")
+    set(arguments "\n")
+    set(next "")
+    if(NOT problem_position EQUAL -1 AND NOT outputs_position EQUAL -1 AND
+       arguments_length GREATER_EQUAL 0)
+        string(SUBSTRING "${err}" ${arguments_position} ${arguments_length} arguments)
+        math(EXPR next_position "${outputs_position} + ${outputs_length}")
+        string(SUBSTRING "${err}" ${next_position} 1 next)
+    endif()
+    if(arguments MATCHES "\n" OR next STREQUAL " ")
+        string(CONCAT problem "${case}: run_twice.cmake did not show, as they were printed, the "
+            "problem\n${shown_problem}\nthen, on the same line, the command's arguments and then "
+            "the rest of the report, with no line after it\n${shown_outputs}")
+        _fail("${problem}")
+    endif()
+    message(STATUS "${case}: run_twice.cmake shows the report as${shown_problem}..."
+        "${shown_outputs}")
+endfunction()
+
+# 5. The lines of a conversion and of the conversion back, without their report lines.
+string(CONCAT conversion_text "describe {\"conversions\":[{\"from\":\"a\",\"to\":\"b\"}]}\n"
+    "convert a to b: text of 1 bytes\nx\nback b to a: text of 1 bytes\nx\n")
+_check_shows_no_conversion(5 "${conversion_text}")

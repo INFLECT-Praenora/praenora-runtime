@@ -3,11 +3,14 @@
 # test-echo is the correct provider of the test service test.echo@0.0 (tests/support/test_echo.h).
 # test-simulation is the reference provider of the simulation service praenora.simulation@0.0
 # (include/praenora/sdk/simulation.h) for the toy model format "test-decay"; the service checks
-# (tests/contract/simulation_service_checks.hpp) run against it. The others are built from
-# variants/variant_provider.c: those with a FIXTURE_* definition, all but test-reordered, break one
-# rule of the provider interface on purpose; test-conflict, test-retry and test-order have none and
-# are correct. test-simulation is C++17 (with nlohmann/json); the others are C99. All are compiled
-# with the project's warnings.
+# (tests/contract/simulation_service_checks.hpp) run against it. test-conversion is the reference
+# provider of the model conversion service praenora.model-conversion@0.0
+# (include/praenora/sdk/model_conversion.h) for the toy formats "test-decay" and "test-decay-text";
+# its service checks (tests/contract/model_conversion_service_checks.hpp) run against it. The others
+# are built from variants/variant_provider.c: those with a FIXTURE_* definition, all but
+# test-reordered, break one rule of the provider interface on purpose; test-conflict, test-retry and
+# test-order have none and are correct. test-simulation and test-conversion are C++17 (with
+# nlohmann/json); the others are C99. All are compiled with the project's warnings.
 
 # praenora_add_fixture_provider(<name> SOURCES <source>... [SERVICES <service>@<major>.<minor>...]
 #                               [DEFINITIONS <definition>...] [LINK_LIBRARIES <library>...])
@@ -51,6 +54,13 @@ praenora_add_fixture_provider(test-simulation
     SOURCES test-simulation/test_simulation_provider.cpp
     SERVICES praenora.simulation@0.0
     LINK_LIBRARIES nlohmann_json::nlohmann_json)
+praenora_add_fixture_provider(test-conversion
+    SOURCES test-conversion/test_conversion_provider.cpp
+    SERVICES praenora.model-conversion@0.0
+    LINK_LIBRARIES nlohmann_json::nlohmann_json)
+# Its lock and the cancellable wait for it are the antimony provider's
+# (src/providers/common/cancellable_lock.hpp).
+target_include_directories(test_conversion PRIVATE "${PROJECT_SOURCE_DIR}/src/providers/common")
 
 set(variant variants/variant_provider.c)
 praenora_add_fixture_provider(test-null-table SOURCES ${variant} DEFINITIONS FIXTURE_NULL_TABLE)

@@ -13,7 +13,9 @@ loads modules, and runs the workflow deterministically; the module SDK (`Praenor
 with its stable C ABI; the Praenora Module Protocol (PMP) and Praenora Module Manifest (PMM)
 formats; the `praenora` command-line tool; and Python bindings (`praenora.runtime`). Heavy engines
 come from service providers that the runtime loads on demand: modules simulate models through the
-simulation service `praenora.simulation@0` without linking an engine themselves.
+simulation service `praenora.simulation@0`, and translate them from one format to another, such as
+Antimony to SBML, through the model conversion service `praenora.model-conversion@0`, without
+linking an engine themselves.
 
 ## Status
 
@@ -24,12 +26,17 @@ with an example workflow; the contract checks for modules; the installation with
 (`find_package(Praenora COMPONENTS Runtime ModuleSDK)`); the tests; and the documentation.
 
 Since then: service providers, module manifests that declare the services a module requires, the
-engine of each service in the run fingerprint, and the simulation service `praenora.simulation@0`
-([docs/specs/simulation-service.md](docs/specs/simulation-service.md)). Its provider `roadrunner`,
-which simulates SBML models with libRoadRunner, is optional: it is built only with
-`-DPRAENORA_WITH_ROADRUNNER=ON` and an installed libRoadRunner 2.11 with its LLVM
+engine of each service in the run fingerprint, the simulation service `praenora.simulation@0`
+([docs/specs/simulation-service.md](docs/specs/simulation-service.md)) and the model conversion
+service `praenora.model-conversion@0`
+([docs/specs/model-conversion-service.md](docs/specs/model-conversion-service.md)). Their
+providers are optional. `roadrunner`, which simulates SBML models with libRoadRunner, is built only
+with `-DPRAENORA_WITH_ROADRUNNER=ON` and an installed libRoadRunner 2.11 with its LLVM
 ([docs/platforms.md](docs/platforms.md#the-roadrunner-provider)), and is verified on macOS arm64
-with libRoadRunner 2.11.0 and LLVM 13.0.1.
+with libRoadRunner 2.11.0 and LLVM 13.0.1. `antimony`, which translates Antimony to SBML and back
+with libAntimony, is built only with `-DPRAENORA_WITH_ANTIMONY=ON` and libAntimony 3.3 built from
+source ([docs/platforms.md](docs/platforms.md#the-antimony-provider)), and is verified on macOS
+arm64 with libAntimony 3.3.0.
 
 | Platform | Status |
 |---|---|
@@ -39,8 +46,8 @@ with libRoadRunner 2.11.0 and LLVM 13.0.1.
 
 Not yet verified anywhere: downloading dependencies in fetch mode, and a Python wheel build that
 downloads its build requirements (a wheel built offline is verified on macOS arm64).
-WebAssembly, the libAntimony service and compiling module code through libRoadRunner are designs
-only ([feasibility designs](docs/index.md#feasibility-designs)).
+WebAssembly and compiling module code through libRoadRunner are designs only
+([feasibility designs](docs/index.md#feasibility-designs)).
 
 ## Quick start
 

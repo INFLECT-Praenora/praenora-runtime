@@ -1,0 +1,8 @@
+// Two modules, neither marked, and nothing outside them: the last, c, is the main module.
+model a()
+  x = 1
+end
+
+model c()
+  z = 3
+end

@@ -1,0 +1,33 @@
+// Created by libAntimony v3.3.0
+model *rules()
+
+  // Compartments and Species:
+  compartment cell;
+  substanceOnly species S in cell, P in cell;
+
+  // Assignment Rules:
+  P := base*S;
+  v := k2*S;
+
+  // Rate Rules:
+  z' = k;
+
+  // Reactions:
+  r: S => ; k*S;
+
+  // Species initializations:
+  S = 2;
+
+  // Compartment initializations:
+  cell = 2;
+
+  // Variable initializations:
+  base = 1;
+  k = 0.3;
+  k2 = 2*k;
+  z = 0;
+
+  // Other declarations:
+  var v, z;
+  const cell, base, k, k2;
+end

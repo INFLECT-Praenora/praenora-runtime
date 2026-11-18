@@ -317,8 +317,8 @@ praenora_add_cli_test(cli.providers.list_shadowed_json
     EXPECT_STDOUT_REGEX "\"problem\":\"shadowed by '[^']*/providers/old-runtime\\.provider\\.json'")
 # Nothing found: a note on standard error, an empty list and exit code 0. The build tree's
 # installation provider directory holds no provider, unless the build has the roadrunner provider
-# (PRAENORA_WITH_ROADRUNNER).
-if(NOT PRAENORA_WITH_ROADRUNNER)
+# (PRAENORA_WITH_ROADRUNNER) or the antimony provider (PRAENORA_WITH_ANTIMONY).
+if(NOT PRAENORA_WITH_ROADRUNNER AND NOT PRAENORA_WITH_ANTIMONY)
     praenora_add_cli_test(cli.providers.list_empty
         CMD providers list --json
         ENVIRONMENT "${_praenora_no_providers}"

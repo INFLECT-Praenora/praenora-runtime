@@ -1,22 +1,26 @@
-# Runs praenora_simulation_print twice, each time in a new process, and checks that both print the
-# same bytes: the driver of the providers.<name>.processes tests (tests/providers/CMakeLists.txt).
-# Script mode, cmake -P, with these variables:
+# Runs a print tool twice, each time in a new process, and checks that both print the same bytes:
+# the driver of the providers.<name>.processes tests (tests/providers/CMakeLists.txt). Script mode,
+# cmake -P, with these variables:
 #
-#   PRINT=<file>      the praenora_simulation_print executable
+#   PRINT=<file>      the print tool's executable
+#   TOOL=<name>       optional: the print tool PRINT is, praenora_simulation_print (the default)
+#                     or praenora_conversion_print; any other name is an error
 #   MANIFEST=<file>   the provider manifest
-#   FORMAT=<format>   the model format
-#   MODEL=<file>      the model file
-#   END=<time>        the end time of its runs
+#   FORMAT=<value>    the print tool's three arguments after the manifest: for
+#   MODEL=<file>      praenora_simulation_print, the model format, the model file and the end time
+#   END=<value>       of its runs; for praenora_conversion_print, the format to convert from, the
+#                     source file and the format to convert to
 #
 # The test fails when either run exits with a nonzero code, prints a sanitizer report
-# (tests/support/run_command.cmake) or prints no simulation, or when the two outputs differ. Then
-# its report names the first line where the two standard outputs differ, by its number, and shows
-# that line as each run printed it. When one output is a prefix of the other, it says which one is
-# shorter; otherwise it also names the byte of that line where they first differ. The first run's
-# standard output and standard error follow, and then the second run's command, exit code and
-# outputs. The outputs are compared with string(FIND), string(SUBSTRING) and string(LENGTH), never
-# turned into lists: CMake's list commands split at ; and treat [ and ] specially, and the
-# simulation output holds JSON.
+# (tests/support/run_command.cmake) or prints no result (praenora_simulation_print: no simulation
+# and batch; praenora_conversion_print: no conversion and conversion back), or when the two outputs
+# differ. Its report names the tool. When the outputs differ, it names the first line where the two
+# standard outputs differ, by its number, and shows that line as each run printed it. When one
+# output is a prefix of the other, it says which one is shorter; otherwise it also names the byte of
+# that line where they first differ. The first run's standard output and standard error follow, and
+# then the second run's command, exit code and outputs. The outputs are compared with string(FIND),
+# string(SUBSTRING) and string(LENGTH), never turned into lists: CMake's list commands split at ;
+# and treat [ and ] specially, and both tools' outputs hold JSON.
 cmake_minimum_required(VERSION 3.24)
 include("${CMAKE_CURRENT_LIST_DIR}/../support/run_command.cmake")
 
@@ -69,16 +73,32 @@ foreach(variable IN ITEMS PRINT MANIFEST FORMAT MODEL END)
     endif()
 endforeach()
 
+# What each tool's output must show: two regular expressions, and the problem when it does not.
+if(NOT DEFINED TOOL)
+    set(TOOL praenora_simulation_print)
+endif()
+if(TOOL STREQUAL "praenora_simulation_print")
+    set(shows_1 "\nsimulate rows 0x0p\\+0 ")
+    set(shows_2 "\nrun_batch outcomes 0 0 0\n")
+    set(shows_nothing "no simulation and batch in the output")
+elseif(TOOL STREQUAL "praenora_conversion_print")
+    set(shows_1 "\nconvert [^\n]*: report [{]")
+    set(shows_2 "\nback [^\n]*: report [{]")
+    set(shows_nothing "no conversion and conversion back in the output")
+else()
+    message(FATAL_ERROR "run_twice.cmake: TOOL '${TOOL}' is neither praenora_simulation_print "
+        "nor praenora_conversion_print")
+endif()
+
 set(command "${PRINT}" "${MANIFEST}" "${FORMAT}" "${MODEL}" "${END}")
 foreach(run IN ITEMS FIRST SECOND)
-    praenora_test_run(${run} "praenora_simulation_print" "${command}")
+    praenora_test_run(${run} "${TOOL}" "${command}")
     if(NOT ${run}_EXIT STREQUAL "0")
-        praenora_test_fail("praenora_simulation_print" "exit code ${${run}_EXIT}, expected 0"
+        praenora_test_fail("${TOOL}" "exit code ${${run}_EXIT}, expected 0"
             "${command}" "${${run}_EXIT}" "${${run}_OUT}" "${${run}_ERR}")
     endif()
-    if(NOT ${run}_OUT MATCHES "\nsimulate rows 0x0p\\+0 " OR
-       NOT ${run}_OUT MATCHES "\nrun_batch outcomes 0 0 0\n")
-        praenora_test_fail("praenora_simulation_print" "no simulation and batch in the output"
+    if(NOT ${run}_OUT MATCHES "${shows_1}" OR NOT ${run}_OUT MATCHES "${shows_2}")
+        praenora_test_fail("${TOOL}" "${shows_nothing}"
             "${command}" "${${run}_EXIT}" "${${run}_OUT}" "${${run}_ERR}")
     endif()
 endforeach()
@@ -136,7 +156,7 @@ if(NOT FIRST_OUT STREQUAL SECOND_OUT)
     string(APPEND problem "\n--- stdout of the first run ---\n${FIRST_OUT}\n"
         "--- stderr of the first run ---\n${FIRST_ERR}\n"
         "Below are the second run's command, exit code and outputs.")
-    praenora_test_fail("praenora_simulation_print" "${problem}"
+    praenora_test_fail("${TOOL}" "${problem}"
         "${command}" "${SECOND_EXIT}" "${SECOND_OUT}" "${SECOND_ERR}")
 endif()
 string(LENGTH "${FIRST_OUT}" length)

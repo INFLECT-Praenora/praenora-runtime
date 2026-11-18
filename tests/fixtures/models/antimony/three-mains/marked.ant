@@ -1,0 +1,12 @@
+// Three modules, b marked with '*': b is the main module.
+model a()
+  x = 1
+end
+
+model *b()
+  y = 2
+end
+
+model c()
+  z = 3
+end

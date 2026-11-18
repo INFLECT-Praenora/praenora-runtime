@@ -8,7 +8,7 @@ and Windows commands below are given as they should work and are marked "not yet
 
 | Platform | Compiler | Status |
 |---|---|---|
-| macOS arm64 (macOS 15) | AppleClang 17 | Verified: configure, build without warnings, and every test in the `dev` (Debug), `dev-release`, `dev-asan` and `dev-tsan` builds; an installation, moved; the Python bindings with CPython 3.12; a Python wheel built offline and installed into a fresh virtual environment ([python.md](python.md#building-a-wheel)); the roadrunner provider with libRoadRunner 2.11.0 and LLVM 13.0.1, every test in a Debug build and the labels `unit`, `contract`, `negative`, `lifecycle`, `integration` and `install` in a ThreadSanitizer build ([The roadrunner provider](#the-roadrunner-provider)). |
+| macOS arm64 (macOS 15) | AppleClang 17 | Verified: configure, build without warnings, and every test in the `dev` (Debug), `dev-release`, `dev-asan` and `dev-tsan` builds; an installation, moved; the Python bindings with CPython 3.12; a Python wheel built offline and installed into a fresh virtual environment ([python.md](python.md#building-a-wheel)); the roadrunner provider with libRoadRunner 2.11.0 and LLVM 13.0.1, every test in a Debug build and the labels `unit`, `contract`, `negative`, `lifecycle`, `integration` and `install` in a ThreadSanitizer build ([The roadrunner provider](#the-roadrunner-provider)); the antimony provider with libAntimony 3.3.0 built from source, every test in a Debug build and in a Debug build with both providers, and the labels `unit`, `contract` and `integration` in a ThreadSanitizer build ([The antimony provider](#the-antimony-provider)). |
 | Linux x86-64 | GCC 9+, Clang 10+ | Presets and portable code; not yet verified. |
 | Windows x86-64 | MSVC 19.29+ (Visual Studio 2022) | Presets and portable code; not yet verified. |
 
@@ -124,6 +124,87 @@ a provider path, and it is installed to `<prefix>/lib/praenora/providers/roadrun
 it raises license questions (libSBML is LGPL-2.1 and is linked statically; the NLEQ sources state no
 license), which are open, with the other questions of building and distributing the engine
 ([open-questions.md](open-questions.md), OQ-27).
+
+## The antimony provider
+
+The service provider `antimony`, which converts Antimony to SBML and back with libAntimony
+([specs/model-conversion-service.md](specs/model-conversion-service.md#the-antimony-provider)), is
+built only with `-DPRAENORA_WITH_ANTIMONY=ON`. It needs libAntimony 3.3 as a static library
+(`antimony-static`), and the libSBML (with the comp package), SBMLNetwork and expat that it was
+built against; the build never downloads them. No archive of libAntimony's C library for C or C++
+consumers was found among its release's assets, so it is built from source, against libRoadRunner's
+dependencies: the binary release of libRoadRunner 2.11.0
+([The roadrunner provider](#the-roadrunner-provider)) holds libSBML 5.21.2
+(`libsbml-static.a` and its package `sbml-static`), SBMLNetwork 0.5.12 (`libsbmlnetwork-static.a`,
+without a package), expat 2.9.0, zlib and bzip2, with their packages in `<prefix>/lib/cmake`; a
+build of libroadrunner-deps holds the same. It was built and tested on macOS arm64 with libAntimony
+3.3.0 (the tag `v3.3.0` of sys-bio/antimony, commit `f13a50bce91ff2d16ec4b6c5179a8d43edff9f9b`)
+built against the release binaries of libRoadRunner 2.11.0.
+
+Not yet verified as written: the commands download the sources (the build that was checked used a
+copy of them). With `<RR>` the prefix of libRoadRunner's release binaries and `<ANT>` the prefix to
+install libAntimony into, they clone and build in a scratch directory outside this repository:
+
+```sh
+ANT_SRC="${TMPDIR:-/tmp}/antimony-3.3.0-src"
+git clone --branch v3.3.0 --depth 1 https://github.com/sys-bio/antimony.git "$ANT_SRC"
+cmake -S "$ANT_SRC" -B "$ANT_SRC/build" -G Ninja -DCMAKE_BUILD_TYPE=Release \
+    -DANT_DEPENDENCIES_INSTALL_PREFIX=<RR> \
+    -DWITH_QTANTIMONY=OFF -DWITH_PYTHON=OFF -DWITH_CELLML=OFF -DWITH_GTEST=OFF -DWITH_JULIA=OFF \
+    -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0 \
+    -DCMAKE_INSTALL_PREFIX=<ANT>
+cmake --build "$ANT_SRC/build"
+cmake --install "$ANT_SRC/build"
+```
+
+`ANT_DEPENDENCIES_INSTALL_PREFIX` is where libAntimony's build finds libSBML, SBMLNetwork and
+expat; position-independent code lets the static library be linked into the provider library;
+`CMAKE_OSX_DEPLOYMENT_TARGET` matches the dependencies' (macOS only). The installation holds
+`include/antimony_api.h` and the headers it includes, and `lib/libantimony-static.a` (and a shared
+library, which the provider does not use).
+
+The provider's build finds libAntimony and SBMLNetwork by their headers and libraries on
+`CMAKE_PREFIX_PATH`, and libSBML by its package, so `<ANT>`, `<RR>` and `<RR>/lib/cmake` go into
+`CMAKE_PREFIX_PATH`. A local preset in `CMakeUserPresets.json`
+([developer-guide.md](developer-guide.md#the-antimony-provider)):
+
+```json
+{
+  "name": "dev-antimony-local",
+  "hidden": true,
+  "cacheVariables": {
+    "CMAKE_PREFIX_PATH": "/opt/homebrew;<json-schema-validator prefix>;<RR>;<RR>/lib/cmake;<ANT>",
+    "CMAKE_OSX_DEPLOYMENT_TARGET": "14.0",
+    "PRAENORA_WITH_ANTIMONY": "ON"
+  }
+}
+```
+
+Configuring builds and runs a probe that links libAntimony, SBMLNetwork and libSBML together and
+prints the versions they report, which become the provider's engine object; then it prints a line
+for libAntimony, libSBML, SBMLNetwork and expat, and stops with a message that names what is missing
+or does not link. It accepts libAntimony 3.3.x only, with a status line when the version is not
+3.3.0, the one checked, and a libSBML with the comp package
+([`cmake/PraenoraAntimony.cmake`](../cmake/PraenoraAntimony.cmake)). With
+`PRAENORA_WITH_ROADRUNNER` too, both providers are built from the one libSBML package, and each
+links a copy of libSBML of its own; a process that loads both holds two.
+
+- **macOS.** libRoadRunner's release binaries, and so libAntimony built against them, are built for
+  macOS 14: a build with the provider needs `CMAKE_OSX_DEPLOYMENT_TARGET` 14.0 or later (15.0 where
+  this was checked). The provider library is a `.so` bundle, about 12 MB in a Debug build and about
+  8 MB stripped, that needs only libSystem and libc++, and exports only `praenora_provider_get_api`.
+- **Linux.** Not yet verified. The export list is a version script; SBMLNetwork needs `libdl`,
+  which the build adds.
+- **Windows.** Not yet verified. libAntimony's header declares its functions for import from a DLL
+  unless its build defines otherwise, so linking its static library may need more than the build
+  provides.
+
+The provider goes where the build tree's runtime looks for the providers of its installation
+(`build/<preset>/lib/praenora/providers/antimony/`), so `praenora providers list` lists it without a
+provider path, and it is installed to `<prefix>/lib/praenora/providers/antimony/`. Distributing it
+raises license questions (libSBML is LGPL-2.1 and is linked statically; the licenses of SBMLNetwork
+and of expat's copy are unchecked), which are open, with the other questions of building and
+distributing libAntimony ([open-questions.md](open-questions.md), OQ-29).
 
 ## macOS
 

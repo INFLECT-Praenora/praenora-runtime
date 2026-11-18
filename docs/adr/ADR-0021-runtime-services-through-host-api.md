@@ -44,6 +44,9 @@ Some modules will need shared facilities, for example simulating a model from a 
   simulation service instead of the runtime linking libRoadRunner.
 - [ADR-0027](ADR-0027-simulation-service-v0.md): the simulation service `praenora.simulation@0`,
   whose shape answers OQ-16.
+- [ADR-0035](ADR-0035-model-conversion-service-v0.md): the model conversion service
+  `praenora.model-conversion@0`, which the provider `antimony` offers instead of the runtime linking
+  libAntimony.
 - [docs/specs/module-abi.md](../specs/module-abi.md)
 - [docs/feasibility/libroadrunner.md](../feasibility/libroadrunner.md)
 - [docs/feasibility/libantimony.md](../feasibility/libantimony.md)

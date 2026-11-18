@@ -53,16 +53,25 @@ if(PRAENORA_WITH_ROADRUNNER)
     include(PraenoraRoadrunner)
     praenora_find_roadrunner()
 endif()
+if(PRAENORA_WITH_ANTIMONY)
+    include(PraenoraAntimony)
+    praenora_find_antimony()
+endif()
 
 add_subdirectory(src/sdk)
 add_subdirectory(src/runtime)
 # Service providers shipped with the runtime: the libRoadRunner provider, built only with
-# PRAENORA_WITH_ROADRUNNER.
+# PRAENORA_WITH_ROADRUNNER, and the libAntimony provider, built only with PRAENORA_WITH_ANTIMONY.
 if(PRAENORA_WITH_ROADRUNNER)
     add_subdirectory(src/providers/roadrunner)
 else()
     # A tree configured with the provider before must not keep finding it.
     praenora_remove_build_tree_provider(roadrunner)
+endif()
+if(PRAENORA_WITH_ANTIMONY)
+    add_subdirectory(src/providers/antimony)
+else()
+    praenora_remove_build_tree_provider(antimony)
 endif()
 # What the two front ends below share (header-only, internal).
 if(PRAENORA_BUILD_CLI OR PRAENORA_BUILD_PYTHON)

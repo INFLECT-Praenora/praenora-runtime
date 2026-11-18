@@ -252,8 +252,10 @@ Once an instance is unresponsive, or kept after another instance of its library 
 unresponsive, `get_service` returns NULL for every service. A service's table, and what the module
 does with it, follow the service's own specification (for `praenora.simulation@0`,
 [simulation-service.md](simulation-service.md), with the table in the SDK's
-[`simulation.h`](../../include/praenora/sdk/simulation.h)); provider tables live until the process
-ends ([ADR-0021](../adr/ADR-0021-runtime-services-through-host-api.md),
+[`simulation.h`](../../include/praenora/sdk/simulation.h); for `praenora.model-conversion@0`,
+[model-conversion-service.md](model-conversion-service.md), with the table in
+[`model_conversion.h`](../../include/praenora/sdk/model_conversion.h)); provider tables live until
+the process ends ([ADR-0021](../adr/ADR-0021-runtime-services-through-host-api.md),
 [ADR-0026](../adr/ADR-0026-runtime-service-providers.md)).
 
 ## Sinks

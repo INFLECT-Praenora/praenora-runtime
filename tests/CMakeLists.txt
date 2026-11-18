@@ -132,6 +132,11 @@ praenora_add_gtest(praenora_unit_tests LABEL unit WHITEBOX
         unit/provider_abi_c99_check.c
         unit/simulation_abi_test.cpp
         unit/simulation_c99_check.c
+        unit/model_conversion_abi_test.cpp
+        unit/model_conversion_c99_check.c
+        unit/antimony_source_checks_test.cpp
+        ../src/providers/antimony/source_checks.hpp
+        ../src/providers/antimony/source_checks.cpp
         unit/sdk_adapter_test.cpp
         unit/sdk_testkit_test.cpp
         unit/sdk_windows_macros_test.cpp
@@ -152,12 +157,17 @@ praenora_add_gtest(praenora_unit_tests LABEL unit WHITEBOX
         unit/path_anchors_test.cpp
         unit/library_gate_test.cpp
     LINK Praenora::ModuleSDK)
-# sdk_abi_c99_check.c, simulation_c99_check.c and provider_abi_c99_check.c prove that the SDK's C
-# headers (the simulation service's included) and the provider interface header are valid C99.
+# sdk_abi_c99_check.c, simulation_c99_check.c, model_conversion_c99_check.c and
+# provider_abi_c99_check.c prove that the SDK's C headers (those of the simulation and model
+# conversion services included) and the provider interface header are valid C99.
 set_target_properties(praenora_unit_tests PROPERTIES
     C_STANDARD 99
     C_STANDARD_REQUIRED ON
     C_EXTENSIONS OFF)
+# The antimony provider's rules that read a source's text alone need no engine: their source file
+# is compiled into the unit tests of every build (unit/antimony_source_checks_test.cpp).
+target_include_directories(praenora_unit_tests PRIVATE
+    "${PROJECT_SOURCE_DIR}/src/providers/antimony")
 # The unit tests embed two fixture schemas of their own (praenora_test_find_resource()), beside the
 # runtime's embedded resources.
 # The fingerprint tests resolve and hash the fixture modules and providers (without loading them).
@@ -190,7 +200,8 @@ add_dependencies(praenora_negative_tests praenora_test_modules praenora_test_pro
 
 # Contract tests: manifests and discovery, the loader, module instances, the engine and the
 # contract checks, through the real loader and the fixture modules; and the service checks of the
-# simulation service (contract/simulation_service_checks.hpp), one instantiation per provider.
+# simulation service (contract/simulation_service_checks.hpp) and of the model conversion service
+# (contract/model_conversion_service_checks.hpp), one instantiation per provider.
 praenora_add_gtest(praenora_contract_tests LABEL contract WHITEBOX
     SOURCES
         contract/discovery_test.cpp
@@ -203,7 +214,10 @@ praenora_add_gtest(praenora_contract_tests LABEL contract WHITEBOX
         contract/module_check_test.cpp
         contract/simulation_service_checks.hpp
         contract/simulation_service_checks.cpp
-        contract/simulation_service_test.cpp)
+        contract/simulation_service_test.cpp
+        contract/model_conversion_service_checks.hpp
+        contract/model_conversion_service_checks.cpp
+        contract/model_conversion_service_test.cpp)
 target_compile_definitions(praenora_contract_tests PRIVATE
     "PRAENORA_TEST_LAYOUTS_DIR=\"${PRAENORA_TEST_LAYOUTS_DIR}\"")
 add_dependencies(praenora_contract_tests praenora_test_modules praenora_test_providers)
@@ -224,6 +238,24 @@ if(PRAENORA_WITH_ROADRUNNER)
     target_compile_definitions(praenora_contract_tests PRIVATE
         "PRAENORA_TEST_ROADRUNNER_MANIFEST=\"${_praenora_roadrunner_manifest}\"")
     add_dependencies(praenora_contract_tests praenora_provider_roadrunner)
+endif()
+# With the antimony provider (PRAENORA_WITH_ANTIMONY): the service checks of the model conversion
+# service against it, with the models of fixtures/models/antimony and fixtures/models/sbml
+# (contract/model_conversion_service_antimony_test.cpp), and what it does beyond them
+# (contract/antimony_provider_test.cpp). PRAENORA_TEST_ANTIMONY_MANIFEST names its manifest; the
+# versions are those the build's probe had the libraries report (cmake/PraenoraAntimony.cmake).
+if(PRAENORA_WITH_ANTIMONY)
+    target_sources(praenora_contract_tests PRIVATE
+        contract/model_conversion_service_antimony_test.cpp
+        contract/antimony_provider_test.cpp)
+    set(_praenora_antimony_manifest
+        "$<TARGET_PROPERTY:praenora_provider_antimony,PRAENORA_PROVIDER_MANIFEST>")
+    target_compile_definitions(praenora_contract_tests PRIVATE
+        "PRAENORA_TEST_ANTIMONY_MANIFEST=\"${_praenora_antimony_manifest}\""
+        "PRAENORA_TEST_ANTIMONY_VERSION=\"${PRAENORA_ANTIMONY_VERSION}\""
+        "PRAENORA_TEST_ANTIMONY_LIBSBML_VERSION=\"${PRAENORA_ANTIMONY_LIBSBML_VERSION}\""
+        "PRAENORA_TEST_SBMLNETWORK_VERSION=\"${PRAENORA_SBMLNETWORK_VERSION}\"")
+    add_dependencies(praenora_contract_tests praenora_provider_antimony)
 endif()
 
 # Lifecycle tests: call order, cleanup, timeouts and cancellation of module instances, calls into
@@ -258,10 +290,15 @@ add_dependencies(praenora_integration_tests praenora_test_modules praenora_test_
 if(PRAENORA_BUILD_EXAMPLES)
     add_dependencies(praenora_integration_tests praenora_example_modules)
 endif()
-# With the roadrunner provider, the build tree's runtime finds it without a provider path.
+# With the roadrunner provider, the build tree's runtime finds it without a provider path; so it
+# does the antimony provider.
 if(PRAENORA_WITH_ROADRUNNER)
     target_compile_definitions(praenora_integration_tests PRIVATE PRAENORA_TEST_WITH_ROADRUNNER)
     add_dependencies(praenora_integration_tests praenora_provider_roadrunner)
+endif()
+if(PRAENORA_WITH_ANTIMONY)
+    target_compile_definitions(praenora_integration_tests PRIVATE PRAENORA_TEST_WITH_ANTIMONY)
+    add_dependencies(praenora_integration_tests praenora_provider_antimony)
 endif()
 
 # CLI tests (label cli): the praenora tool, run through tests/cli/run_cli.cmake, and that driver

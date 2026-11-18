@@ -29,9 +29,10 @@ holds only the two example modules (`examples/modules/`) and the fixture modules
 
 Service providers are the runtime's own: separately built libraries, shipped with the runtime, that
 bring heavy engines for runtime services, such as the simulation engine behind
-`praenora.simulation@0` ([Service providers](#service-providers)). The repository holds the
-optional provider `roadrunner` (`src/providers/roadrunner/`) and the fixture providers of the tests
-(`tests/fixtures/providers/`).
+`praenora.simulation@0` and the conversion engine behind `praenora.model-conversion@0`
+([Service providers](#service-providers)). The repository holds the optional providers `roadrunner`
+(`src/providers/roadrunner/`) and `antimony` (`src/providers/antimony/`) and the fixture providers
+of the tests (`tests/fixtures/providers/`).
 
 ## Components
 
@@ -84,9 +85,9 @@ Outside the runtime:
 | Directory | Contents |
 |---|---|
 | `include/praenora/runtime/` | The public C++ API. |
-| `include/praenora/sdk/` | The module SDK: `abi.h`, `status.h`, `simulation.h` (the simulation service), `module.hpp`, `testing.hpp`. |
+| `include/praenora/sdk/` | The module SDK: `abi.h`, `status.h`, `simulation.h` (the simulation service), `model_conversion.h` (the model conversion service), `module.hpp`, `testing.hpp`. |
 | `src/sdk/` | The `Praenora::ModuleSDK` target and the generated `version.h`. |
-| `src/providers/` | Service providers built with the runtime: `roadrunner/`, only with `PRAENORA_WITH_ROADRUNNER`. |
+| `src/providers/` | Service providers built with the runtime: `roadrunner/`, only with `PRAENORA_WITH_ROADRUNNER`; `antimony/`, only with `PRAENORA_WITH_ANTIMONY`; `common/`, what providers share (header-only, never installed). |
 | `src/frontend/` | What the CLI and the Python extension share (header-only, internal). |
 | `src/cli/` | The `praenora` tool. |
 | `src/python/`, `python/praenora/runtime/` | The SWIG facade and the pure-Python package. |
@@ -119,7 +120,8 @@ flowchart TB
   function table that `praenora_module_get_api` returns
   ([specs/module-abi.md](specs/module-abi.md)). Service providers are `MODULE` libraries too,
   opened the same way and called only through the table of `praenora_provider_get_api`, the only
-  symbol they export; the roadrunner provider links its engine statically behind that export list.
+  symbol they export; the roadrunner and antimony providers link their engines statically behind
+  that export list.
 
 ## A run, from configuration to outputs
 
@@ -312,7 +314,9 @@ manifest, that brings an engine for one or more runtime services
   manifest declares the service and the service resolved for the run. From then on the module calls
   the table's functions directly, from its worker thread or threads of its own; the runtime is not
   in between. The simulation service's table hands out sessions, plans and kernels, which the
-  provider owns and the module closes ([specs/simulation-service.md](specs/simulation-service.md)).
+  provider owns and the module closes ([specs/simulation-service.md](specs/simulation-service.md));
+  the model conversion service's hands out nothing, and each call translates one source
+  ([specs/model-conversion-service.md](specs/model-conversion-service.md)).
 - **Records.** The run record names each service the run uses, with its provider's identity,
   digests and engine, so the run fingerprint changes when the engine does.
 
@@ -333,9 +337,11 @@ manifest, that brings an engine for one or more runtime services
   module sees a provider's service only when its manifest declares it
   ([Service providers](#service-providers)). The simulation service `praenora.simulation@0`
   ([specs/simulation-service.md](specs/simulation-service.md)) is offered by the optional provider
-  `roadrunner` and, in the tests, by the fixture provider `test-simulation`. Compiling module code
-  through libRoadRunner ([feasibility/libroadrunner.md](feasibility/libroadrunner.md)) and the
-  model conversion service ([feasibility/libantimony.md](feasibility/libantimony.md)) are designs
+  `roadrunner` and, in the tests, by the fixture provider `test-simulation`; the model conversion
+  service `praenora.model-conversion@0`
+  ([specs/model-conversion-service.md](specs/model-conversion-service.md)) by the optional provider
+  `antimony` and, in the tests, by the fixture provider `test-conversion`. Compiling module code
+  through libRoadRunner ([feasibility/libroadrunner.md](feasibility/libroadrunner.md)) is a design
   only.
 
 ## Security

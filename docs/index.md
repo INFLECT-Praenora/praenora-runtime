@@ -38,6 +38,10 @@
 - [specs/simulation-service.md](specs/simulation-service.md): the simulation service
   `praenora.simulation@0`: sessions, simulate, plans and batches, kernels, threading, limits, and
   the service checks.
+- [specs/model-conversion-service.md](specs/model-conversion-service.md): the model conversion
+  service `praenora.model-conversion@0`: describe, convert, its options, rules and report,
+  threading, cancellation, limits, the antimony provider (Antimony and SBML with libAntimony), the
+  test provider and the service checks.
 - [specs/workflow-definitions.md](specs/workflow-definitions.md): workflow definitions and
   capabilities, graph rules, the schedule.
 - [specs/compatibility-policy.md](specs/compatibility-policy.md): versions and the compatibility
@@ -63,12 +67,16 @@
   libRoadRunner: the options compared, upstream facts about libRoadRunner 2.11.0, the alignment
   with `ode-uq-spec`, platforms and licensing, and compiling module code through libRoadRunner
   (level C, future work).
-- [feasibility/libantimony.md](feasibility/libantimony.md): a model conversion service backed by
-  libAntimony.
+- [feasibility/libantimony.md](feasibility/libantimony.md): the model conversion service backed by
+  libAntimony: the options compared, upstream facts about libAntimony 3.3.0 and the libraries it
+  links, what the build corrected in the first design, the alignment with `ode-uq-spec`, platforms
+  and licensing, and future work (hierarchical SBML, CellML, WebAssembly).
 
-The WebAssembly and libAntimony documents are designs only: nothing they propose exists in this
-version. Levels A and B of the simulation service are built
-([specs/simulation-service.md](specs/simulation-service.md)); level C is not.
+The WebAssembly document is a design only: nothing it proposes exists in this version. Levels A and
+B of the simulation service are built ([specs/simulation-service.md](specs/simulation-service.md));
+level C is not. The model conversion service is built
+([specs/model-conversion-service.md](specs/model-conversion-service.md)); the future work of its
+feasibility document is not.
 
 ## Decisions and open questions
 

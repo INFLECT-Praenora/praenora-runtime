@@ -38,9 +38,12 @@ format 0.1 declares none.
   `{name, major, minor}` is satisfied by an offer of the same name and major whose minor is at least
   the required one.
 - A service's own specification states its documents, threading and ownership rules. The public
-  services of this version: `praenora.simulation@0`, simulating models
-  ([simulation-service.md](simulation-service.md)), whose table is declared in the module SDK's
-  [`simulation.h`](../../include/praenora/sdk/simulation.h).
+  services of this version, whose tables are declared in the module SDK:
+  - `praenora.simulation@0`, simulating models ([simulation-service.md](simulation-service.md);
+    [`simulation.h`](../../include/praenora/sdk/simulation.h));
+  - `praenora.model-conversion@0`, translating a model source from one format to another, such as
+    Antimony to SBML ([model-conversion-service.md](model-conversion-service.md);
+    [`model_conversion.h`](../../include/praenora/sdk/model_conversion.h)).
 
 ## Provider manifest
 

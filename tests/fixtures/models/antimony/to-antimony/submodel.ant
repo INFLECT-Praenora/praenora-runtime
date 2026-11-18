@@ -1,0 +1,26 @@
+// Created by libAntimony v3.3.0
+model *pair()
+
+  // Compartments and Species:
+  compartment A_cell, B_cell;
+  species a in A_cell, b in B_cell;
+
+  // Reactions:
+  A_J0: a => ; k_a*a;
+  B_J0: b => ; k_b*b;
+
+  // Species initializations:
+  a = 10;
+  b = 4;
+
+  // Compartment initializations:
+  A_cell = 1;
+  B_cell = 1;
+
+  // Variable initializations:
+  k_a = 0.5;
+  k_b = 1.5;
+
+  // Other declarations:
+  const A_cell, B_cell, k_a, k_b;
+end

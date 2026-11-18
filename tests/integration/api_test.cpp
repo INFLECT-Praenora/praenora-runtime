@@ -26,6 +26,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -1261,6 +1262,25 @@ TEST(Api, TheBuildTreeRuntimeFindsTheRoadrunnerProvider) {
 }
 #endif
 
+#ifdef PRAENORA_TEST_WITH_ANTIMONY
+// The antimony provider (PRAENORA_WITH_ANTIMONY) is there too: listed, and usable, without a
+// provider path.
+TEST(Api, TheBuildTreeRuntimeFindsTheAntimonyProvider) {
+    RuntimeOptions options = provider_path_options({});
+    options.use_environment = false;
+    const std::vector<praenora::ProviderInfo> providers = Runtime(options).list_providers();
+    const auto antimony =
+        std::find_if(providers.begin(), providers.end(),
+                     [](const praenora::ProviderInfo& p) { return p.name == "antimony"; });
+    ASSERT_NE(antimony, providers.end());
+    EXPECT_TRUE(antimony->usable) << antimony->problem;
+    EXPECT_EQ(antimony->services, std::vector<std::string>{"praenora.model-conversion@0.0"});
+    const json engine = json::parse(antimony->engine_json);
+    EXPECT_EQ(engine.at("name"), "libantimony");
+    EXPECT_EQ(engine.at("function_definitions"), "kept");
+}
+#endif
+
 TEST(Api, ListProvidersDescribesEachProvider) {
     const Runtime runtime(provider_path_options({PRAENORA_TEST_PROVIDERS_DIR "/test-echo"}));
     const std::vector<praenora::ProviderInfo> providers = runtime.list_providers();
@@ -1471,6 +1491,185 @@ TEST(Api, RunSimulatesThroughTheSimulationService) {
     const praenora::ModuleCheckReport checks = runtime.check_module(manifest);
     EXPECT_TRUE(checks.passed()) << checks.to_json();
 }
+
+TEST(Api, ConvertingModuleConvertsThroughTheService) {
+    // converting-module requires praenora.model-conversion@0 and can use praenora.simulation@0.
+    // It converts its model, a test-decay-text model by default, to test-decay through the
+    // fixture provider test-conversion, and simulates the converted text through test-simulation,
+    // which opens it as a test-decay model.
+    ScratchDir dir;
+    const std::string file = write_config(
+        dir.path(), "test.single", "run: { ticks: 2, seed: 7 }\n",
+        step("a", "converting-module",
+             "{ simulate: { time_domain: { start: 0, end: 2 }, output: { save_at: explicit_times, "
+             "times: [0, 1, 2], quantities: [total] } } }"),
+        "outputs: { directory: out, trace_messages: true }\n");
+    const std::string manifest = utf8(praenora::test::fixture_manifest("converting-module"));
+
+    const Runtime runtime(provider_path_options({PRAENORA_TEST_PROVIDERS_DIR "/test-conversion",
+                                                 PRAENORA_TEST_PROVIDERS_DIR "/test-simulation"}));
+    praenora::ValidateOptions load;
+    load.load = true;
+    const ValidationReport report = runtime.validate(file, load);
+    EXPECT_TRUE(report.ok()) << report.to_text();
+    const auto workflow = runtime.open(file);
+    const RunSummary summary = workflow->run();
+    ASSERT_EQ(summary.final_state, WorkflowState::completed);
+    EXPECT_EQ(summary.ticks_completed, 2u);
+
+    // The converted text, {"parameters":{"k_x":0.6931471805599453,"k_y":0.0},"states":{"x":8.0,
+    // "y":3.0}}, by its SHA-256 and size; the report; and the exact solution, x(t) = 8 * 2^-t.
+    const json data = json::parse(workflow->latest_outputs_json()).at("result").at("data");
+    EXPECT_EQ(data.at("sha256"), "12ada44092ad2242ca92525e7a5095f08ee1171c0a390a74fbcd4adc0dc63c08")
+        << data.dump();
+    EXPECT_EQ(data.at("bytes"), 78) << data.dump();
+    EXPECT_EQ(data.at("report"), json({{"from", "test-decay-text"},
+                                       {"to", "test-decay"},
+                                       {"module", "main"},
+                                       {"warnings", json::array()}}))
+        << data.dump();
+    const json expected = {{"ok", true},
+                           {"columns", {"time", "x", "y", "total"}},
+                           {"rows", {{0, 8, 3, 11}, {1, 4, 3, 7}, {2, 2, 3, 5}}},
+                           {"solver", {{"method", "analytic"}}}};
+    std::string where;
+    EXPECT_TRUE(praenora::test::json_near(data.at("result"), expected, 1e-12, 0.0, &where))
+        << where << "\n"
+        << data.dump();
+
+    // The run record names both services, each with its provider and engine.
+    const json record = json::parse(workflow->run_record_json());
+    const json& services = record.at("reproducibility").at("services");
+    const json& conversion = services.at("praenora.model-conversion@0");
+    EXPECT_EQ(conversion.at("minor"), 0);
+    EXPECT_EQ(conversion.at("provider").at("name"), "test-conversion");
+    EXPECT_EQ(conversion.at("engine"),
+              json({{"name", "test-conversion-engine"}, {"version", "1.0.0"}}));
+    const json& simulation = services.at("praenora.simulation@0");
+    EXPECT_EQ(simulation.at("provider").at("name"), "test-simulation");
+    EXPECT_EQ(simulation.at("engine"),
+              json({{"name", "test-simulation-engine"}, {"version", "1.0.0"}}));
+    EXPECT_EQ(record.at("reproducibility").at("steps").at("a").at("services"),
+              json({"praenora.model-conversion@0", "praenora.simulation@0"}));
+
+    // The module looks both services up when it is created.
+    const std::string trace = read_text(dir.path() / "out" / "trace" / "messages.jsonl");
+    EXPECT_TRUE(contains(trace, "{\"count\":1,\"major\":0,\"phase\":\"create\",\"provided\":true,"
+                                "\"service\":\"praenora.model-conversion\",\"step\":\"a\","
+                                "\"tick\":null}"))
+        << trace;
+    EXPECT_TRUE(contains(trace, "{\"count\":1,\"major\":0,\"phase\":\"create\",\"provided\":true,"
+                                "\"service\":\"praenora.simulation\",\"step\":\"a\","
+                                "\"tick\":null}"))
+        << trace;
+
+    // The module passes its contract checks, which run its test vectors through both services.
+    const praenora::ModuleCheckReport checks = runtime.check_module(manifest);
+    EXPECT_TRUE(checks.passed()) << checks.to_json();
+}
+
+TEST(Api, ConvertingModuleFailsWhenTheConversionIsRefused) {
+    // A model with an import line: test-conversion refuses it by its rule "import", so
+    // converting-module's initialize fails with the service's error document as its cause. Without
+    // "simulate" the module never asks for the simulation service.
+    ScratchDir dir;
+    const std::string file =
+        write_config(dir.path(), "test.single", "run: { ticks: 1 }\n",
+                     step("a", "converting-module",
+                          "{ model: \"state x 1\\nimport other.txt\\nparameter k_x 0.5\\n\" }"),
+                     "outputs: { directory: out, trace_messages: true }\n");
+    const Runtime runtime(provider_path_options({PRAENORA_TEST_PROVIDERS_DIR "/test-conversion",
+                                                 PRAENORA_TEST_PROVIDERS_DIR "/test-simulation"}));
+    const auto workflow = runtime.open(file);
+    const Error failure = error_of([&] { workflow->run(); });
+    EXPECT_EQ(failure.code(), ErrorCode::STEP_FAILED) << failure.to_json();
+    EXPECT_TRUE(contains(failure.what(), "rule import")) << failure.what();
+    const json details = json::parse(failure.details_json());
+    EXPECT_EQ(details.at("phase"), "initialize") << details.dump();
+    EXPECT_EQ(details.at("module"), "converting-module@0.1.0") << details.dump();
+    const json& cause = details.at("cause");
+    EXPECT_EQ(cause.at("code"), 12) << details.dump(); // DATA_INVALID, the service's status
+    const json& service_error = cause.at("details").at("cause");
+    EXPECT_EQ(service_error.at("details").at("rule"), "import") << details.dump();
+    EXPECT_EQ(service_error.at("details").at("service"), "praenora.model-conversion")
+        << details.dump();
+    EXPECT_EQ(service_error.at("details").at("line"), 2) << details.dump();
+
+    workflow->close();
+    const std::string trace = read_text(dir.path() / "out" / "trace" / "messages.jsonl");
+    EXPECT_TRUE(contains(trace, "\"service\":\"praenora.model-conversion\"")) << trace;
+    EXPECT_FALSE(contains(trace, "\"service\":\"praenora.simulation\"")) << trace;
+}
+
+#if defined(PRAENORA_TEST_WITH_ANTIMONY) && defined(PRAENORA_TEST_WITH_ROADRUNNER)
+TEST(Api, AntimonyModelSimulatesThroughRoadrunner) {
+    // converting-module translates an Antimony model to SBML through the antimony provider and
+    // simulates the SBML through the roadrunner provider, both found where the build tree's runtime
+    // looks for the providers of its installation; each links a libSBML of its own, and both are
+    // loaded in this process. The model: x and y decay on their own, x(t) = 10 exp(-0.5 t) and
+    // y(t) = 4 exp(-1.5 t), in a compartment of size 1; the result's columns are the states.
+    ScratchDir dir;
+    const json parameters = {
+        {"model", read_text(praenora::test::fixture_path("models/antimony/decay.ant"))},
+        {"from", "antimony"},
+        {"to", "sbml"},
+        {"simulate",
+         {{"time_domain", {{"start", 0}, {"end", 2}}},
+          {"output", {{"save_at", "explicit_times"}, {"times", {0, 0.5, 1, 2}}}},
+          {"solver",
+           {{"method", "cvode"},
+            {"stiffness", "nonstiff"},
+            {"relative_tolerance", 1e-12},
+            {"absolute_tolerance", 1e-12}}}}}};
+    const std::string file = write_config(dir.path(), "test.single", "run: { ticks: 1 }\n",
+                                          step("a", "converting-module", parameters.dump()));
+    const Runtime runtime(provider_path_options({}));
+    praenora::ValidateOptions load;
+    load.load = true;
+    const ValidationReport report = runtime.validate(file, load);
+    EXPECT_TRUE(report.ok()) << report.to_text();
+    const auto workflow = runtime.open(file);
+    ASSERT_EQ(workflow->run().final_state, WorkflowState::completed);
+
+    const json data = json::parse(workflow->latest_outputs_json()).at("result").at("data");
+    EXPECT_EQ(data.at("report"), json({{"from", "antimony"},
+                                       {"to", "sbml"},
+                                       {"module", "decay"},
+                                       {"warnings", json::array()}}))
+        << data.dump();
+    const json& result = data.at("result");
+    ASSERT_EQ(result.at("ok"), true) << result.dump();
+    EXPECT_EQ(result.at("columns"), json({"time", "x", "y"})) << result.dump();
+    json expected = json::array();
+    for (const double t : {0.0, 0.5, 1.0, 2.0}) {
+        expected.push_back({t, 10.0 * std::exp(-0.5 * t), 4.0 * std::exp(-1.5 * t)});
+    }
+    std::string where;
+    EXPECT_TRUE(praenora::test::json_near(result.at("rows"), expected, 1e-9, 0.0, &where))
+        << where << "\n"
+        << result.dump();
+
+    // The run record names both services, each with its provider and engine.
+    const json services =
+        json::parse(workflow->run_record_json()).at("reproducibility").at("services");
+    const json& conversion = services.at("praenora.model-conversion@0");
+    EXPECT_EQ(conversion.at("provider").at("name"), "antimony");
+    EXPECT_EQ(conversion.at("engine").at("name"), "libantimony");
+    EXPECT_EQ(conversion.at("engine").at("function_definitions"), "kept");
+    const json& simulation = services.at("praenora.simulation@0");
+    EXPECT_EQ(simulation.at("provider").at("name"), "roadrunner");
+    EXPECT_EQ(simulation.at("engine").at("name"), "libroadrunner");
+    // Each engine object is its provider's, as the listing reports it.
+    for (const praenora::ProviderInfo& provider : runtime.list_providers()) {
+        if (provider.name == "antimony") {
+            EXPECT_EQ(conversion.at("engine"), json::parse(provider.engine_json));
+        }
+        if (provider.name == "roadrunner") {
+            EXPECT_EQ(simulation.at("engine"), json::parse(provider.engine_json));
+        }
+    }
+}
+#endif
 
 // The files that a failed run writes for others to read, the run record and the status file, name
 // the directories the run knows by placeholders in their error records, while what stays in the
