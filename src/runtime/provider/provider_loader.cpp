@@ -17,7 +17,6 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstring>
-#include <limits>
 #include <system_error>
 
 namespace praenora::detail {
@@ -95,15 +94,6 @@ json cause_of(praenora_status status, const std::string& text) {
         cause["message"] = "";
     }
     return cause;
-}
-
-// An unsigned integer of a describe() document that fits in 32 bits, or nullopt.
-std::optional<std::uint32_t> uint32_of(const json& value) {
-    if (!value.is_number_unsigned() ||
-        value.get<std::uint64_t>() > std::numeric_limits<std::uint32_t>::max()) {
-        return std::nullopt;
-    }
-    return static_cast<std::uint32_t>(value.get<std::uint64_t>());
 }
 
 json services_json(std::vector<ServiceVersion> services) {

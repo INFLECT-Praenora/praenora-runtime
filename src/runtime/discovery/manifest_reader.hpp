@@ -47,7 +47,8 @@ public:
     const std::string& string_at(const std::string& pointer) const;
     // The semantic version at `pointer`; MANIFEST_INVALID when the text is not a usable one.
     SemVer version_at(const std::string& pointer) const;
-    // The integer at `pointer`; MANIFEST_INVALID when it does not fit in 32 bits.
+    // The integer at `pointer`, read by its value (uint32_of(): a -0 is 0); MANIFEST_INVALID when
+    // it does not fit in 32 bits.
     std::uint32_t uint32_at(const std::string& pointer) const;
     // The path at `pointer`, resolved against `directory` and lexically normal. MANIFEST_INVALID
     // when it is absolute in POSIX or in Windows notation (a manifest may be read on any

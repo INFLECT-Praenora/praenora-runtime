@@ -204,6 +204,24 @@ TEST(ModuleCheck, DescribeIdentityNamesTheVersionsItCompares) {
                                 ", PMP " PRAENORA_PMP_VERSION_STRING ", 1 capability");
 }
 
+TEST(ModuleCheck, NegativeZeroAbiInDescribePassesDescribeIdentity) {
+    // describe() writes the ABI 0.0 as -0 and -0, which are 0 and 0.
+    const Runtime runtime(check_options());
+    const ModuleCheckReport report =
+        runtime.check_module(utf8(fixture_manifest("fx-negative-zero-abi")));
+    EXPECT_EQ(ids_of(report), kCheckIds);
+    const auto statuses = statuses_of(report);
+    for (const char* id : {"manifest.schema", "manifest.semantics", "library.digest",
+                           "library.load", "library.entry_point", "api.header",
+                           "api.required_functions", "describe.schema", "describe.identity"}) {
+        EXPECT_EQ(statuses.at(id), "pass") << id << "\n" << shown(report);
+    }
+    EXPECT_EQ(check_of(report, "describe.identity").message,
+              "describe() agrees with the manifest: fx-negative-zero-abi@0.1.0, ABI 0.0, "
+              "SDK " PRAENORA_SDK_VERSION_STRING ", PMP " PRAENORA_PMP_VERSION_STRING
+              ", 1 capability");
+}
+
 TEST(ModuleCheck, SdkVersionMismatchFailsDescribeIdentity) {
     // The manifest a module had before its library was rebuilt against another SDK.
     const ScratchDir dir;

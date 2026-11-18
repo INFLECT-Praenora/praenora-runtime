@@ -6,8 +6,10 @@
  * runtime, the library is not. Built a third time as fx-pmp-overflow (FX_PMP_OVERFLOW), whose
  * describe() reports PMP version 0.99999999999999999999.0: the pmp-describe schema's pattern
  * accepts it, but its minor number does not fit in 64 bits, so the host cannot compare it with the
- * manifest. The other two report ABI 0.0, as their manifests do. The other functions are those of
- * fx-minimal-c. C99. */
+ * manifest. Built a fourth time as fx-negative-zero-abi (FX_NEGATIVE_ZERO_ABI), whose describe()
+ * writes ABI major and minor as -0, which the pmp-describe schema accepts as the integer 0, and the
+ * PMP version of the SDK: it agrees with its generated manifest, so it loads. The other three
+ * report ABI 0.0, as their manifests do. The other functions are those of fx-minimal-c. C99. */
 #include "../common/c_fixture.h"
 
 #if defined(FX_NEWER_PMP)
@@ -16,6 +18,9 @@
 #elif defined(FX_PMP_OVERFLOW)
 #define FX_ABI_MINOR 0
 #define FX_PMP_VERSION "0.99999999999999999999.0"
+#elif defined(FX_NEGATIVE_ZERO_ABI)
+#define FX_ABI_MINOR 0
+#define FX_PMP_VERSION PRAENORA_PMP_VERSION_STRING
 #else
 #define FX_ABI_MINOR 7
 #define FX_PMP_VERSION "0.1.0-rc.1"
@@ -24,8 +29,18 @@
 #define FX_TEXT(value) #value
 #define FX_DIGITS(value) FX_TEXT(value)
 
-static const char describe_json[] = C_FIXTURE_DESCRIBE_JSON_VERSIONS(
-    PRAENORA_MODULE_VERSION, FX_DIGITS(FX_ABI_MINOR), PRAENORA_SDK_VERSION_STRING, FX_PMP_VERSION);
+/* The ABI as describe() writes it. */
+#if defined(FX_NEGATIVE_ZERO_ABI)
+#define FX_ABI_MAJOR_TEXT "-0"
+#define FX_ABI_MINOR_TEXT "-0"
+#else
+#define FX_ABI_MAJOR_TEXT "0"
+#define FX_ABI_MINOR_TEXT FX_DIGITS(FX_ABI_MINOR)
+#endif
+
+static const char describe_json[] =
+    C_FIXTURE_DESCRIBE_JSON_ABI(PRAENORA_MODULE_VERSION, FX_ABI_MAJOR_TEXT, FX_ABI_MINOR_TEXT,
+                                PRAENORA_SDK_VERSION_STRING, FX_PMP_VERSION);
 
 static praenora_status PRAENORA_CALL describe(praenora_sink* out_json) {
     return c_fixture_write(out_json, describe_json, sizeof describe_json - 1);

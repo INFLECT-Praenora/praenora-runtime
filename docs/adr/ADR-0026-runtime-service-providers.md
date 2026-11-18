@@ -65,6 +65,12 @@ requirements. Several forces shape where such an engine lives:
   "provider manifest <file>: ". The reader's checks after the schema are: `provider.version` and
   `runtime_version` usable semantic versions, `abi` in 32 bits, `library.path` relative, then each
   service's major and minor in 32 bits and its name and major not listed before.
+- Later: every integer of a provider manifest, and each service's major and minor in a provider's
+  `describe()`, is read by its value, so one written `-0`, which JSON allows and the schema accepts
+  as an integer, is 0
+  ([ADR-0036](ADR-0036-describe-and-manifest-agree-on-every-field-they-share.md), builder notes).
+  The fixture provider `test-negative-zero` writes its service's major and minor as `-0` in its
+  `describe()` and loads.
 - The provider manifest schema accepts only `name` and `version` in `provider` and only `path` and
   `sha256` in `library`: a provider has no informational fields and no `dependency_paths` in format
   0.1; providers find their own dependencies through run paths.

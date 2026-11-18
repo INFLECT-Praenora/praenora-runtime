@@ -46,6 +46,7 @@ Proposed details (see [docs/specs/manifest.md](../specs/manifest.md)):
 - `features.cancellation` is read and kept but changes nothing: the runtime requests cancellation the same way from every module (`cancel_requested()`), and a module that never polls simply runs into its deadline. `features.diagnostics` decides whether a failure's details include the instance's `diagnostics()` output (ADR-0011), and `features.self_test` whether the contract checks require a `self_test()` function (ADR-0024).
 - Later: [ADR-0033](ADR-0033-describe-and-manifest-agree-on-the-sdk-version.md) adds `sdk_version` to the identity check, compared by SemVer precedence like `version`: a `describe()` that reports another SDK version than the manifest is `MODULE_IDENTITY_MISMATCH`. `abi.minor` and `pmp_version` are still not compared.
 - Later: [ADR-0036](ADR-0036-describe-and-manifest-agree-on-every-field-they-share.md) supersedes ADR-0033 and makes the identity check compare every field the two documents share: `abi.minor` as well, and `pmp_version` by SemVer precedence, so the compatibility decided from the manifest holds for the library (`MODULE_IDENTITY_MISMATCH`).
+- Later: every integer of a manifest is read by its value, so an `abi.major`, `abi.minor` or `requires.services[]` major or minor written `-0`, which JSON allows and the schema accepts as an integer, is 0; `describe()`'s `abi` is compared the same way ([ADR-0036](ADR-0036-describe-and-manifest-agree-on-every-field-they-share.md), builder notes).
 
 ## Alternatives considered
 

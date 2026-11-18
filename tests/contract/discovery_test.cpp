@@ -180,6 +180,18 @@ TEST(Manifest, ReadsTheServicesItRequires) {
     }
 }
 
+// JSON's -0 is the integer 0, and the schema accepts it as one: every integer of a manifest is read
+// by its value.
+TEST(Manifest, ReadsIntegersWrittenNegativeZeroAsZero) {
+    const ModuleManifest manifest = load_manifest(
+        praenora::test::fixture_path("documents/valid/module-manifest/negative-zero.pmm.json"));
+    EXPECT_EQ(manifest.abi_major, 0u);
+    EXPECT_EQ(manifest.abi_minor, 0u);
+    ASSERT_EQ(manifest.service_requirements.size(), 1u);
+    EXPECT_EQ(praenora::detail::to_string(manifest.service_requirements[0].service),
+              "test.echo@0.0");
+}
+
 TEST(Discovery, SearchOrderExplicitBeforeEnvironment) {
     const fs::path primary = layout("primary");
     const fs::path secondary = layout("secondary");

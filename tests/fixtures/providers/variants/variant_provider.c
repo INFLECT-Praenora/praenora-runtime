@@ -1,6 +1,6 @@
 /* Fixture providers built from one source, each chosen by one definition or none. Every one but
- * FIXTURE_REORDERED and those without a definition breaks one rule of the provider interface on
- * purpose:
+ * FIXTURE_REORDERED, FIXTURE_NEGATIVE_ZERO and those without a definition breaks one rule of the
+ * provider interface on purpose:
  *
  *   FIXTURE_NULL_TABLE         the entry point returns NULL
  *   FIXTURE_TABLE_ABI_MAJOR    the table's header reports provider interface major 1
@@ -12,6 +12,8 @@
  *   FIXTURE_START_FAILS        start() fails with an error document that counts its calls
  *   FIXTURE_MISSING_SERVICE    get_service() returns NULL for test.absent, which it offers
  *   FIXTURE_REORDERED          correct; describe() lists its services in reverse order
+ *   FIXTURE_NEGATIVE_ZERO      correct; describe() writes its service's major and minor as -0,
+ *                              which is the integer 0
  *   (none)                     correct
  *
  * Otherwise get_service() returns a table that is only a header for every service. A start() that
@@ -46,6 +48,15 @@ static praenora_status PRAENORA_CALL describe(praenora_sink* out_json) {
                   "\"version\":\"" PRAENORA_PROVIDER_VERSION "\","
                   "\"services\":[{\"minor\":2,\"major\":1,\"name\":\"test.other\"},"
                   "{\"name\":\"test.echo\",\"major\":0,\"minor\":0}],"
+                  "\"engine\":" PRAENORA_PROVIDER_ENGINE "}");
+}
+#elif defined(FIXTURE_NEGATIVE_ZERO)
+/* The manifest lists test.echo@0.0. */
+static praenora_status PRAENORA_CALL describe(praenora_sink* out_json) {
+    return provider_fixture_write(
+        out_json, "{\"name\":\"" PRAENORA_PROVIDER_NAME "\","
+                  "\"version\":\"" PRAENORA_PROVIDER_VERSION "\","
+                  "\"services\":[{\"name\":\"test.echo\",\"major\":-0,\"minor\":-0}],"
                   "\"engine\":" PRAENORA_PROVIDER_ENGINE "}");
 }
 #else

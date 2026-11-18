@@ -369,6 +369,20 @@ TEST(ProviderLoader, ADescribeThatDisagreesWithTheManifestIsRefused) {
     EXPECT_TRUE(contains(not_json.what(), "describe()")) << not_json.what();
 }
 
+// JSON's -0 is the integer 0: a describe() that writes its service's major and minor as -0 agrees
+// with a manifest that names test.echo@0.0.
+TEST(ProviderLoader, ADescribeThatWritesNegativeZeroIsAccepted) {
+    const Error error = load_failure(fixture("test-negative-zero"));
+    ASSERT_EQ(error.code(), ErrorCode::OK) << error.to_json();
+    const LoadedProvider* provider = loaded_provider("test-negative-zero");
+    ASSERT_NE(provider, nullptr);
+    // nlohmann/json keeps a -0 as a signed integer, which prints as 0.
+    const json service = provider->describe().at("services").at(0);
+    EXPECT_FALSE(service.at("major").is_number_unsigned());
+    EXPECT_FALSE(service.at("minor").is_number_unsigned());
+    EXPECT_EQ(service.dump(), R"({"major":0,"minor":0,"name":"test.echo"})");
+}
+
 TEST(ProviderLoader, AManifestThatDisagreesWithALoadedProviderIsRefused) {
     const ProviderManifest echo = fixture("test-echo");
     static_cast<void>(load_provider(echo, {kEcho}, std::nullopt, nullptr));

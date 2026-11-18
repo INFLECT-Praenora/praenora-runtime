@@ -13,6 +13,7 @@
 #include <nlohmann/json.hpp>
 
 #include <chrono>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <optional>
@@ -631,6 +632,21 @@ TEST(Json, ParseErrorHasLineAndColumn) {
 TEST(Json, PointerEscaping) {
     EXPECT_EQ(detail::json_pointer_escape("a/b~c"), "a~1b~0c");
     EXPECT_EQ(detail::json_pointer_escape("plain"), "plain");
+}
+
+// An integer is read by its value, however nlohmann/json stores it: -0 is a signed integer, and
+// so is a value assigned from a signed type.
+TEST(Json, Uint32OfReadsIntegersByValue) {
+    EXPECT_EQ(detail::uint32_of(json::parse("0")), std::optional<std::uint32_t>(0));
+    EXPECT_EQ(detail::uint32_of(json::parse("-0")), std::optional<std::uint32_t>(0));
+    EXPECT_EQ(detail::uint32_of(json::parse("7")), std::optional<std::uint32_t>(7));
+    EXPECT_EQ(detail::uint32_of(json::parse("4294967295")),
+              std::optional<std::uint32_t>(4294967295U));
+    EXPECT_EQ(detail::uint32_of(json(std::int64_t{7})), std::optional<std::uint32_t>(7));
+    for (const char* text : {"4294967296", "-1", "0.0", "-0.0", "1e0", "\"0\"", "null", "true"}) {
+        EXPECT_EQ(detail::uint32_of(json::parse(text)), std::nullopt) << text;
+    }
+    EXPECT_EQ(detail::uint32_of(json(std::int64_t{4294967296})), std::nullopt);
 }
 
 TEST(NestingScan, QuoteInsidePlainScalarIsText) {

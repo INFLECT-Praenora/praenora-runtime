@@ -167,6 +167,17 @@ TEST(ProviderManifest, GeneratedFixtureManifestsAreValid) {
     EXPECT_GE(count, 11);
 }
 
+// JSON's -0 is the integer 0, and the schema accepts it as one: every integer of a provider
+// manifest is read by its value.
+TEST(ProviderManifest, ReadsIntegersWrittenNegativeZeroAsZero) {
+    const ProviderManifest manifest = load_provider_manifest(praenora::test::fixture_path(
+        "documents/valid/provider-manifest/negative-zero.provider.json"));
+    EXPECT_EQ(manifest.abi_major, 0u);
+    EXPECT_EQ(manifest.abi_minor, 0u);
+    ASSERT_EQ(manifest.services.size(), 1u);
+    EXPECT_EQ(praenora::detail::to_string(manifest.services[0]), "test.echo@0.0");
+}
+
 TEST(ProviderDiscovery, SearchOrderExplicitThenEnvironmentThenInstallation) {
     const ScratchDir scratch;
     const fs::path first = scratch.path() / "first";

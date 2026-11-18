@@ -30,6 +30,11 @@ nlohmann::json parse_json_text(std::string_view text, std::string_view origin);
 // Escapes one JSON-pointer reference token: "~" becomes "~0" and "/" becomes "~1".
 std::string json_pointer_escape(std::string_view token);
 
+// The value of a JSON integer from 0 to 4294967295, or nullopt for any other value. An integer is
+// read by its value, whether nlohmann/json stores it unsigned or signed: it keeps a -0, which JSON
+// Schema's "integer" with "minimum": 0 accepts, as the signed integer 0.
+std::optional<std::uint32_t> uint32_of(const nlohmann::json& value);
+
 bool is_valid_utf8(std::string_view text);
 
 // `text` with each part that is not valid UTF-8 replaced by U+FFFD, as nlohmann/json's serializer

@@ -105,6 +105,9 @@ manifest's file, at the line, column and JSON pointer of the problem where there
 | 6 | `library.path` is relative. | `MANIFEST_INVALID` |
 | 7 | Service by service, in order: its major and minor fit in 32 bits, and its name and major are not listed before. | `MANIFEST_INVALID` |
 
+An integer is read by its value (checks 5 and 7): one written `-0`, which JSON allows and the schema
+accepts as an integer, is 0.
+
 The manifest's SHA-256 is the digest of exactly the bytes read.
 
 ## Provider interface
@@ -314,7 +317,7 @@ The checks, in order:
 | 4 | Otherwise: the library loads, with `dlopen(RTLD_NOW \| RTLD_LOCAL)` or `LoadLibraryExW()` as module libraries do ([module-abi.md](module-abi.md#loading-and-table-acceptance)). From here on it is never unloaded, whatever fails later. | `LIBRARY_LOAD_FAILED`, reason `library`, with the operating system's text |
 | 5 | It exports `praenora_provider_get_api`. | `ENTRY_POINT_MISSING` |
 | 6 | The entry point returns a table whose header reports provider interface major 0, `reserved` 0 and a `struct_size` that covers the v0 table, and none of whose functions is NULL. | `API_TABLE_INVALID` |
-| 7 | `describe()` succeeds and writes a provider identity that equals the manifest in name, version (SemVer equality), services (as a set) and engine (JSON equality). | `LIBRARY_LOAD_FAILED`, reason `identity`, `details.differences` `[{"field", "manifest", "describe"}]` |
+| 7 | `describe()` succeeds and writes a provider identity that equals the manifest in name, version (SemVer equality), services (as a set, majors and minors as integers: a `-0` is 0) and engine (JSON equality). | `LIBRARY_LOAD_FAILED`, reason `identity`, `details.differences` `[{"field", "manifest", "describe"}]` |
 | 8 | `start()` succeeds. It is called once in the process: a failure is kept, and every later load of the provider reports it again without calling `start()`. | `LIBRARY_LOAD_FAILED`, reason `start`, the provider's error document as `details.cause` |
 | 9 | For every load: `get_service()` returns a table for each service the load needs. | `LIBRARY_LOAD_FAILED`, reason `service`, `details.services` `["<name>@<major>", ...]`, at the first one's `/services/<i>` |
 

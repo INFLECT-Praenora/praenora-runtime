@@ -59,8 +59,15 @@ C++ adapter's `describe()` reports the same SDK's `PRAENORA_ABI_MINOR` and
 
 ### Builder notes (Proposed)
 
-- `abi.minor` is compared as `abi.major` is: a value in `describe()` that is not an unsigned integer
-  equal to the manifest's differs, and the difference shows the value as the host read it.
+- `abi.minor` is compared as `abi.major` is, as an integer by its value: a `describe()` that writes
+  `-0`, which JSON allows and the `pmp-describe` schema accepts as an integer (nlohmann/json keeps
+  it as the signed integer 0), reports 0. A value that is not an integer from 0 to 4294967295 equal
+  to the manifest's differs, and the difference shows the value as the host read it, so a `-0`
+  shows as `0`. The schemas cannot refuse `-0` instead: JSON Schema compares numbers by value, so a
+  rule against `-0` refuses 0 too. Every integer the runtime reads from a manifest or a
+  `describe()` is read the same way, through `uint32_of()` (`src/runtime/document/json_util.hpp`):
+  the ABI and the service versions of module and provider manifests, and the service versions of a
+  provider's `describe()`.
 - The table header's `abi_minor` is not compared with either document.
 - Every example module and every fixture module except `fx-other-protocol`, `fx-newer-pmp` and
   `fx-pmp-overflow` reports the ABI minor and the PMP version of the SDK it is built with, in both
@@ -72,7 +79,9 @@ C++ adapter's `describe()` reports the same SDK's `PRAENORA_ABI_MINOR` and
   version play no part when they are compatible. `fx-newer-pmp`, built from the same source,
   reports PMP 0.2.0 beside its generated manifest's 0.1.0: the manifest passes the compatibility
   rules and the library is refused. `fx-pmp-overflow` reports a PMP version whose minor number does
-  not fit in 64 bits and is refused. `c_fixture.h` gains `C_FIXTURE_DESCRIBE_JSON_VERSIONS()`.
+  not fit in 64 bits and is refused. `fx-negative-zero-abi`, from the same source, writes its ABI
+  0.0 as `-0` and `-0` in its `describe()`, beside its generated manifest's 0.0, and loads.
+  `c_fixture.h` gains `C_FIXTURE_DESCRIBE_JSON_VERSIONS()` and `C_FIXTURE_DESCRIBE_JSON_ABI()`.
 - The loader tests give `fx-echo` a manifest that names ABI minor 7, PMP 0.1.0-rc.1 (refused) and
   PMP 0.1.0 with build metadata (accepted), and pin the order of all seven fields; the contract
   checks get a copy of `fx-echo` whose manifest names ABI minor 7, and `fx-newer-pmp`.

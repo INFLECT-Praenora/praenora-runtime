@@ -3,10 +3,10 @@
 # ${PRAENORA_TEST_MODULES_DIR}/<name>/ (the library and its generated <name>.pmm.json), and
 # declares the test capability test.echo@0.1.0 (fx-fail also test.quiet@0.1.0, whose output is
 # optional). The C fixtures are C99; common/c_fixture.c holds the functions they share.
-# fx-minimal-c, fx-self-test, fx-other-sdk and fx-other-protocol are correct modules,
-# fx-create-fail fails create() and fx-self-test-fails its self-test on purpose, and the other C
-# fixtures each break one ABI or describe() rule on purpose. The others use the C++ adapter. All
-# are compiled with the project's warnings.
+# fx-minimal-c, fx-self-test, fx-other-sdk, fx-other-protocol and fx-negative-zero-abi are correct
+# modules, fx-create-fail fails create() and fx-self-test-fails its self-test on purpose, and the
+# other C fixtures each break one ABI or describe() rule on purpose. The others use the C++
+# adapter. All are compiled with the project's warnings.
 
 # praenora_add_fixture_module(<name> SOURCES <source>... [LINK_LIBRARIES <library>...]
 #                             [CAPABILITIES <id@version>...] [TEST_VECTORS <file>]
@@ -80,7 +80,7 @@ praenora_add_fixture_module(fx-sdk-overflow SOURCES fx-other-sdk/fx_other_sdk.c 
 target_compile_definitions(fx_sdk_overflow PRIVATE FX_SDK_OVERFLOW)
 # describe() and the manifest report another ABI minor and PMP version than the SDK's; one source,
 # the second built to report a newer PMP version than its manifest, the third one that cannot be
-# compared.
+# compared, the fourth to write its ABI 0.0 as -0 and -0 in describe().
 praenora_add_fixture_module(fx-other-protocol
     SOURCES fx-other-protocol/fx_other_protocol.c ${c_fixture})
 praenora_add_fixture_module(fx-newer-pmp SOURCES fx-other-protocol/fx_other_protocol.c ${c_fixture})
@@ -88,6 +88,9 @@ target_compile_definitions(fx_newer_pmp PRIVATE FX_NEWER_PMP)
 praenora_add_fixture_module(fx-pmp-overflow
     SOURCES fx-other-protocol/fx_other_protocol.c ${c_fixture})
 target_compile_definitions(fx_pmp_overflow PRIVATE FX_PMP_OVERFLOW)
+praenora_add_fixture_module(fx-negative-zero-abi
+    SOURCES fx-other-protocol/fx_other_protocol.c ${c_fixture})
+target_compile_definitions(fx_negative_zero_abi PRIVATE FX_NEGATIVE_ZERO_ABI)
 # Correct modules with self_test; one source, the second built to report a failure.
 praenora_add_fixture_module(fx-self-test SOURCES fx-self-test/fx_self_test.c ${c_fixture})
 praenora_add_fixture_module(fx-self-test-fails SOURCES fx-self-test/fx_self_test.c ${c_fixture})

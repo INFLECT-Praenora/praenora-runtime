@@ -1,12 +1,13 @@
 /* The ABI v0 functions shared by the C fixture modules.
  *
  * Each C fixture defines its own function table and entry point from these functions.
- * fx-minimal-c, fx-self-test, fx-other-sdk and fx-other-protocol are correct modules;
- * fx-create-fail and fx-self-test-fails break no ABI rule but fail create() and self_test() on
- * purpose; every other C fixture breaks one ABI or describe() rule on purpose. The identity comes
- * from the PRAENORA_MODULE_NAME, PRAENORA_MODULE_VERSION and PRAENORA_MODULE_CAPABILITIES
- * definitions of praenora_add_module(). The fixtures implement ABI 0.0 (fx-other-protocol reports
- * it as 0.7). C99. */
+ * fx-minimal-c, fx-self-test, fx-other-sdk, fx-other-protocol and fx-negative-zero-abi are correct
+ * modules; fx-create-fail and fx-self-test-fails break no ABI rule but fail create() and
+ * self_test() on purpose; every other C fixture breaks one ABI or describe() rule on purpose. The
+ * identity comes from the PRAENORA_MODULE_NAME, PRAENORA_MODULE_VERSION and
+ * PRAENORA_MODULE_CAPABILITIES definitions of praenora_add_module(). The fixtures implement ABI 0.0
+ * (fx-other-protocol reports it as 0.7, and fx-negative-zero-abi writes its major and minor as -0
+ * in describe()). C99. */
 #ifndef PRAENORA_FIXTURES_C_FIXTURE_H
 #define PRAENORA_FIXTURES_C_FIXTURE_H
 
@@ -20,14 +21,19 @@
 #error "the C fixtures report ABI 0.0, but the SDK's ABI version is another; update them"
 #endif
 
-/* The describe() document of a fixture reporting `version`, ABI 0.`abi_minor` (its digits), SDK
- * version `sdk` and PMP version `pmp`, as one string literal. */
-#define C_FIXTURE_DESCRIBE_JSON_VERSIONS(version, abi_minor, sdk, pmp)                             \
+/* The describe() document of a fixture reporting `version`, ABI `abi_major`.`abi_minor` (each as
+ * the text of a JSON number), SDK version `sdk` and PMP version `pmp`, as one string literal. */
+#define C_FIXTURE_DESCRIBE_JSON_ABI(version, abi_major, abi_minor, sdk, pmp)                       \
     "{\"name\":\"" PRAENORA_MODULE_NAME "\",\"version\":\"" version "\","                          \
-    "\"abi\":{\"major\":0,\"minor\":" abi_minor "},"                                               \
+    "\"abi\":{\"major\":" abi_major ",\"minor\":" abi_minor "},"                                   \
     "\"sdk_version\":\"" sdk "\","                                                                 \
     "\"pmp_version\":\"" pmp "\","                                                                 \
     "\"capabilities\":" PRAENORA_MODULE_CAPABILITIES "}"
+
+/* The describe() document of a fixture reporting `version`, ABI 0.`abi_minor` (its digits), SDK
+ * version `sdk` and PMP version `pmp`, as one string literal. */
+#define C_FIXTURE_DESCRIBE_JSON_VERSIONS(version, abi_minor, sdk, pmp)                             \
+    C_FIXTURE_DESCRIBE_JSON_ABI(version, "0", abi_minor, sdk, pmp)
 
 /* The describe() document of a fixture reporting `version` and SDK version `sdk`, with ABI 0.0 and
  * the PMP version of the SDK it is built with. */

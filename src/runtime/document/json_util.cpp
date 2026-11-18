@@ -3,6 +3,7 @@
 #include <praenora/runtime/error.hpp>
 
 #include <algorithm>
+#include <limits>
 #include <vector>
 
 namespace praenora::detail {
@@ -81,6 +82,22 @@ std::string json_pointer_escape(std::string_view token) {
         }
     }
     return escaped;
+}
+
+std::optional<std::uint32_t> uint32_of(const nlohmann::json& value) {
+    constexpr auto kMax = std::numeric_limits<std::uint32_t>::max();
+    if (value.is_number_unsigned()) {
+        const auto number = value.get<std::uint64_t>();
+        if (number <= kMax) {
+            return static_cast<std::uint32_t>(number);
+        }
+    } else if (value.is_number_integer()) {
+        const auto number = value.get<std::int64_t>();
+        if (number >= 0 && number <= std::int64_t{kMax}) {
+            return static_cast<std::uint32_t>(number);
+        }
+    }
+    return std::nullopt;
 }
 
 bool is_valid_utf8(std::string_view text) {

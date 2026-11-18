@@ -430,6 +430,28 @@ TEST(Loader, RejectsUnusableDescribePmpVersion) {
         << failure.message;
 }
 
+// JSON's -0 is the integer 0, and the pmp-describe schema accepts it as one: a describe() that
+// writes the ABI 0.0 as -0 and -0 agrees with a manifest that names 0.0.
+TEST(Loader, ReadsAnAbiWrittenNegativeZeroAsZero) {
+    ModuleManifest manifest = load_manifest(fixture_manifest("fx-negative-zero-abi"));
+    const auto failure = load_failure(manifest);
+    ASSERT_EQ(failure.code, ErrorCode::OK) << failure.message;
+    // nlohmann/json keeps a -0 as a signed integer, which prints as 0.
+    const nlohmann::json abi = LoadedModule::load(manifest)->describe().at("abi");
+    EXPECT_FALSE(abi.at("major").is_number_unsigned());
+    EXPECT_FALSE(abi.at("minor").is_number_unsigned());
+    EXPECT_EQ(abi.dump(), R"({"major":0,"minor":0})");
+
+    // Another value still differs, and the difference names that field only.
+    manifest.abi_minor = 7;
+    const auto mismatch = load_failure(manifest);
+    EXPECT_EQ(mismatch.code, ErrorCode::MODULE_IDENTITY_MISMATCH) << mismatch.message;
+    EXPECT_TRUE(contains(mismatch.message, "describe() disagrees with the manifest: abi.minor "
+                                           "(manifest 7, describe() 0)"))
+        << mismatch.message;
+    EXPECT_FALSE(contains(mismatch.message, "abi.major")) << mismatch.message;
+}
+
 // Every differing field is named, in the order of the describe() document's fields.
 TEST(Loader, NamesDifferencesInTheOrderOfTheDescribeDocument) {
     ModuleManifest manifest = load_manifest(fixture_manifest("fx-echo"));

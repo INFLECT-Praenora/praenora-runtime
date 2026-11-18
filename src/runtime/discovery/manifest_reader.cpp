@@ -1,6 +1,7 @@
 #include "discovery/manifest_reader.hpp"
 
 #include "core/paths.hpp"
+#include "document/json_util.hpp"
 #include "document/schema_registry.hpp"
 
 #include <limits>
@@ -76,14 +77,13 @@ SemVer ManifestReader::version_at(const std::string& pointer) const {
 }
 
 std::uint32_t ManifestReader::uint32_at(const std::string& pointer) const {
-    const auto& value = json().at(nlohmann::json::json_pointer(pointer));
-    if (!value.is_number_unsigned() ||
-        value.get<std::uint64_t>() > std::numeric_limits<std::uint32_t>::max()) {
+    const auto value = uint32_of(json().at(nlohmann::json::json_pointer(pointer)));
+    if (!value) {
         fail(ErrorCode::MANIFEST_INVALID, pointer,
              "must be an integer from 0 to " +
                  std::to_string(std::numeric_limits<std::uint32_t>::max()));
     }
-    return static_cast<std::uint32_t>(value.get<std::uint64_t>());
+    return *value;
 }
 
 fs::path ManifestReader::relative_path_at(const std::string& pointer, const fs::path& directory,

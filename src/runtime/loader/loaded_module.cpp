@@ -163,9 +163,11 @@ void check_identity(const ModuleManifest& manifest, const nlohmann::json& descri
     if (version != manifest.version) {
         differ("version", to_string(manifest.version), to_string(version));
     }
+    // By value: a describe() that writes -0 reports 0. A value that is not an integer from 0 to
+    // 4294967295 differs from every manifest's.
     const auto differ_abi = [&](const char* field, const nlohmann::json& in_describe,
                                 std::uint32_t in_manifest) {
-        if (!in_describe.is_number_unsigned() || in_describe.get<std::uint64_t>() != in_manifest) {
+        if (uint32_of(in_describe) != in_manifest) {
             differ(field, std::to_string(in_manifest), in_describe.dump());
         }
     };

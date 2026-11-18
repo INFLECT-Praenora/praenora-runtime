@@ -8,9 +8,10 @@
 # (include/praenora/sdk/model_conversion.h) for the toy formats "test-decay" and "test-decay-text";
 # its service checks (tests/contract/model_conversion_service_checks.hpp) run against it. The others
 # are built from variants/variant_provider.c: those with a FIXTURE_* definition, all but
-# test-reordered, break one rule of the provider interface on purpose; test-conflict, test-retry and
-# test-order have none and are correct. test-simulation and test-conversion are C++17 (with
-# nlohmann/json); the others are C99. All are compiled with the project's warnings.
+# test-reordered and test-negative-zero, break one rule of the provider interface on purpose;
+# test-conflict, test-retry and test-order have none and are correct. test-simulation and
+# test-conversion are C++17 (with nlohmann/json); the others are C99. All are compiled with the
+# project's warnings.
 
 # praenora_add_fixture_provider(<name> SOURCES <source>... [SERVICES <service>@<major>.<minor>...]
 #                               [DEFINITIONS <definition>...] [LINK_LIBRARIES <library>...])
@@ -82,6 +83,8 @@ praenora_add_fixture_provider(test-missing-service
 praenora_add_fixture_provider(test-reordered
     SOURCES ${variant} DEFINITIONS FIXTURE_REORDERED
     SERVICES test.echo@0.0 test.other@1.2)
+praenora_add_fixture_provider(test-negative-zero
+    SOURCES ${variant} DEFINITIONS FIXTURE_NEGATIVE_ZERO SERVICES test.echo@0.0)
 # Correct providers, each used by one test of what a library that failed a check leaves behind;
 # test-conflict also by the integration test of a provider conflict's error record.
 praenora_add_fixture_provider(test-conflict SOURCES ${variant})

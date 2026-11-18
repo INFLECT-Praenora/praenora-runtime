@@ -163,6 +163,9 @@ be read, is located at the file only:
 | 9 | `parameters_schema` compiles. | `MANIFEST_INVALID` |
 | 10 | `tests.vectors` is relative. | `MANIFEST_INVALID` |
 
+An integer is read by its value (checks 5 and 8): one written `-0`, which JSON allows and the schema
+accepts as an integer, is 0.
+
 The manifest's SHA-256 is the digest of exactly the bytes read; it is part of the run fingerprint
 ([reproducibility.md](reproducibility.md)).
 
@@ -231,7 +234,7 @@ compares the document with the manifest. The two MUST agree on:
 
 - `name`;
 - `version`, by SemVer precedence;
-- `abi.major` and `abi.minor`;
+- `abi.major` and `abi.minor`, as integers (a `-0` is 0);
 - `sdk_version`, by SemVer precedence;
 - `pmp_version`, by SemVer precedence;
 - the capabilities, compared as sets of `{id, version}`.
