@@ -80,6 +80,9 @@ Python bindings SWIG 4.0+ and Python 3.10+ with headers.
   (`antimony-static`) against libSBML (with comp), SBMLNetwork and expat, such as libRoadRunner's
   dependencies, never downloaded; [docs/platforms.md](docs/platforms.md#the-antimony-provider) says
   how to build it and how CMake finds it.
+- Optional, for the AsyncAPI parser tests only: Node.js and `@asyncapi/parser` 3.6.6, installed
+  with npm into a directory outside the checkout, never downloaded by the build;
+  [docs/testing.md](docs/testing.md#the-official-asyncapi-parser) says how.
 
 **Local presets.** Copy `CMakeUserPresets.json.example` to `CMakeUserPresets.json` (git-ignored)
 and edit its hidden `dev-local` preset: `CMAKE_PREFIX_PATH` (dependency prefixes, `;`-separated),
@@ -170,9 +173,12 @@ which builds the roadrunner provider; with it, the cache variable `LLVM_INSTALL_
 `PRAENORA_WITH_ANTIMONY` (OFF), which builds the antimony provider
 (`cmake/PraenoraAntimony.cmake`); `PRAENORA_FETCH_JSON_SCHEMA_VALIDATOR` (OFF), which builds
 json-schema-validator from its pinned sources, for the sanitizer builds
-(`cmake/PraenoraDependencies.cmake`); and `PRAENORA_ASYNCAPI_SCHEMA` (empty), the absolute path of a
+(`cmake/PraenoraDependencies.cmake`); `PRAENORA_ASYNCAPI_SCHEMA` (empty), the absolute path of a
 local copy of the official AsyncAPI 3.0.0 JSON Schema, never downloaded, against which three
-`GraphExport.*` tests of the `protocol` label then check `spec/asyncapi/`;
+`GraphExport.*` tests of the `protocol` label then check `spec/asyncapi/`; and
+`PRAENORA_ASYNCAPI_PARSER` (empty), the absolute path of a directory into which the official
+AsyncAPI parser (`@asyncapi/parser` 3.6.6, from npm) is installed, never downloaded, with which
+Node.js then runs two `asyncapi.parser.*` tests of the `protocol` label on `spec/asyncapi/`;
 [docs/testing.md](docs/testing.md) has the details.
 
 ## Repository map
@@ -324,7 +330,8 @@ docs/                         index.md, the guides (architecture, user-guide, co
 - Golden files, and the committed AsyncAPI documents in `spec/asyncapi/`, are refreshed only with
   `PRAENORA_UPDATE_GOLDEN=1`, never implicitly; regenerate the AsyncAPI documents whenever a
   workflow definition, a message type or the envelope schema changes, and, with a local copy of
-  the official AsyncAPI 3.0.0 schema at hand, check them against it (`PRAENORA_ASYNCAPI_SCHEMA`).
+  the official AsyncAPI 3.0.0 schema at hand, check them against it (`PRAENORA_ASYNCAPI_SCHEMA`),
+  and with the official AsyncAPI parser installed, through it (`PRAENORA_ASYNCAPI_PARSER`).
 
 ## Prohibitions
 

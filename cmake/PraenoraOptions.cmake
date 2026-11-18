@@ -50,6 +50,11 @@ option(PRAENORA_WITH_ANTIMONY
 # committed AsyncAPI documents against it (tests/CMakeLists.txt, docs/testing.md).
 set(PRAENORA_ASYNCAPI_SCHEMA "" CACHE FILEPATH
     "With the tests: a copy of the official AsyncAPI 3.0.0 JSON Schema to check spec/asyncapi/")
+# A local installation of the official AsyncAPI parser (@asyncapi/parser, from npm), never
+# downloaded: when set, the protocol tests run the committed AsyncAPI documents through it with
+# Node.js (tests/CMakeLists.txt, docs/testing.md).
+set(PRAENORA_ASYNCAPI_PARSER "" CACHE PATH
+    "With the tests: a directory into which @asyncapi/parser is installed, to check spec/asyncapi/")
 set(PRAENORA_SANITIZERS "" CACHE STRING
     "Sanitizers for GCC and Clang builds, for example address;undefined or thread")
 set_property(CACHE PRAENORA_SANITIZERS PROPERTY STRINGS "" "address;undefined" "thread")

@@ -49,7 +49,7 @@ path ([below](#the-official-asyncapi-schema)).
 | Label | What it covers | Tests |
 |---|---|---|
 | `unit` | Runtime internals, white-box: documents and YAML, canonical JSON, SHA-256, versions, durations, seeds, CSV and other input sources, configuration, logging, metrics, health, status files, run records, the error table against `status.h`, the SDK's headers, adapter and test kit, and the antimony provider's rules that read a source's text alone. | `praenora_unit_tests` |
-| `protocol` | Every schema and catalog entry, valid and invalid documents per kind, graph validation and schedules, graph export, and the committed AsyncAPI documents, also against the official AsyncAPI 3.0.0 schema when the build names a copy of it ([below](#the-official-asyncapi-schema)). | `praenora_protocol_tests`, `praenora_asyncapi_official_schema_tests` |
+| `protocol` | Every schema and catalog entry, valid and invalid documents per kind, graph validation and schedules, graph export, and the committed AsyncAPI documents, also against the official AsyncAPI 3.0.0 schema when the build names a copy of it ([below](#the-official-asyncapi-schema)), and through the official AsyncAPI parser when the build names an installation of it ([below](#the-official-asyncapi-parser)). | `praenora_protocol_tests`, `praenora_asyncapi_official_schema_tests`, `asyncapi.parser.accepts_committed_documents`, `asyncapi.parser.refuses_broken_copies` |
 | `contract` | Manifests and discovery, the loader, module instances, the engine and the contract checks, through the real loader and the fixture modules; service providers and runs that use their services, with the fixture providers; the service checks of the simulation and model conversion services; provider libraries as files: their exported symbols, and the same results in two processes, and how the driver of the latter shows two outputs that differ and a run that fails. | `praenora_contract_tests`, `providers.<provider>.exports`, `providers.<provider>.processes`, `providers.run_twice.shows_first_difference` |
 | `negative` | What must be refused: bad manifests, configurations and graphs, incompatible modules, failing validations, services no provider serves, providers that do not load in a run, each with its code and location. | `praenora_negative_tests` |
 | `lifecycle` | Call order and cleanup, timeouts, unresponsive modules, cancellation and stop requests, calls into one library from instances of several loads of it (they take turns, and are refused behind an abandoned call), and the runtime services an instance is served. | `praenora_lifecycle_tests` |
@@ -227,6 +227,80 @@ ASAN_OPTIONS=detect_container_overflow=0 \
     ./build/dev-asan/bin/praenora_asyncapi_official_schema_tests
 ```
 
+### The official AsyncAPI parser
+
+The schema checks the documents' structure only. The official AsyncAPI parser,
+[`@asyncapi/parser`](https://github.com/asyncapi/parser-js), also applies the rules of the AsyncAPI
+specification that a JSON Schema cannot express. A build whose cache variable
+`PRAENORA_ASYNCAPI_PARSER` holds the absolute path of a directory into which that parser is
+installed adds two tests to the `protocol` label. Each runs
+`tests/protocol/asyncapi_parser_check.cjs` with Node.js. The script first checks that the parser
+is version 3.6.6, the version whose results it records, then:
+
+- `asyncapi.parser.accepts_committed_documents`: the parser, with its default rules, parses every
+  `spec/asyncapi/*.asyncapi.json` and reports for each exactly the diagnostics that the script
+  records (`RECORDED_DIAGNOSTICS`), none of which is an error. A diagnostic more, or one fewer,
+  fails the test.
+- `asyncapi.parser.refuses_broken_copies`: the parser refuses copies of a committed document,
+  each broken in one place, each with an error at that place whose code is the broken rule's name
+  (`invalid-ref` for a reference that does not resolve). Six of the seven breaks
+  are rules that the AsyncAPI 3.0.0 JSON Schema does not express: an operation's message must
+  belong to the operation's channel; an operation's channel must be under the root `channels`, and
+  a channel's servers under the root `servers`; a channel's key holds no `?`; a channel has no
+  parameter that its address does not use; and every reference resolves. The seventh breaks the
+  schema, which the parser applies too. So neither a parser that accepts anything nor a check of
+  the JSON Schema alone passes this test, while the first test alone would pass on a parser that
+  accepts anything and reports the recorded diagnostics.
+
+The parser is given each document's text and reads no other file and no URL: the documents refer
+only to themselves. Version 3.6.6 reports one diagnostic for each document, which the script
+records: `asyncapi-latest-version` at `/asyncapi`, at the `info` level, saying that the latest
+AsyncAPI version is 3.1.0. The documents are AsyncAPI 3.0.0
+([ADR-0020](adr/ADR-0020-message-envelope-and-asyncapi.md)). The parser's rules at the `warning`
+level, its recommended rules, apply to AsyncAPI 2 documents only.
+
+Neither the build nor the tests download the parser, and nothing of it is committed. Install it
+once, outside the source tree, at the version that the script records (`--ignore-scripts` keeps
+npm from running the packages' install scripts), then configure with it:
+
+```bash
+npm install --prefix "$HOME/asyncapi-parser" --ignore-scripts --no-audit --no-fund \
+    @asyncapi/parser@3.6.6
+cmake --preset dev -DPRAENORA_ASYNCAPI_PARSER="$HOME/asyncapi-parser"
+ctest --preset dev -R '^asyncapi\.parser\.'
+```
+
+The script also runs on its own, from the source tree:
+
+```bash
+node tests/protocol/asyncapi_parser_check.cjs accepts_committed_documents \
+    "$HOME/asyncapi-parser" spec/asyncapi
+```
+
+The configuration looks for Node.js (`node` or `nodejs`) with CMake's `find_program()`, which
+searches the `bin` directories of `CMAKE_PREFIX_PATH` before the `PATH`; the cache variable
+`PRAENORA_NODE_EXECUTABLE` holds the one found, or names another (unset it,
+`-UPRAENORA_NODE_EXECUTABLE`, to search again). CTest runs the script without the caller's
+`NODE_OPTIONS` and `NODE_PATH`. CMake makes a relative value given without a type
+(`-DPRAENORA_ASYNCAPI_PARSER=<dir>`) absolute against the current directory; a value that is then
+not absolute, that does not name a directory holding `node_modules/@asyncapi/parser`, or that
+holds a `;`, fails the configuration. Configuring with an empty value
+(`-DPRAENORA_ASYNCAPI_PARSER=`) removes the two tests. They run Node.js, not code that this build
+compiles, so they run alike in every tree, the sanitizer trees included.
+
+With another version of the parser, both tests fail and name the version found. To move to
+another version, install it, change `PARSER_VERSION` in the script, run the tests and record in
+`RECORDED_DIAGNOSTICS` what the new version reports, once no error is left: an error in a
+committed document is fixed in the generator, and the documents regenerated
+([Golden files](#golden-files)). If `asyncapi.parser.refuses_broken_copies` then fails, check each
+break's expected code and place (`BREAKS`) against the new version's rules, without dropping a
+break. npm installs the parser's dependencies at their newest versions that the parser allows, so
+another installation of 3.6.6 may run with newer ones; the tests print the versions of the parser,
+of `@asyncapi/specs`, the package of the AsyncAPI JSON Schemas, and of `@stoplight/spectral-core`,
+which runs the rules, that they ran with. The recorded results come from `@asyncapi/parser` 3.6.6
+with `@asyncapi/specs` 6.11.1, whose AsyncAPI 3.0.0 schema is the file of the previous section
+(the same SHA-256), and `@stoplight/spectral-core` 1.24.1, on Node.js 26.8.2, macOS arm64.
+
 ## Sanitizer builds
 
 The `dev-asan` and `dev-tsan` presets ([developer-guide.md](developer-guide.md#sanitizer-builds))
@@ -292,8 +366,9 @@ PRAENORA_UPDATE_GOLDEN=1 ctest --preset dev -R '^GraphExport\.CommittedAsyncApiM
 git diff --stat -- tests/fixtures/golden spec/asyncapi
 ```
 
-Check refreshed AsyncAPI documents against the official AsyncAPI 3.0.0 schema too
-([The official AsyncAPI schema](#the-official-asyncapi-schema)).
+Check refreshed AsyncAPI documents against the official AsyncAPI 3.0.0 schema and with the official
+AsyncAPI parser too ([The official AsyncAPI schema](#the-official-asyncapi-schema),
+[The official AsyncAPI parser](#the-official-asyncapi-parser)).
 
 The golden envelopes hold sixteen zeros where an envelope id holds the first 16 hex digits of the
 run fingerprint, because the fingerprint covers the module libraries' digests and so differs from
@@ -315,7 +390,7 @@ Start from the label:
 | Failing label | Component | Likely owner |
 |---|---|---|
 | `unit` | The suite's component (`Csv` is `src/runtime/io/csv`, `Yaml` is `src/runtime/document`, `SdkAbi`, `Adapter` and `TestKit` are the SDK). | runtime |
-| `protocol` | `spec/schemas/`, `spec/catalog/` or the graph code (`src/runtime/graph`, `src/runtime/api/graph_export`). A difference from the committed AsyncAPI documents needs a refresh or is a regression. | protocol |
+| `protocol` | `spec/schemas/`, `spec/catalog/` or the graph code (`src/runtime/graph`, `src/runtime/api/graph_export`). A difference from the committed AsyncAPI documents needs a refresh or is a regression. For `asyncapi.parser.*`, the diagnostics that the test prints: a committed document that the parser refuses, or a parser of another version ([The official AsyncAPI parser](#the-official-asyncapi-parser)). | protocol |
 | `contract` | The loader, discovery, instance or engine code, or a fixture module that changed. For `providers.run_twice.*`, the driver `tests/providers/run_twice.cmake` or the drivers' shared `tests/support/run_command.cmake`, or, after an intended change of its report, the expected texts in `tests/providers/check_run_twice.cmake`. | runtime |
 | `negative` | Validation: a bad input was accepted, or refused with another code or location. | runtime |
 | `lifecycle` | `src/runtime/instance` and `src/runtime/engine`: call order, deadlines, cancellation, teardown. | runtime |

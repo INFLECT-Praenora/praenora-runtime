@@ -120,6 +120,8 @@ Options are cache variables, set in a preset or on the configure line
 | `LLVM_INSTALL_PREFIX` | empty | With `PRAENORA_WITH_ROADRUNNER`: the LLVM that libRoadRunner was built with. |
 | `PRAENORA_WITH_ANTIMONY` | OFF | The antimony service provider ([below](#the-antimony-provider)). |
 | `PRAENORA_ASYNCAPI_SCHEMA` | empty | With the tests: the absolute path of a local copy of the official AsyncAPI 3.0.0 JSON Schema, against which the `protocol` tests then check the committed AsyncAPI documents ([testing.md](testing.md#the-official-asyncapi-schema)). |
+| `PRAENORA_ASYNCAPI_PARSER` | empty | With the tests: the absolute path of a directory into which the official AsyncAPI parser (`@asyncapi/parser` 3.6.6, from npm) is installed, with which the `protocol` tests then check the committed AsyncAPI documents, run by Node.js ([testing.md](testing.md#the-official-asyncapi-parser)). |
+| `PRAENORA_NODE_EXECUTABLE` | searched with `find_program()` | With `PRAENORA_ASYNCAPI_PARSER`: the Node.js that runs the parser ([testing.md](testing.md#the-official-asyncapi-parser)). |
 | `CMAKE_OSX_DEPLOYMENT_TARGET` | 11.0 | The oldest macOS the build runs on. |
 
 `BUILD_SHARED_LIBS` is never read: the runtime is always a shared library and modules are always
@@ -517,4 +519,5 @@ Changes that come with obligations:
   `PRAENORA_UPDATE_GOLDEN=1` ([testing.md](testing.md#golden-files)); regenerate the AsyncAPI
   documents whenever a workflow definition, a message type or the envelope schema changes, and,
   with a local copy of the official AsyncAPI 3.0.0 schema at hand, check them against it
-  ([testing.md](testing.md#the-official-asyncapi-schema)).
+  ([testing.md](testing.md#the-official-asyncapi-schema)), and with the official AsyncAPI parser
+  installed, through it ([testing.md](testing.md#the-official-asyncapi-parser)).

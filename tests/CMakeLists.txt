@@ -237,6 +237,48 @@ if(NOT PRAENORA_ASYNCAPI_SCHEMA STREQUAL "")
         DISCOVERY_MODE PRE_TEST
         PROPERTIES ${_praenora_asyncapi_properties})
 endif()
+# The committed AsyncAPI documents through the official AsyncAPI parser, @asyncapi/parser, which
+# Node.js runs with protocol/asyncapi_parser_check.cjs. Its two checks are registered, with the
+# label protocol, only when PRAENORA_ASYNCAPI_PARSER names a directory into which that parser is
+# installed (it holds node_modules/@asyncapi/parser), which the build never downloads:
+# asyncapi.parser.accepts_committed_documents (each document parses, with only the diagnostics the
+# script records) and asyncapi.parser.refuses_broken_copies. Both first check the parser's version.
+# The path reaches Node.js as one argument, but a ';' is refused: CMake reads a PATH value given
+# on the command line without a type as a list, and makes each element absolute, so such a value
+# reaches this file broken. Node.js is looked for where find_program() looks, the bin directories
+# of CMAKE_PREFIX_PATH before the PATH. The caller's NODE_OPTIONS and NODE_PATH cannot change what
+# Node.js loads.
+if(NOT PRAENORA_ASYNCAPI_PARSER STREQUAL "")
+    cmake_path(SET _praenora_asyncapi_parser NORMALIZE "${PRAENORA_ASYNCAPI_PARSER}")
+    if(NOT IS_ABSOLUTE "${_praenora_asyncapi_parser}" OR _praenora_asyncapi_parser MATCHES ";"
+            OR NOT EXISTS
+            "${_praenora_asyncapi_parser}/node_modules/@asyncapi/parser/package.json")
+        message(FATAL_ERROR "PRAENORA_ASYNCAPI_PARSER must be the absolute path, without ';', of "
+            "a directory into which @asyncapi/parser is installed, one that holds "
+            "node_modules/@asyncapi/parser (docs/testing.md); it is '${PRAENORA_ASYNCAPI_PARSER}'")
+    endif()
+    find_program(PRAENORA_NODE_EXECUTABLE NAMES node nodejs
+        DOC "With PRAENORA_ASYNCAPI_PARSER: the Node.js that runs the official AsyncAPI parser")
+    if(PRAENORA_NODE_EXECUTABLE MATCHES "-NOTFOUND$")
+        message(FATAL_ERROR "PRAENORA_ASYNCAPI_PARSER needs Node.js, and no node was found: "
+            "name it with PRAENORA_NODE_EXECUTABLE (docs/testing.md)")
+    elseif(NOT EXISTS "${PRAENORA_NODE_EXECUTABLE}" OR IS_DIRECTORY "${PRAENORA_NODE_EXECUTABLE}")
+        message(FATAL_ERROR "PRAENORA_ASYNCAPI_PARSER needs Node.js, and PRAENORA_NODE_EXECUTABLE "
+            "is '${PRAENORA_NODE_EXECUTABLE}', which names no file: name Node.js there, or unset "
+            "it (-UPRAENORA_NODE_EXECUTABLE) to search again (docs/testing.md)")
+    endif()
+    foreach(_praenora_check IN ITEMS accepts_committed_documents refuses_broken_copies)
+        add_test(NAME asyncapi.parser.${_praenora_check}
+            COMMAND "${PRAENORA_NODE_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/protocol/asyncapi_parser_check.cjs"
+                ${_praenora_check} "${_praenora_asyncapi_parser}"
+                "${PROJECT_SOURCE_DIR}/spec/asyncapi")
+        set_tests_properties(asyncapi.parser.${_praenora_check} PROPERTIES
+            LABELS protocol
+            TIMEOUT 120
+            ENVIRONMENT_MODIFICATION "NODE_OPTIONS=unset:;NODE_PATH=unset:")
+    endforeach()
+endif()
 
 praenora_add_gtest(praenora_negative_tests LABEL negative WHITEBOX
     SOURCES

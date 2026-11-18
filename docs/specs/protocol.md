@@ -393,7 +393,10 @@ workflows are committed and compared with the generator's output by the tests:
 They are regenerated, with `PRAENORA_UPDATE_GOLDEN=1`, whenever a workflow definition, a message
 type or the envelope schema changes. Both are valid against the official AsyncAPI 3.0.0 JSON Schema;
 a build that names a local copy of it checks them against it
-([testing.md](../testing.md#the-official-asyncapi-schema)).
+([testing.md](../testing.md#the-official-asyncapi-schema)). The official AsyncAPI parser
+(`@asyncapi/parser` 3.6.6) parses both with no error and no warning, and notes only, for each, that
+the latest AsyncAPI version is 3.1.0; a build that names a local installation of it checks them
+with it ([testing.md](../testing.md#the-official-asyncapi-parser)).
 
 ## References
 
