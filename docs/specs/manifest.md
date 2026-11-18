@@ -250,6 +250,9 @@ too. The SDK version decides no compatibility
 ([compatibility-policy.md](compatibility-policy.md#versioned-items)): the two documents must agree
 on it, and the run fingerprint holds it ([reproducibility.md](reproducibility.md#run-fingerprint)).
 
+A module reports its ABI minor a third time, in the header of its library's function table. That
+one is compared with neither document ([module-abi.md](module-abi.md#entry-point)).
+
 ## Generating manifests
 
 Module projects build with [`PraenoraModule.cmake`](../../cmake/PraenoraModule.cmake), installed

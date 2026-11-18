@@ -8,11 +8,25 @@
  * accepts it, but its minor number does not fit in 64 bits, so the host cannot compare it with the
  * manifest. Built a fourth time as fx-negative-zero-abi (FX_NEGATIVE_ZERO_ABI), whose describe()
  * writes ABI major and minor as -0, which the pmp-describe schema accepts as the integer 0, and the
- * PMP version of the SDK: it agrees with its generated manifest, so it loads. The other three
- * report ABI 0.0, as their manifests do. The other functions are those of fx-minimal-c. C99. */
+ * PMP version of the SDK: it agrees with its generated manifest, so it loads. Built a fifth time as
+ * fx-newer-header-minor (FX_NEWER_HEADER_MINOR), whose describe() reports ABI 0.0 and the PMP
+ * version of the SDK, as its generated manifest does, while its table's header reports ABI 0.7,
+ * and a sixth time as fx-older-header-minor (FX_OLDER_HEADER_MINOR), whose describe() reports ABI
+ * 0.7 and the PMP version of the SDK, as its manifest does, while its table's header reports ABI
+ * 0.0: the host compares the header's minor with neither document, so both load. The second, third
+ * and fourth report ABI 0.0 in describe() and in the header, as their manifests do. The other
+ * functions are those of fx-minimal-c. C99. */
 #include "../common/c_fixture.h"
 
-#if defined(FX_NEWER_PMP)
+#if defined(FX_NEWER_HEADER_MINOR)
+#define FX_ABI_MINOR 0
+#define FX_HEADER_ABI_MINOR 7
+#define FX_PMP_VERSION PRAENORA_PMP_VERSION_STRING
+#elif defined(FX_OLDER_HEADER_MINOR)
+#define FX_ABI_MINOR 7
+#define FX_HEADER_ABI_MINOR 0
+#define FX_PMP_VERSION PRAENORA_PMP_VERSION_STRING
+#elif defined(FX_NEWER_PMP)
 #define FX_ABI_MINOR 0
 #define FX_PMP_VERSION "0.2.0"
 #elif defined(FX_PMP_OVERFLOW)
@@ -24,6 +38,12 @@
 #else
 #define FX_ABI_MINOR 7
 #define FX_PMP_VERSION "0.1.0-rc.1"
+#endif
+
+/* The ABI minor of the table's header: describe()'s, but for fx-newer-header-minor and
+ * fx-older-header-minor. */
+#ifndef FX_HEADER_ABI_MINOR
+#define FX_HEADER_ABI_MINOR FX_ABI_MINOR
 #endif
 
 #define FX_TEXT(value) #value
@@ -48,7 +68,7 @@ static praenora_status PRAENORA_CALL describe(praenora_sink* out_json) {
 
 static const praenora_module_api_v0 table = {
     .header = {.abi_major = 0u,
-               .abi_minor = FX_ABI_MINOR,
+               .abi_minor = FX_HEADER_ABI_MINOR,
                .struct_size = (uint32_t)sizeof(praenora_module_api_v0),
                .reserved = 0u},
     .describe = describe,

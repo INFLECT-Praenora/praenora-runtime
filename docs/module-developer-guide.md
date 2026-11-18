@@ -441,7 +441,9 @@ makes `abi.h` declare the entry point. Its `describe()` reports `PRAENORA_MODULE
 [`common/c_fixture.h`](../tests/fixtures/modules/common/c_fixture.h) does. `praenora_add_module()`
 writes the ABI, SDK and PMP versions of the SDK it builds with into the manifest, and `describe()`
 must report the same ones: when a later SDK raises the ABI minor (`PRAENORA_ABI_MINOR`), a C module
-that writes its ABI version by hand must be updated, or it is refused when it is loaded.
+that writes its ABI version by hand must be updated, or it is refused when it is loaded. Update the
+`abi_minor` of its table's header with it (the C fixtures write `0u`; `PRAENORA_ABI_MINOR` keeps it
+current): the host does not compare it, so nothing refuses a stale one.
 
 ## The manifest
 
@@ -827,7 +829,7 @@ capabilities when they are not in the built-in catalog.
 | `library.digest` | The library exists and matches `library.sha256` when the manifest pins one. |
 | `library.load` | The library loads, and no abandoned (unresponsive) call that its calls would have to wait for may still be running in it. |
 | `library.entry_point` | It exports `praenora_module_get_api`. |
-| `api.header` | The table's header is valid for ABI 0. |
+| `api.header` | The table's header is valid for ABI 0. Its ABI minor, which the message shows, is not checked. |
 | `api.required_functions` | Every required function is set. |
 | `describe.schema` | `describe()` writes a valid `pmp-describe` document. |
 | `describe.identity` | It agrees with the manifest: name, version, ABI major and minor, SDK version, PMP version, capabilities. |

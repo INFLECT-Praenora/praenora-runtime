@@ -71,7 +71,13 @@ praenora_module_get_api(uint32_t abi_major);
 
 The module fills the header as follows: `abi_major` is the generation of the table (0), `abi_minor`
 the minor version the module was compiled against (`PRAENORA_ABI_MINOR`), `struct_size` the `sizeof`
-of its whole table, and `reserved` 0.
+of its whole table, and `reserved` 0. The host checks `abi_major`, `reserved` and `struct_size`
+(checks 5 and 6 below), and compares `abi_minor` with nothing: neither with its own minor nor with
+the `abi.minor` that the manifest and `describe()` report, which must agree with each other
+(check 9; [ADR-0036](../adr/ADR-0036-describe-and-manifest-agree-on-every-field-they-share.md)).
+`struct_size` alone says which functions the table has, since a minor version only appends
+functions ([Versioning and evolution](#versioning-and-evolution)). `praenora modules check` shows
+`abi_minor` in the message of its `api.header` check.
 
 ## Trust
 

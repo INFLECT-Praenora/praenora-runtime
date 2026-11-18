@@ -68,11 +68,30 @@ C++ adapter's `describe()` reports the same SDK's `PRAENORA_ABI_MINOR` and
   `describe()` is read the same way, through `uint32_of()` (`src/runtime/document/json_util.hpp`):
   the ABI and the service versions of module and provider manifests, and the service versions of a
   provider's `describe()`.
-- The table header's `abi_minor` is not compared with either document.
-- Every example module and every fixture module except `fx-other-protocol`, `fx-newer-pmp` and
-  `fx-pmp-overflow` reports the ABI minor and the PMP version of the SDK it is built with, in both
-  documents; none of them changes. The C fixtures write ABI 0.0 by hand, which is the SDK's;
-  `c_fixture.h` stops compiling when the SDK's ABI minor is no longer 0.
+- The ABI minor in the header of the function table is compared with neither document, nor with
+  the runtime's minor ([module-abi.md](../specs/module-abi.md#entry-point)): a library whose header
+  reports another minor than its `describe()` and its manifest loads. The header starts the table:
+  the host checks its `abi_major` and `reserved` and uses its `struct_size`, which alone says which
+  functions exist. The stale-manifest argument does not reach the header: it and `describe()` are
+  built into the same library, so they cannot go stale against each other. Only a module that
+  writes them by hand can make them differ, and the difference changes nothing the host does; the
+  C++ adapter fills both from `PRAENORA_ABI_MINOR`. Nor does the runtime compare the minor of a
+  provider's table, or of a service's table, when it loads a provider. A service table's minor is
+  the minor its provider implements, which the service's `describe()` reports
+  ([simulation-service.md](../specs/simulation-service.md#describe),
+  [model-conversion-service.md](../specs/model-conversion-service.md#describe)); this repository's
+  tests of the service providers check that. Refusing the difference would take a check of its own,
+  after the identity check: at the header checks, which come before `describe()`,
+  `API_TABLE_INVALID` could compare the header only with the manifest, and would then refuse a stale
+  manifest with that code instead of `MODULE_IDENTITY_MISMATCH`; in the identity check,
+  `MODULE_IDENTITY_MISMATCH` would need a third value in the entries of `details.differences`, which
+  hold the manifest's and `describe()`'s. A warning is ruled out as for the documents (see
+  Alternatives considered).
+  `praenora modules check` shows the header's minor in the message of `api.header`.
+- Every example module and every fixture module except `fx-other-protocol`, `fx-newer-pmp`,
+  `fx-pmp-overflow` and `fx-older-header-minor` reports the ABI minor and the PMP version of the SDK
+  it is built with, in both documents; none of them changes. The C fixtures write ABI 0.0 by hand,
+  which is the SDK's; `c_fixture.h` stops compiling when the SDK's ABI minor is no longer 0.
 - The fixture `fx-other-protocol` reports ABI 0.7 in its manifest, its `describe()` and its
   table's header, and PMP 0.1.0-rc.1 in its manifest and its `describe()`. It loads, and its
   manifest passes the compatibility rules, which shows that the runtime's own ABI minor and PMP
@@ -81,10 +100,19 @@ C++ adapter's `describe()` reports the same SDK's `PRAENORA_ABI_MINOR` and
   rules and the library is refused. `fx-pmp-overflow` reports a PMP version whose minor number does
   not fit in 64 bits and is refused. `fx-negative-zero-abi`, from the same source, writes its ABI
   0.0 as `-0` and `-0` in its `describe()`, beside its generated manifest's 0.0, and loads.
+  `fx-newer-header-minor`, from the same source too, reports ABI 0.0 and the SDK's PMP version in
+  its `describe()`, as its generated manifest does, and ABI 0.7 in its table's header;
+  `fx-older-header-minor` reports ABI 0.7 and the SDK's PMP version in its `describe()` and in its
+  manifest (a template), and ABI 0.0 in its table's header, as a C module would that updated its
+  `describe()` after an SDK raised the ABI minor but not its header. Both load.
   `c_fixture.h` gains `C_FIXTURE_DESCRIBE_JSON_VERSIONS()` and `C_FIXTURE_DESCRIBE_JSON_ABI()`.
 - The loader tests give `fx-echo` a manifest that names ABI minor 7, PMP 0.1.0-rc.1 (refused) and
   PMP 0.1.0 with build metadata (accepted), and pin the order of all seven fields; the contract
-  checks get a copy of `fx-echo` whose manifest names ABI minor 7, and `fx-newer-pmp`.
+  checks get a copy of `fx-echo` whose manifest names ABI minor 7, and `fx-newer-pmp`. The loader
+  tests and the contract checks load `fx-newer-header-minor` and `fx-older-header-minor`, so a
+  header with a newer and one with an older minor than the documents are both accepted, and the
+  contract checks pin the minors that `api.header` and `describe.identity` show; a manifest that
+  names the header's minor is refused, since the minor compared is `describe()`'s.
 
 ## Alternatives considered
 

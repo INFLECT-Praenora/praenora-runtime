@@ -452,6 +452,38 @@ TEST(Loader, ReadsAnAbiWrittenNegativeZeroAsZero) {
     EXPECT_FALSE(contains(mismatch.message, "abi.major")) << mismatch.message;
 }
 
+// The ABI minor of the function table's header is compared with neither document: a library whose
+// header reports a newer or an older minor than its describe() and its manifest loads.
+TEST(Loader, AcceptsATableHeaderThatReportsAnotherAbiMinor) {
+    struct Case {
+        const char* fixture;
+        std::uint32_t header_minor, document_minor;
+        const char* mismatch; // the difference when the manifest names the header's minor
+    };
+    for (const Case& c :
+         {Case{"fx-newer-header-minor", 7u, 0u, "abi.minor (manifest 7, describe() 0)"},
+          Case{"fx-older-header-minor", 0u, 7u, "abi.minor (manifest 0, describe() 7)"}}) {
+        SCOPED_TRACE(c.fixture);
+        ModuleManifest manifest = load_manifest(fixture_manifest(c.fixture));
+        const auto failure = load_failure(manifest);
+        ASSERT_EQ(failure.code, ErrorCode::OK) << failure.message;
+        const auto module = LoadedModule::load(manifest);
+        EXPECT_EQ(module->api().header.abi_minor, c.header_minor);
+        EXPECT_EQ(module->describe().at("abi"),
+                  (nlohmann::json{{"major", 0}, {"minor", c.document_minor}}));
+        EXPECT_EQ(module->manifest().abi_minor, c.document_minor);
+
+        // Nor does the header stand in for describe(): a manifest that names the header's minor
+        // disagrees with describe(), and is refused.
+        manifest.abi_minor = c.header_minor;
+        const auto mismatch = load_failure(manifest);
+        EXPECT_EQ(mismatch.code, ErrorCode::MODULE_IDENTITY_MISMATCH) << mismatch.message;
+        EXPECT_TRUE(contains(mismatch.message,
+                             std::string("describe() disagrees with the manifest: ") + c.mismatch))
+            << mismatch.message;
+    }
+}
+
 // Every differing field is named, in the order of the describe() document's fields.
 TEST(Loader, NamesDifferencesInTheOrderOfTheDescribeDocument) {
     ModuleManifest manifest = load_manifest(fixture_manifest("fx-echo"));

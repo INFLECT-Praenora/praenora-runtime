@@ -18,6 +18,7 @@
 #include <praenora/runtime/error.hpp>
 #include <praenora/runtime/options.hpp>
 #include <praenora/runtime/runtime.hpp>
+#include <praenora/sdk/abi.h>
 #include <praenora/sdk/version.h>
 
 #include <gtest/gtest.h>
@@ -220,6 +221,37 @@ TEST(ModuleCheck, NegativeZeroAbiInDescribePassesDescribeIdentity) {
               "describe() agrees with the manifest: fx-negative-zero-abi@0.1.0, ABI 0.0, "
               "SDK " PRAENORA_SDK_VERSION_STRING ", PMP " PRAENORA_PMP_VERSION_STRING
               ", 1 capability");
+}
+
+TEST(ModuleCheck, AnotherAbiMinorInTheTableHeaderPassesTheLoadingChecks) {
+    // The table's header reports a newer or an older ABI minor than describe() and the manifest:
+    // api.header shows the header's version and describe.identity the documents', and both pass.
+    struct Case {
+        const char* fixture;
+        const char* header_abi;
+        const char* document_abi;
+    };
+    const Runtime runtime(check_options());
+    for (const Case& c : {Case{"fx-newer-header-minor", "0.7", "0.0"},
+                          Case{"fx-older-header-minor", "0.0", "0.7"}}) {
+        SCOPED_TRACE(c.fixture);
+        const ModuleCheckReport report = runtime.check_module(utf8(fixture_manifest(c.fixture)));
+        EXPECT_EQ(ids_of(report), kCheckIds);
+        const auto statuses = statuses_of(report);
+        for (const char* id : {"manifest.schema", "manifest.semantics", "library.digest",
+                               "library.load", "library.entry_point", "api.header",
+                               "api.required_functions", "describe.schema", "describe.identity"}) {
+            EXPECT_EQ(statuses.at(id), "pass") << id << "\n" << shown(report);
+        }
+        EXPECT_EQ(check_of(report, "api.header").message,
+                  std::string("praenora_module_get_api(0) returns a table of ABI ") + c.header_abi +
+                      " with struct_size " + std::to_string(sizeof(praenora_module_api_v0)));
+        EXPECT_EQ(check_of(report, "describe.identity").message,
+                  std::string("describe() agrees with the manifest: ") + c.fixture +
+                      "@0.1.0, ABI " + c.document_abi +
+                      ", SDK " PRAENORA_SDK_VERSION_STRING ", PMP " PRAENORA_PMP_VERSION_STRING
+                      ", 1 capability");
+    }
 }
 
 TEST(ModuleCheck, SdkVersionMismatchFailsDescribeIdentity) {
