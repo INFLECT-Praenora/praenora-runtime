@@ -61,6 +61,36 @@ cmake -S "$JSV" -B "$JSV/build" -DCMAKE_BUILD_TYPE=Release \
 cmake --build "$JSV/build" --target install
 ```
 
+**Sanitizer builds.** The library these commands build has no sanitizer flags, and a sanitizer
+sees only the code compiled with them. In a sanitizer build that links it, errors inside the
+validator go unnoticed, and AddressSanitizer can report a container overflow that is not there:
+the instrumented copies of the container code mark a container's unused capacity, and the
+library's own copies fill it without clearing the mark. A sanitizer build can instead build the
+validator itself, with its own flags, from the commit that
+[`cmake/PraenoraDependencies.cmake`](../cmake/PraenoraDependencies.cmake) pins (2.4.1): configure
+it with `-DPRAENORA_FETCH_JSON_SCHEMA_VALIDATOR=ON`. CMake's FetchContent then downloads the
+sources, unless the cache variable `FETCHCONTENT_SOURCE_DIR_NLOHMANN_JSON_SCHEMA_VALIDATOR` names
+a local copy of them: a clone of the pinned commit, as above, but in a directory that lasts. macOS
+clears `$TMPDIR` after some days, and a configuration whose local copy is gone stops with an error.
+
+```sh
+JSV_SRC="$HOME/.local/src/json-schema-validator"
+git clone --branch 2.4.1 https://github.com/pboettch/json-schema-validator.git "$JSV_SRC"
+cmake --preset dev-asan -DPRAENORA_FETCH_JSON_SCHEMA_VALIDATOR=ON \
+    -DFETCHCONTENT_SOURCE_DIR_NLOHMANN_JSON_SCHEMA_VALIDATOR="$JSV_SRC"
+cmake --build --preset dev-asan
+```
+
+Both are cache variables, so they stay set for later configurations of that tree; they can also go
+into the `dev-asan` and `dev-tsan` presets of `CMakeUserPresets.json`. The installed validator is
+then not used, though its prefix stays in `CMAKE_PREFIX_PATH`, and the other dependencies are found
+as before. The build writes nothing into the local copy and does not check it against the pinned
+commit; the configuration's status line reads `dependency nlohmann_json_schema_validator 2.4.1
+(local sources at <directory>)`. yaml-cpp, spdlog and GoogleTest are still linked as installed,
+without sanitizer flags; no false report from them has been seen. Verified on macOS arm64 with a
+clone at the pinned commit, in the `dev-asan` and `dev-tsan` builds; the download is not yet
+verified.
+
 ## The roadrunner provider
 
 The service provider `roadrunner`, which simulates SBML models with libRoadRunner

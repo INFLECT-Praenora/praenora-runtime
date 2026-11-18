@@ -43,8 +43,11 @@ cmake --preset dev -DPRAENORA_FETCH_DEPENDENCIES=ON
 ```
 
 With every package installed, as where this was run, that configuration finds them all and downloads
-nothing; an actual download is not yet verified. Configuring prints one line per dependency, saying
-where it came from:
+nothing; an actual download is not yet verified. `PRAENORA_FETCH_JSON_SCHEMA_VALIDATOR=ON` is the
+one option that builds a dependency even when it is installed: json-schema-validator, from its
+pinned sources, downloaded unless a local copy is named, so that sanitizer builds instrument it
+([Sanitizer builds](#sanitizer-builds)). Configuring prints one line per dependency, saying where it
+came from:
 
 ```text
 -- Praenora: dependency nlohmann_json 3.12.0 (found at /opt/homebrew/share/cmake/nlohmann_json)
@@ -108,6 +111,7 @@ Options are cache variables, set in a preset or on the configure line
 | `PRAENORA_BUILD_CLI` | ON | The `praenora` tool. |
 | `PRAENORA_BUILD_PYTHON` | OFF | The Python bindings ([python.md](python.md)). |
 | `PRAENORA_FETCH_DEPENDENCIES` | OFF | Download missing dependencies at pinned commits. |
+| `PRAENORA_FETCH_JSON_SCHEMA_VALIDATOR` | OFF | Build json-schema-validator from its pinned sources even when one is installed, so that a sanitizer build instruments it ([platforms.md](platforms.md#json-schema-validator)). |
 | `PRAENORA_INSTALL` | ON at top level | The install rules (none in a Python wheel build). |
 | `PRAENORA_INSTALL_EXAMPLES` | OFF | Install the example modules with every installation. |
 | `PRAENORA_WARNINGS_AS_ERRORS` | OFF | Turn compiler warnings into errors. |
@@ -403,6 +407,11 @@ ctest --preset dev-tsan
 
 - GCC and Clang only; MSVC builds have no sanitizer presets.
 - The thread sanitizer cannot be combined with the address or leak sanitizers.
+- The third-party libraries are normally linked as installed, without the sanitizer flags;
+  json-schema-validator is built with them in a tree configured with
+  `PRAENORA_FETCH_JSON_SCHEMA_VALIDATOR=ON`, as is any library that `PRAENORA_FETCH_DEPENDENCIES`
+  downloads ([platforms.md](platforms.md#json-schema-validator),
+  [testing.md](testing.md#sanitizer-builds)).
 - On macOS, AddressSanitizer test runs keep module libraries loaded
   (`PRAENORA_DEBUG_KEEP_LIBRARIES=1`): an unloaded instrumented library otherwise leaves its
   globals registered with the sanitizer, which then reports errors against a library loaded later

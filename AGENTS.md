@@ -67,6 +67,11 @@ Python bindings SWIG 4.0+ and Python 3.10+ with headers.
 - Instead of installing packages, configure with `-DPRAENORA_FETCH_DEPENDENCIES=ON`: installed
   packages are still preferred and only missing ones are downloaded, at pinned commits. A default
   build never uses the network.
+- For sanitizer builds, `-DPRAENORA_FETCH_JSON_SCHEMA_VALIDATOR=ON` builds json-schema-validator in
+  the tree from its pinned commit, with the sanitizer flags, instead of linking the installed,
+  uninstrumented library; it downloads the sources unless
+  `FETCHCONTENT_SOURCE_DIR_NLOHMANN_JSON_SCHEMA_VALIDATOR` names a local copy
+  ([docs/platforms.md](docs/platforms.md#json-schema-validator)).
 - Optional, for the roadrunner provider only: an installed libRoadRunner 2.11 (its static library
   `roadrunner-static` and the packages it links) and the LLVM 13 it was built with, never
   downloaded; [docs/platforms.md](docs/platforms.md#the-roadrunner-provider) says what to install
@@ -163,7 +168,9 @@ Build options are in `cmake/PraenoraOptions.cmake`, among them `PRAENORA_WITH_RO
 which builds the roadrunner provider; with it, the cache variable `LLVM_INSTALL_PREFIX`
 (`cmake/PraenoraRoadrunner.cmake`) names the LLVM that libRoadRunner was built with;
 `PRAENORA_WITH_ANTIMONY` (OFF), which builds the antimony provider
-(`cmake/PraenoraAntimony.cmake`); and `PRAENORA_ASYNCAPI_SCHEMA` (empty), the absolute path of a
+(`cmake/PraenoraAntimony.cmake`); `PRAENORA_FETCH_JSON_SCHEMA_VALIDATOR` (OFF), which builds
+json-schema-validator from its pinned sources, for the sanitizer builds
+(`cmake/PraenoraDependencies.cmake`); and `PRAENORA_ASYNCAPI_SCHEMA` (empty), the absolute path of a
 local copy of the official AsyncAPI 3.0.0 JSON Schema, never downloaded, against which three
 `GraphExport.*` tests of the `protocol` label then check `spec/asyncapi/`;
 [docs/testing.md](docs/testing.md) has the details.

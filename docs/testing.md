@@ -199,9 +199,25 @@ official schema trips AddressSanitizer's container-overflow check when json-sche
 library built without AddressSanitizer, as the commands in
 [platforms.md](platforms.md#json-schema-validator) build it. The report is false: only the
 instrumented copies of the container code mark a container's unused capacity, so a container that
-the uninstrumented library fills looks overrun. With the validator's own sources built with
-AddressSanitizer, the same check reports nothing. So, in a build whose `PRAENORA_SANITIZERS` holds
-`address`, CTest runs only these three tests with that check off: it appends
+the uninstrumented library fills looks overrun. A tree configured with
+`PRAENORA_FETCH_JSON_SCHEMA_VALIDATOR=ON` builds the validator from its sources with the tree's own
+flags ([platforms.md](platforms.md#json-schema-validator), which also shows how to use a local copy
+of the sources instead of downloading them). There the check reports nothing, and the three tests
+keep it and pass, with no `ASAN_OPTIONS`:
+
+```bash
+cmake --preset dev-asan -DPRAENORA_FETCH_JSON_SCHEMA_VALIDATOR=ON \
+    -DPRAENORA_ASYNCAPI_SCHEMA="$HOME/asyncapi-3.0.0.json"
+cmake --build --preset dev-asan
+ctest --preset dev-asan
+```
+
+This was verified with a local copy of the validator's sources at the pinned commit, in the
+`dev-asan` and `dev-tsan` trees; the download is not yet verified.
+
+When the validator is an installed library instead (an imported target), the build takes it to be
+built without AddressSanitizer. So, in a build whose `PRAENORA_SANITIZERS` holds `address` and
+whose validator is installed, CTest runs only these three tests with that check off: it appends
 `:detect_container_overflow=0` to the `ASAN_OPTIONS` it runs with, and every other test keeps the
 check. Run on its own there, the executable needs the same option:
 
@@ -231,10 +247,21 @@ ctest --preset dev-tsan
   stay loaded: the sanitizer keeps an unloaded library's globals registered, which would trip false
   reports against a library loaded later at the same address. Unloading is tested by every other
   build, ThreadSanitizer included.
-- In an AddressSanitizer tree configured with `PRAENORA_ASYNCAPI_SCHEMA`, the tests of the
-  official AsyncAPI schema run with AddressSanitizer's container-overflow check off, because a
-  json-schema-validator that is not instrumented trips a false report there; every other test keeps
-  the check ([The official AsyncAPI schema](#the-official-asyncapi-schema)).
+- A sanitizer sees only the code compiled with its flags, and the third-party libraries are linked
+  as installed, normally without them: json-schema-validator as
+  [platforms.md](platforms.md#json-schema-validator) builds it, and yaml-cpp, spdlog and GoogleTest
+  from the package manager. Errors inside them go unnoticed, and AddressSanitizer can report a
+  false container overflow when such a library fills a container that instrumented code made. A
+  tree configured with `PRAENORA_FETCH_JSON_SCHEMA_VALIDATOR=ON` builds json-schema-validator from
+  its pinned sources with the tree's own flags
+  ([platforms.md](platforms.md#json-schema-validator)); the others stay as installed, and no false
+  report from them has been seen.
+- In an AddressSanitizer tree configured with `PRAENORA_ASYNCAPI_SCHEMA` whose json-schema-validator
+  is an installed library, the tests of the official AsyncAPI schema run with AddressSanitizer's
+  container-overflow check off, because such a library is taken to be built without the sanitizer,
+  and such a library trips a false report there; every other test keeps the check. With
+  `PRAENORA_FETCH_JSON_SCHEMA_VALIDATOR=ON` they keep it too
+  ([The official AsyncAPI schema](#the-official-asyncapi-schema)).
 - `python.unittest` is registered but disabled: an instrumented extension cannot be loaded into an
   interpreter that is not instrumented. A run of the label alone therefore matches no test that
   runs, and the presets' "no tests" rule makes it fail with exit code 8:

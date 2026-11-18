@@ -8,11 +8,14 @@ include(GenerateExportHeader)
 # standard library and Praenora types.
 # System libraries come with them: threads for the module workers and, where it is separate, the
 # dynamic loader library.
+# json-schema-validator comes before nlohmann/json, so its include directory comes first too: when
+# the runtime links a validator built in the tree (PRAENORA_FETCH_JSON_SCHEMA_VALIDATOR), it must
+# not compile against an installed nlohmann/json-schema.hpp in nlohmann/json's include directory.
 find_package(Threads REQUIRED)
 add_library(praenora_runtime_deps INTERFACE)
 target_link_libraries(praenora_runtime_deps INTERFACE
-    nlohmann_json::nlohmann_json
     nlohmann_json_schema_validator::validator
+    nlohmann_json::nlohmann_json
     yaml-cpp::yaml-cpp
     ${PRAENORA_SPDLOG_TARGET}
     Threads::Threads
