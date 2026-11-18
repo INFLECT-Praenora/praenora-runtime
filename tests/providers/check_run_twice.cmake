@@ -3,25 +3,32 @@
 # (tests/providers/CMakeLists.txt). Script mode, cmake -P, with WORK set to a directory of the build
 # tree, which it deletes and fills; it needs only CMake.
 #
-# Each case writes two outputs to first.txt and second.txt in a directory of its own and runs
-# run_twice.cmake with this script as the printer: PRINT is cmake, and MANIFEST, FORMAT, MODEL and
-# END are -DFIRST=<first.txt>, -DSECOND=<second.txt>, -P and this script. With FIRST and SECOND set
+# Each case writes two outputs to first.txt and second.txt in a directory of its own, a NUL byte for
+# each <NUL> in them (_write()), and runs run_twice.cmake with this script as the printer: PRINT is
+# cmake, and MANIFEST, FORMAT, MODEL and END are -DFIRST=<first.txt>, -DSECOND=<second.txt>, -P and
+# this script; WORK is the outputs directory inside the case's directory. With FIRST and SECOND set
 # this script prints the first file, the first time, and the second file, every later time, to
 # standard output as it is, and a line that names the run to standard error, and checks nothing.
 # When the printed file has a companion <file>.stderr, it prints that file's text to standard error
 # before that line; when it has a companion <file>.fails, it then exits with an error, which CMake
-# reports on standard error after that line. run_twice.cmake must fail, and its report is checked
-# line by line, all but the command's arguments: each line must be shown whole, with no other line
-# between them. When no run fails, no line may follow them; otherwise CMake's report of the error
-# follows, of which only the start is checked. A report that shows the second run's command, exit
-# code and outputs shows the first run's standard output and standard error before them.
+# reports on standard error after that line. In cases 1 to 13 run_twice.cmake must fail, and its
+# report is checked line by line, all but the command's arguments: each line must be shown whole,
+# with no other line between them. When no run fails, no line may follow them; otherwise CMake's
+# report of the error follows, of which only the start is checked. A report that shows the second
+# run's command, exit code and outputs shows the first run's standard output and standard error
+# before them. It shows the outputs as CMake captures them, without the carriage return of a
+# carriage return and line feed and without NUL bytes.
 #
-# Cases 1 to 4 make the outputs differ, and each output passes run_twice.cmake's other checks. Its
-# first line holds ; inside and outside brackets and a [ that no ] closes, and its third line a [
-# that no ] closes and a ; before the byte where case 1 differs: CMake's list commands treat ; [
-# and ] specially.
-# 1. The outputs differ on line 3 and again on line 5: the report names line 3 and the byte where
-#    it first differs, and shows it as each run printed it.
+# Cases 1 to 4, 12 and 13 make the outputs differ, and each output passes run_twice.cmake's other
+# checks; in cases 12 and 13 they differ only in a byte that CMake's capture drops. The first
+# output's first line holds ; inside and outside brackets and a [ that no ] closes, and its third
+# line a [ that no ] closes and a ; before the byte where case 1 differs: CMake's list commands
+# treat ; [ and ] specially. Its first line also holds क (U+0915), whose UTF-8 bytes e0 a4 95 hold
+# the hexadecimal digits 0a across two bytes, where run_twice.cmake must not count a line feed. In
+# cases 2 to 4 one output is a prefix of the other, and the report names the longer one's next
+# byte.
+# 1. The outputs differ on line 3 and again on line 5: the report names line 3, the byte where it
+#    first differs and that byte of each output, and shows the line as each run printed it.
 # 2. The second output is the first's without its last line: the second is shorter, a prefix of
 #    the first, and ends before the line that differs.
 # 3. The first output is the second's without its final line feed: the first is shorter, a prefix
@@ -37,6 +44,13 @@
 #    reported as no simulation and batch.
 # 10. and 11. The first run prints a sanitizer report on standard output, then the second on
 #    standard error: run_command.cmake searches both.
+# 12. The second output ends line 1 with a carriage return before the line feed, so the outputs
+#    are the same text as CMake captures them: the report names line 1, the byte where it first
+#    differs and that byte of each output, shows the line as the same in both and says why.
+# 13. The second output holds a NUL byte on line 1, which CMake's capture drops too: the report is
+#    as in case 12.
+# 14. Both outputs are the same bytes, with a carriage return before each line feed and a NUL byte:
+#    run_twice.cmake must pass, and count every byte.
 # Case 5 runs run_twice.cmake as praenora_conversion_print's driver
 # (TOOL=praenora_conversion_print); the others run it without TOOL, as praenora_simulation_print's
 # driver.
@@ -70,6 +84,58 @@ endif()
 set(driver "${CMAKE_CURRENT_LIST_DIR}/run_twice.cmake")
 file(REMOVE_RECURSE "${WORK}")
 
+# One NUL byte, in the variable nul_byte, for _write(). No CMake string can be written with one,
+# but file(READ) of a NUL byte at the end of a file puts it into a variable, which file(WRITE) and
+# file(APPEND) write as they are: the last byte of a tar archive, which ends with blocks of NUL
+# bytes. Only those commands, and the check below, may touch that variable.
+file(WRITE "${WORK}/empty" "")
+file(ARCHIVE_CREATE OUTPUT "${WORK}/empty.tar" PATHS "${WORK}/empty" FORMAT gnutar)
+file(SIZE "${WORK}/empty.tar" size)
+math(EXPR last "${size} - 1")
+file(READ "${WORK}/empty.tar" nul_byte OFFSET ${last} LIMIT 1)
+file(WRITE "${WORK}/nul" "${nul_byte}")
+file(READ "${WORK}/nul" written HEX)
+if(NOT written STREQUAL "00")
+    message(FATAL_ERROR "check_run_twice.cmake: ${WORK}/nul holds the bytes ${written} "
+        "(hexadecimal), not one NUL byte")
+endif()
+
+# Writes `text` to the file `file`, with a NUL byte for each <NUL> in it: the parts of the text
+# around them, with nul_byte appended between them.
+function(_write file text)
+    string(FIND "${text}" "<NUL>" position)
+    file(WRITE "${file}" "")
+    while(NOT position EQUAL -1)
+        string(SUBSTRING "${text}" 0 ${position} part)
+        math(EXPR position "${position} + 5")
+        string(SUBSTRING "${text}" ${position} -1 text)
+        file(APPEND "${file}" "${part}")
+        file(APPEND "${file}" "${nul_byte}")
+        string(FIND "${text}" "<NUL>" position)
+    endwhile()
+    file(APPEND "${file}" "${text}")
+endfunction()
+
+# Runs run_twice.cmake on the outputs first.txt and second.txt in `directory` as the driver of
+# `tool` (praenora_simulation_print: without TOOL; praenora_conversion_print: with TOOL), and sets
+# exit_code, out and err to its exit code and outputs.
+function(_run_twice directory tool)
+    set(tool_argument "")
+    if(NOT tool STREQUAL "praenora_simulation_print")
+        set(tool_argument "-DTOOL=${tool}")
+    endif()
+    execute_process(COMMAND "${CMAKE_COMMAND}" "-DPRINT=${CMAKE_COMMAND}" ${tool_argument}
+            "-DMANIFEST=-DFIRST=${directory}/first.txt"
+            "-DFORMAT=-DSECOND=${directory}/second.txt" "-DMODEL=-P"
+            "-DEND=${CMAKE_CURRENT_LIST_FILE}" "-DWORK=${directory}/outputs" -P "${driver}"
+        RESULT_VARIABLE exit_code
+        OUTPUT_VARIABLE out
+        ERROR_VARIABLE err)
+    set(exit_code "${exit_code}" PARENT_SCOPE)
+    set(out "${out}" PARENT_SCOPE)
+    set(err "${err}" PARENT_SCOPE)
+endfunction()
+
 # Fails the test with `problem`, then what run_twice.cmake printed (`out` and `err`), each line with
 # a space added at its start, so that message() shows it as it is.
 function(_fail problem)
@@ -79,21 +145,21 @@ function(_fail problem)
         "--- stderr of run_twice.cmake ---\n${err}")
 endfunction()
 
-# Runs run_twice.cmake on the outputs `first` and `second` as the driver of `tool`
-# (praenora_simulation_print: without TOOL; praenora_conversion_print: with TOOL) and checks its
-# report. `fails` is the run that exits with an error, first or second, or empty when none does.
-# The report must show `head`, its first line or lines, which tell what failed; when `shown` is
-# second, then the first run's standard output and standard error, and a line that says that the
-# second run's command, exit code and outputs follow; then the line that shows the command; then
-# the exit code and outputs of the `shown` run. When two more arguments follow, the first names a
-# run, first or second, and that run prints the other argument, a text that ends with a line feed,
-# to standard error before its line. Each line of the report is shown after three spaces: CMake's
-# indent of two and the space that tests/support/run_command.cmake adds.
+# Runs run_twice.cmake on the outputs `first` and `second`, written with _write(), as the driver of
+# `tool` (_run_twice()) and checks its report. `fails` is the run that exits with an error, first
+# or second, or empty when none does. The report must show `head`, its first line or lines, which
+# tell what failed; when `shown` is second, then the first run's standard output and standard
+# error, and a line that says that the second run's command, exit code and outputs follow; then the
+# line that shows the command; then the exit code and outputs of the `shown` run. When two more
+# arguments follow, the first names a run, first or second, and that run prints the other argument,
+# a text that ends with a line feed, to standard error before its line. Each line of the report is
+# shown after three spaces: CMake's indent of two and the space that
+# tests/support/run_command.cmake adds.
 function(_check case tool fails first second shown head)
     set(directory "${WORK}/${case}")
     file(MAKE_DIRECTORY "${directory}")
-    file(WRITE "${directory}/first.txt" "${first}")
-    file(WRITE "${directory}/second.txt" "${second}")
+    _write("${directory}/first.txt" "${first}")
+    _write("${directory}/second.txt" "${second}")
     # The standard error of each run.
     set(first_err "printed by the first run\n")
     set(second_err "printed by the second run\n")
@@ -104,20 +170,16 @@ function(_check case tool fails first second shown head)
     if(NOT fails STREQUAL "")
         file(WRITE "${directory}/${fails}.txt.fails" "")
     endif()
-    set(tool_argument "")
-    if(NOT tool STREQUAL "praenora_simulation_print")
-        set(tool_argument "-DTOOL=${tool}")
-    endif()
-    execute_process(COMMAND "${CMAKE_COMMAND}" "-DPRINT=${CMAKE_COMMAND}" ${tool_argument}
-            "-DMANIFEST=-DFIRST=${directory}/first.txt"
-            "-DFORMAT=-DSECOND=${directory}/second.txt" "-DMODEL=-P"
-            "-DEND=${CMAKE_CURRENT_LIST_FILE}" -P "${driver}"
-        RESULT_VARIABLE exit_code
-        OUTPUT_VARIABLE out
-        ERROR_VARIABLE err)
+    _run_twice("${directory}" ${tool})
     if(exit_code STREQUAL "0")
         _fail("${case}: run_twice.cmake did not fail.")
     endif()
+    # The outputs as CMake captures them, as the report shows them: without the carriage return of
+    # a carriage return and line feed, and without NUL bytes.
+    foreach(output IN ITEMS first second)
+        string(REPLACE "\r\n" "\n" ${output} "${${output}}")
+        string(REPLACE "<NUL>" "" ${output} "${${output}}")
+    endforeach()
     set(shown_head "\n${head}\n")
     if(shown STREQUAL "second")
         string(APPEND shown_head "--- stdout of the first run ---\n${first}\n"
@@ -175,7 +237,7 @@ function(_check case tool fails first second shown head)
 endfunction()
 
 # The outputs. Each line of the first ends with a line feed.
-set(line_1 [=[describe_model {"states":["x;y"]} a;b [c]=])
+set(line_1 [=[describe_model {"states":["x;y","क"]} a;b [c]=])
 set(line_2 [=[simulate {"rows":[[0.0,10.0]]}]=])
 set(line_3 "simulate rows 0x0p+0 0x1.4p+3 [x;y 0x1p+2")
 set(line_4 "run_batch outcomes 0 0 0")
@@ -186,31 +248,32 @@ set(tool praenora_simulation_print)
 set(differ "${tool}: two processes printed different results: their standard outputs first differ")
 
 # 1. Lines 3 and 5 differ. Line 3 first differs at its byte 39, after the 38 bytes
-# "simulate rows 0x0p+0 0x1.4p+3 [x;y 0x1".
+# "simulate rows 0x0p+0 0x1.4p+3 [x;y 0x1": p (0x70) in the first, . (0x2e) in the second.
 set(other_line_3 "simulate rows 0x0p+0 0x1.4p+3 [x;y 0x1.0000000000001p+2")
 set(other_line_5 "run_batch out 0x0p+0 0x1.4p+1")
 set(other "${head}${other_line_3}\n${line_4}\n${other_line_5}\n")
-string(CONCAT problem "${differ} on line 3, at byte 39 of that line.\n"
+string(CONCAT problem "${differ} on line 3, at byte 39 of that line, where the first run printed "
+    "0x70 and the second 0x2e.\n"
     "--- line 3 of the first run's stdout ---\n${line_3}\n"
     "--- line 3 of the second run's stdout ---\n${other_line_3}")
 _check(1 ${tool} "" "${first}" "${other}" second "${problem}")
 
 # 2. The second output ends before line 5.
 string(CONCAT problem "${differ} on line 5. The second run's is shorter, a prefix of the first "
-    "run's: it ends before line 5.\n"
+    "run's: it ends before line 5, where the first run's continues with 0x72.\n"
     "--- line 5 of the first run's stdout ---\n${line_5}")
 _check(2 ${tool} "" "${first}" "${head}${line_3}\n${line_4}\n" second "${problem}")
 
 # 3. The first output ends in line 5, without a line feed.
 string(CONCAT problem "${differ} on line 5. The first run's is shorter, a prefix of the second "
-    "run's: it ends in line 5, without a line feed.\n"
+    "run's: it ends in line 5, without a line feed, where the second run's continues with 0x0a.\n"
     "--- line 5 of the first run's stdout ---\n${line_5}\n"
     "--- line 5 of the second run's stdout ---\n${line_5}")
 _check(3 ${tool} "" "${head}${line_3}\n${line_4}\n${line_5}" "${first}" second "${problem}")
 
 # 4. The second output has one more line, an empty one.
 string(CONCAT problem "${differ} on line 6. The first run's is shorter, a prefix of the second "
-    "run's: it ends before line 6.\n"
+    "run's: it ends before line 6, where the second run's continues with 0x0a.\n"
     "--- line 6 of the second run's stdout ---\n")
 _check(4 ${tool} "" "${first}" "${first}\n" second "${problem}")
 
@@ -238,3 +301,36 @@ _check(10 ${tool} "" "${first}${report}" "${first}" first
     "${tool} (first run): a sanitizer reported a problem")
 _check(11 ${tool} "" "${first}" "${other}" second
     "${tool} (second run): a sanitizer reported a problem" second "${report}")
+
+# 12. The second output ends line 1 with a carriage return and a line feed. Line 1 holds 46 bytes
+# (क is three), so the outputs first differ at its byte 47: a line feed (0x0a) in the first, a
+# carriage return (0x0d) in the second.
+string(CONCAT looks_the_same "That line looks the same in both below: it is shown as CMake "
+    "captures it, without a carriage return before its line feed and without NUL bytes.\n"
+    "--- line 1 of the first run's stdout ---\n${line_1}\n"
+    "--- line 1 of the second run's stdout ---\n${line_1}")
+string(CONCAT problem "${differ} on line 1, at byte 47 of that line, where the first run printed "
+    "0x0a and the second 0x0d. ${looks_the_same}")
+string(REPLACE "${line_1}\n" "${line_1}\r\n" carriage_return "${first}")
+_check(12 ${tool} "" "${first}" "${carriage_return}" second "${problem}")
+
+# 13. The second output holds a NUL byte after describe_model, the first 14 bytes of line 1, so the
+# outputs first differ at its byte 15: a space (0x20) in the first, a NUL byte (0x00) in the second.
+string(CONCAT problem "${differ} on line 1, at byte 15 of that line, where the first run printed "
+    "0x20 and the second 0x00. ${looks_the_same}")
+string(REPLACE "describe_model " "describe_model<NUL> " nul_output "${first}")
+_check(13 ${tool} "" "${first}" "${nul_output}" second "${problem}")
+
+# 14. The same bytes twice, with a carriage return before each line feed and a NUL byte: the count
+# is of every byte, not of the text that CMake captures.
+string(REPLACE "\n" "\r\n" same "${nul_output}")
+set(directory "${WORK}/14")
+_write("${directory}/first.txt" "${same}")
+_write("${directory}/second.txt" "${same}")
+file(SIZE "${directory}/first.txt" size)
+_run_twice("${directory}" ${tool})
+if(NOT exit_code STREQUAL "0" OR
+   NOT out MATCHES "^-- Two processes printed the same ${size} bytes\\.\n$")
+    _fail("14: run_twice.cmake did not pass two runs that printed the same ${size} bytes.")
+endif()
+message(STATUS "14: run_twice.cmake passes two runs that printed the same ${size} bytes")

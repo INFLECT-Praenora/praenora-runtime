@@ -3,10 +3,15 @@
 # tests/providers/check_exports.cmake, tests/providers/run_twice.cmake), which include this file.
 # Script mode (cmake -P); it needs only CMake.
 #
-# praenora_test_run(<prefix> <what> <command> [AFTER_PROBLEM <text>])
+# praenora_test_run(<prefix> <what> <command> [AFTER_PROBLEM <text>] [OUTPUT_FILE <file>])
 #   Runs the command, a ;-list of its program and then its arguments, handed over as one argument
 #   ("${command}"), and sets <prefix>_EXIT, <prefix>_OUT and <prefix>_ERR in the caller's scope:
-#   its exit code (or why it did not run), its standard output and its standard error. Each element
+#   its exit code (or why it did not run), its standard output and its standard error, as
+#   execute_process() captures them, which drops the carriage return of each carriage return and
+#   line feed and every NUL byte. With OUTPUT_FILE, the standard output goes to <file> instead,
+#   every byte as it was printed, and <prefix>_OUT is read back from that file with cmake -E cat,
+#   captured in the same way, so it is the same text. The file's directory is made first when it
+#   does not exist: execute_process() may write no file there, and report no error. Each element
 #   of the list reaches the program as one argument, as it is, an empty one included (one spelled
 #   like a keyword of execute_process(), such as COMMAND or TIMEOUT, is read as that keyword). A
 #   command handed over as several arguments (${command}, unquoted) is refused: CMake drops the
@@ -14,7 +19,8 @@
 #   the test with "<what>: a sanitizer reported a problem", whatever the exit code: a sanitizer
 #   build may report a problem and still exit with 0. With AFTER_PROBLEM, <text>, handed over as
 #   one argument too, follows that problem in the report, as it is: tests/providers/run_twice.cmake
-#   adds the outputs of the first of its two runs to a failure of the second.
+#   adds the outputs of the first of its two runs to a failure of the second. The two keywords may
+#   come in either order, each followed by its value.
 #
 # praenora_test_fail(<what> <problem> <command> <exit code> <stdout> <stderr>)
 #   Fails the test with a report in one message(FATAL_ERROR): "<what>: <problem>", then the
@@ -22,11 +28,12 @@
 #   the report starts with a space: message() prints such a line as it is, after its own indent of
 #   two spaces, and formats every other line, one that starts with a tab included, as a paragraph,
 #   wrapped near 77 columns at spaces, its runs of spaces collapsed, set apart by blank lines. So
-#   the problem and both outputs are shown line by line as they were printed, each line with a
-#   space added at its start. An output that ends with a line feed thus ends with a line that holds
-#   only that space, and an empty output is shown as one such line. The outputs are not printed
-#   apart with message(NOTICE), which prints a text as it is: that would print them before CMake's
-#   "CMake Error at" line, away from the rest of the report.
+#   the problem and both outputs are shown line by line as they were printed, as CMake captures
+#   them (see praenora_test_run()), each line with a space added at its start. An output that ends
+#   with a line feed thus ends with a line that holds only that space, and an empty output is shown
+#   as one such line. The outputs are not printed apart with message(NOTICE), which prints a text
+#   as it is: that would print them before CMake's "CMake Error at" line, away from the rest of the
+#   report.
 #
 #   The command is shown on one line, its arguments separated by spaces. An argument that is empty
 #   or holds whitespace (a space, tab, line feed, vertical tab, form feed or carriage return) or a
@@ -64,15 +71,28 @@ function(praenora_test_fail what problem command exit_code out err)
 endfunction()
 
 function(praenora_test_run prefix what command)
+    # The keywords after the command, each followed by its value. ARGV<n> is read only below ARGC:
+    # past it, it may hold an argument of an enclosing function's call.
     set(after_problem "")
-    if(ARGC EQUAL 5 AND "${ARGV3}" STREQUAL "AFTER_PROBLEM")
-        set(after_problem "${ARGV4}")
-    elseif(NOT ARGC EQUAL 3)
-        message(FATAL_ERROR "${what}: praenora_test_run() was handed the command as several "
-            "arguments; hand it over as one, quoted (\"\${command}\"), because CMake drops the "
-            "empty elements of a list that it expands unquoted (it takes <prefix> <what> "
-            "<command>, then optionally AFTER_PROBLEM and its text, as one argument too)")
-    endif()
+    set(output_file "")
+    set(index 3)
+    while(index LESS ARGC)
+        math(EXPR value "${index} + 1")
+        set(keyword "${ARGV${index}}")
+        if(NOT value LESS ARGC OR NOT keyword MATCHES "^(AFTER_PROBLEM|OUTPUT_FILE)$")
+            message(FATAL_ERROR "${what}: praenora_test_run() was handed the command as several "
+                "arguments; hand it over as one, quoted (\"\${command}\"), because CMake drops the "
+                "empty elements of a list that it expands unquoted (it takes <prefix> <what> "
+                "<command>, then optionally AFTER_PROBLEM and its text and OUTPUT_FILE and its "
+                "file, each as one argument too)")
+        endif()
+        if(keyword STREQUAL "AFTER_PROBLEM")
+            set(after_problem "${ARGV${value}}")
+        else()
+            set(output_file "${ARGV${value}}")
+        endif()
+        math(EXPR index "${index} + 2")
+    endwhile()
     # execute_process(COMMAND ${command}) would drop them as well. The call is built instead with
     # one quoted variable reference per element, which passes the element as one argument, as it
     # is: its value is not read as CMake code.
@@ -83,8 +103,22 @@ function(praenora_test_run prefix what command)
         string(APPEND call " \"\${argument_${index}}\"")
         math(EXPR index "${index} + 1")
     endforeach()
-    string(APPEND call " RESULT_VARIABLE exit_code OUTPUT_VARIABLE out ERROR_VARIABLE err)")
+    if(output_file STREQUAL "")
+        string(APPEND call " RESULT_VARIABLE exit_code OUTPUT_VARIABLE out ERROR_VARIABLE err)")
+    else()
+        get_filename_component(directory "${output_file}" DIRECTORY)
+        if(NOT directory STREQUAL "")
+            file(MAKE_DIRECTORY "${directory}")
+        endif()
+        string(APPEND call
+            " RESULT_VARIABLE exit_code OUTPUT_FILE \"\${output_file}\" ERROR_VARIABLE err)")
+    endif()
     cmake_language(EVAL CODE "${call}")
+    if(NOT output_file STREQUAL "")
+        # Not file(READ): it keeps NUL bytes, at which if(MATCHES), below and in the callers, stops
+        # reading.
+        execute_process(COMMAND "${CMAKE_COMMAND}" -E cat "${output_file}" OUTPUT_VARIABLE out)
+    endif()
     # What a report of AddressSanitizer, LeakSanitizer, ThreadSanitizer or
     # UndefinedBehaviorSanitizer looks like.
     set(sanitizer_report "runtime error:|AddressSanitizer|LeakSanitizer|ThreadSanitizer")

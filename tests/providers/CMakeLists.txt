@@ -5,9 +5,12 @@
 #   marked __declspec(dllexport).
 # - providers.<name>.processes (run_twice.cmake): a print tool loads the provider and prints what a
 #   fixed sequence of calls computes; two runs, each in a new process, must print the same bytes.
-#   praenora_simulation_print (simulation_print.cpp) loads a provider of praenora.simulation@0,
-#   simulates a model and runs a plan's batch and a kernel, printing every double exactly;
-#   praenora_conversion_print (conversion_print.cpp) loads a provider of
+#   Each run's standard output is written to a file, processes/<name>/first.out or second.out in
+#   this directory of the build tree, and the two files are compared byte for byte: CMake's
+#   capture of an output drops the carriage return of each carriage return and line feed and every
+#   NUL byte. praenora_simulation_print (simulation_print.cpp) loads a provider of
+#   praenora.simulation@0, simulates a model and runs a plan's batch and a kernel, printing every
+#   double exactly; praenora_conversion_print (conversion_print.cpp) loads a provider of
 #   praenora.model-conversion@0, converts a source and converts the result back, printing
 #   describe's document and both texts and reports verbatim.
 #
@@ -65,6 +68,7 @@ function(praenora_add_provider_file_tests name target print first second third)
             "-DFORMAT=${first}"
             "-DMODEL=${second}"
             "-DEND=${third}"
+            "-DWORK=${CMAKE_CURRENT_BINARY_DIR}/processes/${name}"
             -P "${_praenora_providers_dir}/run_twice.cmake")
     # _praenora_test_environment (tests/CMakeLists.txt): what every test of a macOS
     # AddressSanitizer build needs.
@@ -92,10 +96,12 @@ if(PRAENORA_WITH_ANTIMONY)
 endif()
 
 # The check of run_twice.cmake, the driver of providers.<name>.processes (check_run_twice.cmake):
-# how it shows two outputs that differ, and a run that fails in each of the three ways, the first
-# run and then the second: it exits with a nonzero code, prints no result or prints a sanitizer
-# report. It runs only CMake. Its timeout stops a driver whose search for the line that differs
-# does not end.
+# how it shows two outputs that differ, also two that differ only in a byte that CMake's capture
+# drops (a carriage return before a line feed, or a NUL byte), and a run that fails in each of the
+# three ways, the first run and then the second: it exits with a nonzero code, prints no result or
+# prints a sanitizer report; and that two runs that printed the same bytes pass, with their count.
+# It runs only CMake. Its timeout stops a driver whose search for the line that differs does not
+# end.
 add_test(NAME providers.run_twice.shows_first_difference
     COMMAND "${CMAKE_COMMAND}"
         "-DWORK=${CMAKE_CURRENT_BINARY_DIR}/run_twice-check"

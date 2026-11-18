@@ -209,7 +209,9 @@ A failing test names its component, and the failure message names an error code,
 `file:line`, and the step and tick where they matter. The CLI, install, perf and provider-file
 drivers show a command that failed on one line, with each argument that is empty or holds
 whitespace or a quote character shown in double quotes, and its outputs line by line as they were
-printed ([`tests/support/run_command.cmake`](../tests/support/run_command.cmake) gives the rules).
+printed, as CMake captures them, without the carriage return of each carriage return and line feed
+and without NUL bytes ([`tests/support/run_command.cmake`](../tests/support/run_command.cmake) gives
+the rules).
 Start from the label:
 
 | Failing label | Component | Likely owner |
@@ -305,7 +307,11 @@ gate in every build that has them: the contract tests run the checks on them.
   `test-conversion` and, when built, `roadrunner` and `antimony`: `providers.<provider>.exports`
   lists its exported symbols with `nm` (`check_exports.cmake`; not on Windows) and requires the
   entry point to be the only one, and `providers.<provider>.processes` runs a print tool twice, each
-  time in a new process (`run_twice.cmake`), and the two outputs must be the same bytes. For the
+  time in a new process (`run_twice.cmake`), and the two outputs must be the same bytes. Each run's
+  standard output is written to a file, `first.out` or `second.out` in
+  `build/<preset>/tests/providers/processes/<provider>/`, and the two files are compared byte for
+  byte: CMake's capture of an output drops the carriage return of each carriage return and line
+  feed and every NUL byte, so two captured texts can be the same when the bytes differ. For the
   simulation providers the tool is `praenora_simulation_print`: it simulates a model of
   `tests/fixtures/models/`, runs a kernel and a plan's batch, and prints every double exactly. For
   the conversion providers it is `praenora_conversion_print`: it converts a source and the result
@@ -317,11 +323,15 @@ gate in every build that has them: the contract tests run the checks on them.
   `praenora_simulation_print (second run): exit code 1, expected 0`, and shows that run's command,
   exit code and outputs; before those of the second run, it shows the first run's outputs. When
   the outputs differ, the report names the tool and the first line where they differ and shows it
-  as each run printed it; it says which output is shorter when one is a prefix of the other, and
-  otherwise names the byte of that line where they first differ; the first run's outputs follow,
-  and then the second run's command, exit code and outputs;
-  `providers.run_twice.shows_first_difference` (`check_run_twice.cmake`) checks that report, and
-  the report on each failure of either run.
+  as each run printed it, as CMake captures it; it says which output is shorter when one is a
+  prefix of the other, and names the longer one's next byte in hexadecimal; otherwise it names the
+  byte of that line where they first differ, counted in the bytes as printed, and that byte of each
+  output in hexadecimal, and says why the line looks the same in both when it does; the first run's
+  outputs follow, and then the second run's command, exit code and outputs;
+  `providers.run_twice.shows_first_difference` (`check_run_twice.cmake`) checks that report, also
+  for two outputs that differ only by a carriage return before a line feed or by a NUL byte, the
+  report on each failure of either run, and that two runs that printed the same bytes pass, with
+  their count.
 - **Service checks.** The simulation service's checks
   ([`tests/contract/simulation_service_checks.hpp`](../tests/contract/simulation_service_checks.hpp))
   are a parameterized suite: a provider of the service is checked by a source file that instantiates
