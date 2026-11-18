@@ -38,6 +38,11 @@ option(PRAENORA_WITH_ROADRUNNER
 # docs/platforms.md).
 option(PRAENORA_WITH_ANTIMONY
     "Build the antimony service provider (needs libAntimony 3.3 built from source and libSBML)" OFF)
+# A local copy of the official AsyncAPI 3.0.0 JSON Schema (schemas/3.0.0.json of
+# github.com/asyncapi/spec-json-schemas), never downloaded: when set, the protocol tests check the
+# committed AsyncAPI documents against it (tests/CMakeLists.txt, docs/testing.md).
+set(PRAENORA_ASYNCAPI_SCHEMA "" CACHE FILEPATH
+    "With the tests: a copy of the official AsyncAPI 3.0.0 JSON Schema to check spec/asyncapi/")
 set(PRAENORA_SANITIZERS "" CACHE STRING
     "Sanitizers for GCC and Clang builds, for example address;undefined or thread")
 set_property(CACHE PRAENORA_SANITIZERS PROPERTY STRINGS "" "address;undefined" "thread")

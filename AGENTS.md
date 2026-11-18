@@ -161,9 +161,12 @@ name is in `docs/specs/error-taxonomy.md`, every `spec/schemas/*.json` name in
 `README.md`, `AGENTS.md` and `docs/` resolves, and the open-questions register has its 30 rows.
 Build options are in `cmake/PraenoraOptions.cmake`, among them `PRAENORA_WITH_ROADRUNNER` (OFF),
 which builds the roadrunner provider; with it, the cache variable `LLVM_INSTALL_PREFIX`
-(`cmake/PraenoraRoadrunner.cmake`) names the LLVM that libRoadRunner was built with; and
+(`cmake/PraenoraRoadrunner.cmake`) names the LLVM that libRoadRunner was built with;
 `PRAENORA_WITH_ANTIMONY` (OFF), which builds the antimony provider
-(`cmake/PraenoraAntimony.cmake`); [docs/testing.md](docs/testing.md) has the details.
+(`cmake/PraenoraAntimony.cmake`); and `PRAENORA_ASYNCAPI_SCHEMA` (empty), the absolute path of a
+local copy of the official AsyncAPI 3.0.0 JSON Schema, never downloaded, against which three
+`GraphExport.*` tests of the `protocol` label then check `spec/asyncapi/`;
+[docs/testing.md](docs/testing.md) has the details.
 
 ## Repository map
 
@@ -313,7 +316,8 @@ docs/                         index.md, the guides (architecture, user-guide, co
   ADR. Calls made while building go into the relevant ADR as "Builder notes" (Proposed).
 - Golden files, and the committed AsyncAPI documents in `spec/asyncapi/`, are refreshed only with
   `PRAENORA_UPDATE_GOLDEN=1`, never implicitly; regenerate the AsyncAPI documents whenever a
-  workflow definition, a message type or the envelope schema changes.
+  workflow definition, a message type or the envelope schema changes, and, with a local copy of
+  the official AsyncAPI 3.0.0 schema at hand, check them against it (`PRAENORA_ASYNCAPI_SCHEMA`).
 
 ## Prohibitions
 

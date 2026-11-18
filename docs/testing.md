@@ -48,7 +48,7 @@ themselves.
 | Label | What it covers | Tests |
 |---|---|---|
 | `unit` | Runtime internals, white-box: documents and YAML, canonical JSON, SHA-256, versions, durations, seeds, CSV and other input sources, configuration, logging, metrics, health, status files, run records, the error table against `status.h`, the SDK's headers, adapter and test kit, and the antimony provider's rules that read a source's text alone. | `praenora_unit_tests` |
-| `protocol` | Every schema and catalog entry, valid and invalid documents per kind, graph validation and schedules, graph export, and the committed AsyncAPI documents. | `praenora_protocol_tests` |
+| `protocol` | Every schema and catalog entry, valid and invalid documents per kind, graph validation and schedules, graph export, and the committed AsyncAPI documents, also against the official AsyncAPI 3.0.0 schema when the build names a copy of it ([below](#the-official-asyncapi-schema)). | `praenora_protocol_tests` |
 | `contract` | Manifests and discovery, the loader, module instances, the engine and the contract checks, through the real loader and the fixture modules; service providers and runs that use their services, with the fixture providers; the service checks of the simulation and model conversion services; provider libraries as files: their exported symbols, and the same results in two processes, and how the driver of the latter shows two outputs that differ and a run that fails. | `praenora_contract_tests`, `providers.<provider>.exports`, `providers.<provider>.processes`, `providers.run_twice.shows_first_difference` |
 | `negative` | What must be refused: bad manifests, configurations and graphs, incompatible modules, failing validations, services no provider serves, providers that do not load in a run, each with its code and location. | `praenora_negative_tests` |
 | `lifecycle` | Call order and cleanup, timeouts, unresponsive modules, cancellation and stop requests, calls into one library from instances of several loads of it (they take turns, and are refused behind an abandoned call), and the runtime services an instance is served. | `praenora_lifecycle_tests` |
@@ -147,6 +147,53 @@ runs the concurrency checks under ThreadSanitizer, which sees only the provider'
 libAntimony, libSBML and SBMLNetwork are not instrumented. The local preset `dev-engines` builds
 both providers and runs the tests of both in one tree.
 
+### The official AsyncAPI schema
+
+A build whose cache variable `PRAENORA_ASYNCAPI_SCHEMA` holds the absolute path of a local copy of
+the official AsyncAPI 3.0.0 JSON Schema adds three tests to the `protocol` label
+(`tests/protocol/asyncapi_official_schema_test.cpp`). They compile that schema with the validator
+of Praenora's own documents:
+
+- `GraphExport.OfficialSchemaIsTheAsyncApi300Schema`: the file is the schema of AsyncAPI 3.0.0
+  (its `$id`, and the `asyncapi` version it requires);
+- `GraphExport.CommittedAsyncApiIsValidAgainstTheOfficialSchema`: every
+  `spec/asyncapi/*.asyncapi.json` is valid against it;
+- `GraphExport.OfficialSchemaRefusesBrokenAsyncApiCopies`: copies of a committed document, each
+  broken in one place (two of them in a string format, `uri` and `regex`), are refused, with every
+  issue at that place or at an object that encloses it, so the test above cannot pass on a schema
+  that accepts anything or on a validator that skips formats.
+
+Neither the build nor the tests download the schema, and it is not committed. The copy that was
+checked is `schemas/3.0.0.json` of release v6.11.1 of
+[asyncapi/spec-json-schemas](https://github.com/asyncapi/spec-json-schemas), with SHA-256
+`d4571a420e6ffb7fcc7066c95a6db1202f299a3c51daa103d0706bf30f95e626`; both committed documents are
+valid against it. Download it once, outside the source tree, then configure with it:
+
+```bash
+curl -fL -o "$HOME/asyncapi-3.0.0.json" \
+    https://raw.githubusercontent.com/asyncapi/spec-json-schemas/v6.11.1/schemas/3.0.0.json
+shasum -a 256 "$HOME/asyncapi-3.0.0.json"
+cmake --preset dev -DPRAENORA_ASYNCAPI_SCHEMA="$HOME/asyncapi-3.0.0.json"
+cmake --build --preset dev
+ctest --preset dev -R '^GraphExport\.'
+```
+
+CMake makes a relative value absolute against the current directory; a value that then does not
+name a file fails the configuration. Configuring with an empty value (`-DPRAENORA_ASYNCAPI_SCHEMA=`)
+and building again removes the three tests.
+
+The tests pass in the ThreadSanitizer tree as they are. In the AddressSanitizer tree, compiling the
+official schema trips AddressSanitizer's container-overflow check when json-schema-validator is a
+library built without AddressSanitizer, as the commands in
+[platforms.md](platforms.md#json-schema-validator) build it. The report is false: only the
+instrumented copies of the container code mark a container's unused capacity, so a container that
+the uninstrumented library fills looks overrun. With the validator's own sources built with
+AddressSanitizer, the same check reports nothing. Run the tests there with that one check off:
+
+```bash
+ASAN_OPTIONS=detect_container_overflow=0 ctest --preset dev-asan -R '^GraphExport\.'
+```
+
 ## Sanitizer builds
 
 The `dev-asan` and `dev-tsan` presets ([developer-guide.md](developer-guide.md#sanitizer-builds))
@@ -167,6 +214,9 @@ ctest --preset dev-tsan
   stay loaded: the sanitizer keeps an unloaded library's globals registered, which would trip false
   reports against a library loaded later at the same address. Unloading is tested by every other
   build, ThreadSanitizer included.
+- In an AddressSanitizer tree configured with `PRAENORA_ASYNCAPI_SCHEMA`, two of the tests of the
+  official AsyncAPI schema fail on a false report when json-schema-validator is not instrumented;
+  run them with one check off ([The official AsyncAPI schema](#the-official-asyncapi-schema)).
 - `python.unittest` is registered but disabled: an instrumented extension cannot be loaded into an
   interpreter that is not instrumented. A run of the label alone therefore matches no test that
   runs, and the presets' "no tests" rule makes it fail with exit code 8:
@@ -196,6 +246,9 @@ PRAENORA_UPDATE_GOLDEN=1 ctest --preset dev -R '^Example\.OutputsMatchGolden$'
 PRAENORA_UPDATE_GOLDEN=1 ctest --preset dev -R '^GraphExport\.CommittedAsyncApiMatchesGenerator$'
 git diff --stat -- tests/fixtures/golden spec/asyncapi
 ```
+
+Check refreshed AsyncAPI documents against the official AsyncAPI 3.0.0 schema too
+([The official AsyncAPI schema](#the-official-asyncapi-schema)).
 
 The golden envelopes hold sixteen zeros where an envelope id holds the first 16 hex digits of the
 run fingerprint, because the fingerprint covers the module libraries' digests and so differs from

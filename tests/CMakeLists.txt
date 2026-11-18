@@ -184,6 +184,24 @@ praenora_add_gtest(praenora_protocol_tests LABEL protocol WHITEBOX
         protocol/catalog_test.cpp
         protocol/graph_test.cpp
         protocol/graph_export_test.cpp)
+# With PRAENORA_ASYNCAPI_SCHEMA, a local copy of the official AsyncAPI 3.0.0 JSON Schema that the
+# build never downloads: the committed AsyncAPI documents checked against it
+# (protocol/asyncapi_official_schema_test.cpp). PRAENORA_TEST_ASYNCAPI_SCHEMA names the copy.
+if(NOT PRAENORA_ASYNCAPI_SCHEMA STREQUAL "")
+    # cmake_path() reads the value as one path (file(TO_CMAKE_PATH) reads it as a search path and
+    # splits it at ':' on Linux and macOS); on Windows it turns backslashes into '/', which keeps
+    # the C string literal below free of escapes.
+    cmake_path(SET _praenora_asyncapi_schema NORMALIZE "${PRAENORA_ASYNCAPI_SCHEMA}")
+    if(NOT IS_ABSOLUTE "${_praenora_asyncapi_schema}" OR NOT EXISTS "${_praenora_asyncapi_schema}"
+            OR IS_DIRECTORY "${_praenora_asyncapi_schema}")
+        message(FATAL_ERROR "PRAENORA_ASYNCAPI_SCHEMA must be the absolute path of a file, a copy "
+            "of the official AsyncAPI 3.0.0 JSON Schema (docs/testing.md); it is "
+            "'${PRAENORA_ASYNCAPI_SCHEMA}'")
+    endif()
+    target_sources(praenora_protocol_tests PRIVATE protocol/asyncapi_official_schema_test.cpp)
+    target_compile_definitions(praenora_protocol_tests PRIVATE
+        "PRAENORA_TEST_ASYNCAPI_SCHEMA=\"${_praenora_asyncapi_schema}\"")
+endif()
 
 praenora_add_gtest(praenora_negative_tests LABEL negative WHITEBOX
     SOURCES

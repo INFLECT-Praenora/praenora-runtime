@@ -115,6 +115,7 @@ Options are cache variables, set in a preset or on the configure line
 | `PRAENORA_WITH_ROADRUNNER` | OFF | The roadrunner service provider ([below](#the-roadrunner-provider)). |
 | `LLVM_INSTALL_PREFIX` | empty | With `PRAENORA_WITH_ROADRUNNER`: the LLVM that libRoadRunner was built with. |
 | `PRAENORA_WITH_ANTIMONY` | OFF | The antimony service provider ([below](#the-antimony-provider)). |
+| `PRAENORA_ASYNCAPI_SCHEMA` | empty | With the tests: the absolute path of a local copy of the official AsyncAPI 3.0.0 JSON Schema, against which the `protocol` tests then check the committed AsyncAPI documents ([testing.md](testing.md#the-official-asyncapi-schema)). |
 | `CMAKE_OSX_DEPLOYMENT_TARGET` | 11.0 | The oldest macOS the build runs on. |
 
 `BUILD_SHARED_LIBS` is never read: the runtime is always a shared library and modules are always
@@ -505,4 +506,6 @@ Changes that come with obligations:
   [specs/compatibility-policy.md](specs/compatibility-policy.md#changing-a-version).
 - Golden files and the AsyncAPI documents in `spec/asyncapi/` change only through
   `PRAENORA_UPDATE_GOLDEN=1` ([testing.md](testing.md#golden-files)); regenerate the AsyncAPI
-  documents whenever a workflow definition, a message type or the envelope schema changes.
+  documents whenever a workflow definition, a message type or the envelope schema changes, and,
+  with a local copy of the official AsyncAPI 3.0.0 schema at hand, check them against it
+  ([testing.md](testing.md#the-official-asyncapi-schema)).

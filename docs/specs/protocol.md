@@ -391,7 +391,9 @@ workflows are committed and compared with the generator's output by the tests:
 - [`pmp.continuous-forecast-0.1.0.asyncapi.json`](../../spec/asyncapi/pmp.continuous-forecast-0.1.0.asyncapi.json)
 
 They are regenerated, with `PRAENORA_UPDATE_GOLDEN=1`, whenever a workflow definition, a message
-type or the envelope schema changes.
+type or the envelope schema changes. Both are valid against the official AsyncAPI 3.0.0 JSON Schema;
+a build that names a local copy of it checks them against it
+([testing.md](../testing.md#the-official-asyncapi-schema)).
 
 ## References
 
