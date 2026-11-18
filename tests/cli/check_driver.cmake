@@ -9,9 +9,10 @@
 #    arguments first, in the middle and last, and one that holds a quote character, a backslash,
 #    a variable reference and brackets. Its standard output must show each of them.
 # b. praenora_test_run() refuses a command handed over as several arguments (unquoted), which
-#    has lost its empty elements. The check runs this script (cmake -P) with RUN_UNQUOTED set:
-#    it then hands `cmake "" --version` over unquoted, so that the command reaches
-#    praenora_test_run() as two arguments, the fewest that it refuses.
+#    has lost its empty elements. The check runs this script (cmake -P) twice, with RUN_UNQUOTED
+#    set to 2, then 3: it then hands `cmake "" --version`, then `cmake "" -E echo`, over unquoted,
+#    so that the command reaches praenora_test_run() as two arguments, the fewest that it refuses,
+#    then as three, as many as a command followed by AFTER_PROBLEM and its text.
 #
 # shows_failing_command: makes run_cli.cmake fail on two commands and checks how it shows them
 # (run_command.cmake says how).
@@ -33,7 +34,11 @@ if(DEFINED PRINT_STDOUT)
 endif()
 if(DEFINED RUN_UNQUOTED)
     include("${CMAKE_CURRENT_LIST_DIR}/../support/run_command.cmake")
-    set(command "${CMAKE_COMMAND}" "" --version)
+    if(RUN_UNQUOTED STREQUAL "2")
+        set(command "${CMAKE_COMMAND}" "" --version)
+    else()
+        set(command "${CMAKE_COMMAND}" "" -E echo)
+    endif()
     praenora_test_run(RUN "a command handed over unquoted" ${command})
     return()
 endif()
@@ -71,18 +76,24 @@ if(CHECK STREQUAL "passes_empty_arguments")
         "argument\n ${special}")
 
     # b. message() wraps the refusal: its lines are joined before it is searched.
-    execute_process(COMMAND "${CMAKE_COMMAND}" -DRUN_UNQUOTED=1 -P "${CMAKE_CURRENT_LIST_FILE}"
-        RESULT_VARIABLE exit_code
-        OUTPUT_VARIABLE out
-        ERROR_VARIABLE err)
-    string(REGEX REPLACE "[ \n]+" " " refusal "${err}")
     string(CONCAT expected "a command handed over unquoted: praenora_test_run() was handed the "
         "command as several arguments")
-    string(FIND "${refusal}" "${expected}" position)
-    if(exit_code STREQUAL "0" OR position EQUAL -1)
-        _fail("praenora_test_run() did not refuse the unquoted command with\n ${expected}")
-    endif()
-    message(STATUS "praenora_test_run() refuses a command handed over unquoted")
+    foreach(count IN ITEMS 2 3)
+        execute_process(COMMAND "${CMAKE_COMMAND}" -DRUN_UNQUOTED=${count}
+                -P "${CMAKE_CURRENT_LIST_FILE}"
+            RESULT_VARIABLE exit_code
+            OUTPUT_VARIABLE out
+            ERROR_VARIABLE err)
+        string(REGEX REPLACE "[ \n]+" " " refusal "${err}")
+        string(FIND "${refusal}" "${expected}" position)
+        if(exit_code STREQUAL "0" OR position EQUAL -1)
+            string(CONCAT problem "praenora_test_run() did not refuse the unquoted command, "
+                "handed over as ${count} arguments, with\n ${expected}")
+            _fail("${problem}")
+        endif()
+        message(STATUS "praenora_test_run() refuses a command handed over unquoted, as ${count} "
+            "arguments")
+    endforeach()
     return()
 endif()
 

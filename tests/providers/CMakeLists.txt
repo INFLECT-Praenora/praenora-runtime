@@ -18,7 +18,7 @@
 # antimony provider (with tests/fixtures/models/antimony/decay.ant, Antimony to SBML and back),
 # both with praenora_conversion_print. One more
 # test checks the driver of the second: providers.run_twice.shows_first_difference
-# (check_run_twice.cmake), how it shows two outputs that differ and an output that shows no result.
+# (check_run_twice.cmake), how it shows two outputs that differ and a run that fails.
 
 # The tools load providers through the runtime's provider loader, an internal API, so they link
 # the runtime's object library, as the white-box tests do.
@@ -92,8 +92,9 @@ if(PRAENORA_WITH_ANTIMONY)
 endif()
 
 # The check of run_twice.cmake, the driver of providers.<name>.processes (check_run_twice.cmake):
-# how it shows two outputs that differ, and an output of praenora_conversion_print that shows no
-# conversion. It runs only CMake. Its timeout stops a driver whose search for the line that differs
+# how it shows two outputs that differ, and a run that fails in each of the three ways, the first
+# run and then the second: it exits with a nonzero code, prints no result or prints a sanitizer
+# report. It runs only CMake. Its timeout stops a driver whose search for the line that differs
 # does not end.
 add_test(NAME providers.run_twice.shows_first_difference
     COMMAND "${CMAKE_COMMAND}"

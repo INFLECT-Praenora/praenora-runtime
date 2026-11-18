@@ -136,7 +136,7 @@ Project presets: `linux-x64-{debug,release,asan,tsan}`, `macos-arm64-{debug,rele
 and, when it is built, `roadrunner`, with `praenora_simulation_print`, and for `test-conversion`
 and, when it is built, `antimony`, with `praenora_conversion_print`. It also holds
 `providers.run_twice.shows_first_difference`, which checks how the driver of the `processes` tests
-shows two outputs that differ, and an output that shows no conversion. The `cli` label
+shows two outputs that differ, and a run that fails. The `cli` label
 holds the CLI driver tests, named `cli.<command>.<case>`; `cli.driver.passes_empty_arguments`, which
 checks that each argument of a command reaches its program, an empty one included, and
 `cli.driver.shows_failing_command`, which checks how that driver shows a failing command; and the

@@ -49,7 +49,7 @@ themselves.
 |---|---|---|
 | `unit` | Runtime internals, white-box: documents and YAML, canonical JSON, SHA-256, versions, durations, seeds, CSV and other input sources, configuration, logging, metrics, health, status files, run records, the error table against `status.h`, the SDK's headers, adapter and test kit, and the antimony provider's rules that read a source's text alone. | `praenora_unit_tests` |
 | `protocol` | Every schema and catalog entry, valid and invalid documents per kind, graph validation and schedules, graph export, and the committed AsyncAPI documents. | `praenora_protocol_tests` |
-| `contract` | Manifests and discovery, the loader, module instances, the engine and the contract checks, through the real loader and the fixture modules; service providers and runs that use their services, with the fixture providers; the service checks of the simulation and model conversion services; provider libraries as files: their exported symbols, and the same results in two processes, and how the driver of the latter shows two outputs that differ and an output that shows no result. | `praenora_contract_tests`, `providers.<provider>.exports`, `providers.<provider>.processes`, `providers.run_twice.shows_first_difference` |
+| `contract` | Manifests and discovery, the loader, module instances, the engine and the contract checks, through the real loader and the fixture modules; service providers and runs that use their services, with the fixture providers; the service checks of the simulation and model conversion services; provider libraries as files: their exported symbols, and the same results in two processes, and how the driver of the latter shows two outputs that differ and a run that fails. | `praenora_contract_tests`, `providers.<provider>.exports`, `providers.<provider>.processes`, `providers.run_twice.shows_first_difference` |
 | `negative` | What must be refused: bad manifests, configurations and graphs, incompatible modules, failing validations, services no provider serves, providers that do not load in a run, each with its code and location. | `praenora_negative_tests` |
 | `lifecycle` | Call order and cleanup, timeouts, unresponsive modules, cancellation and stop requests, calls into one library from instances of several loads of it (they take turns, and are refused behind an abandoned call), and the runtime services an instance is served. | `praenora_lifecycle_tests` |
 | `integration` | The public API through the shared library only, and the example workflow end to end: golden outputs, determinism, the fingerprint, files on disk, status queries during a run. | `praenora_integration_tests` |
@@ -311,13 +311,17 @@ gate in every build that has them: the contract tests run the checks on them.
   the conversion providers it is `praenora_conversion_print`: it converts a source and the result
   back, `tests/fixtures/models/test-decay-text/two-states.txt` to `test-decay` for `test-conversion`
   and `tests/fixtures/models/antimony/decay.ant` to `sbml` for `antimony`, and prints both texts and
-  reports verbatim. An output that shows no simulation and batch, or no conversion and conversion
-  back, fails the test. When the outputs differ, the report names the
-  tool and the first line where they differ and shows it as each run printed it; it says which
-  output is shorter when one is a prefix of the other, and otherwise names the byte of that line
-  where they first differ; the first run's outputs follow, and then the second run's command, exit
-  code and outputs; `providers.run_twice.shows_first_difference` (`check_run_twice.cmake`) checks
-  that report, and the report on a conversion output that shows no conversion.
+  reports verbatim. A run that exits with a nonzero code or prints a sanitizer report fails the
+  test, and so does an output that shows no simulation and batch, or no conversion and conversion
+  back. The report names the tool and the run, as in
+  `praenora_simulation_print (second run): exit code 1, expected 0`, and shows that run's command,
+  exit code and outputs; before those of the second run, it shows the first run's outputs. When
+  the outputs differ, the report names the tool and the first line where they differ and shows it
+  as each run printed it; it says which output is shorter when one is a prefix of the other, and
+  otherwise names the byte of that line where they first differ; the first run's outputs follow,
+  and then the second run's command, exit code and outputs;
+  `providers.run_twice.shows_first_difference` (`check_run_twice.cmake`) checks that report, and
+  the report on each failure of either run.
 - **Service checks.** The simulation service's checks
   ([`tests/contract/simulation_service_checks.hpp`](../tests/contract/simulation_service_checks.hpp))
   are a parameterized suite: a provider of the service is checked by a source file that instantiates

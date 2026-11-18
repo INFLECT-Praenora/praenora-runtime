@@ -14,11 +14,14 @@
 # The test fails when either run exits with a nonzero code, prints a sanitizer report
 # (tests/support/run_command.cmake) or prints no result (praenora_simulation_print: no simulation
 # and batch; praenora_conversion_print: no conversion and conversion back), or when the two outputs
-# differ. Its report names the tool. When the outputs differ, it names the first line where the two
-# standard outputs differ, by its number, and shows that line as each run printed it. When one
-# output is a prefix of the other, it says which one is shorter; otherwise it also names the byte of
-# that line where they first differ. The first run's standard output and standard error follow, and
-# then the second run's command, exit code and outputs. The outputs are compared with string(FIND),
+# differ. Its report names the tool. When a run fails, it also names the run, as in
+# "praenora_simulation_print (second run): exit code 1, expected 0", and shows that run's command,
+# exit code and outputs; before those of the second run, it shows the first run's standard output
+# and standard error. When the outputs differ, it names the first line where the two standard
+# outputs differ, by its number, and shows that line as each run printed it. When one output is a
+# prefix of the other, it says which one is shorter; otherwise it also names the byte of that line
+# where they first differ. The first run's standard output and standard error follow, and then the
+# second run's command, exit code and outputs. The outputs are compared with string(FIND),
 # string(SUBSTRING) and string(LENGTH), never turned into lists: CMake's list commands split at ;
 # and treat [ and ] specially, and both tools' outputs hold JSON.
 cmake_minimum_required(VERSION 3.24)
@@ -91,16 +94,24 @@ else()
 endif()
 
 set(command "${PRINT}" "${MANIFEST}" "${FORMAT}" "${MODEL}" "${END}")
-foreach(run IN ITEMS FIRST SECOND)
-    praenora_test_run(${run} "${TOOL}" "${command}")
-    if(NOT ${run}_EXIT STREQUAL "0")
-        praenora_test_fail("${TOOL}" "exit code ${${run}_EXIT}, expected 0"
-            "${command}" "${${run}_EXIT}" "${${run}_OUT}" "${${run}_ERR}")
+# What a report on the first run adds after its problem (nothing), then what a report on the second
+# run adds: the first run's outputs. The report on two outputs that differ adds it too.
+set(after_problem "")
+foreach(run IN ITEMS first second)
+    string(TOUPPER "${run}" prefix)
+    set(what "${TOOL} (${run} run)")
+    praenora_test_run(${prefix} "${what}" "${command}" AFTER_PROBLEM "${after_problem}")
+    if(NOT ${prefix}_EXIT STREQUAL "0")
+        praenora_test_fail("${what}" "exit code ${${prefix}_EXIT}, expected 0${after_problem}"
+            "${command}" "${${prefix}_EXIT}" "${${prefix}_OUT}" "${${prefix}_ERR}")
     endif()
-    if(NOT ${run}_OUT MATCHES "${shows_1}" OR NOT ${run}_OUT MATCHES "${shows_2}")
-        praenora_test_fail("${TOOL}" "${shows_nothing}"
-            "${command}" "${${run}_EXIT}" "${${run}_OUT}" "${${run}_ERR}")
+    if(NOT ${prefix}_OUT MATCHES "${shows_1}" OR NOT ${prefix}_OUT MATCHES "${shows_2}")
+        praenora_test_fail("${what}" "${shows_nothing}${after_problem}"
+            "${command}" "${${prefix}_EXIT}" "${${prefix}_OUT}" "${${prefix}_ERR}")
     endif()
+    string(CONCAT after_problem "\n--- stdout of the first run ---\n${FIRST_OUT}\n"
+        "--- stderr of the first run ---\n${FIRST_ERR}\n"
+        "Below are the second run's command, exit code and outputs.")
 endforeach()
 if(NOT FIRST_OUT STREQUAL SECOND_OUT)
     # The first line that differs; the outputs differ, so the loop ends.
@@ -153,9 +164,7 @@ if(NOT FIRST_OUT STREQUAL SECOND_OUT)
             string(APPEND problem "\n--- line ${number} of the ${run} run's stdout ---\n${shown}")
         endif()
     endforeach()
-    string(APPEND problem "\n--- stdout of the first run ---\n${FIRST_OUT}\n"
-        "--- stderr of the first run ---\n${FIRST_ERR}\n"
-        "Below are the second run's command, exit code and outputs.")
+    string(APPEND problem "${after_problem}")
     praenora_test_fail("${TOOL}" "${problem}"
         "${command}" "${SECOND_EXIT}" "${SECOND_OUT}" "${SECOND_ERR}")
 endif()

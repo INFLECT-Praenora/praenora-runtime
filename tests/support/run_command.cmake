@@ -3,7 +3,7 @@
 # tests/providers/check_exports.cmake, tests/providers/run_twice.cmake), which include this file.
 # Script mode (cmake -P); it needs only CMake.
 #
-# praenora_test_run(<prefix> <what> <command>)
+# praenora_test_run(<prefix> <what> <command> [AFTER_PROBLEM <text>])
 #   Runs the command, a ;-list of its program and then its arguments, handed over as one argument
 #   ("${command}"), and sets <prefix>_EXIT, <prefix>_OUT and <prefix>_ERR in the caller's scope:
 #   its exit code (or why it did not run), its standard output and its standard error. Each element
@@ -12,7 +12,9 @@
 #   command handed over as several arguments (${command}, unquoted) is refused: CMake drops the
 #   empty elements of a list that it expands unquoted. A sanitizer report in either output fails
 #   the test with "<what>: a sanitizer reported a problem", whatever the exit code: a sanitizer
-#   build may report a problem and still exit with 0.
+#   build may report a problem and still exit with 0. With AFTER_PROBLEM, <text>, handed over as
+#   one argument too, follows that problem in the report, as it is: tests/providers/run_twice.cmake
+#   adds the outputs of the first of its two runs to a failure of the second.
 #
 # praenora_test_fail(<what> <problem> <command> <exit code> <stdout> <stderr>)
 #   Fails the test with a report in one message(FATAL_ERROR): "<what>: <problem>", then the
@@ -62,10 +64,14 @@ function(praenora_test_fail what problem command exit_code out err)
 endfunction()
 
 function(praenora_test_run prefix what command)
-    if(ARGC GREATER 3)
+    set(after_problem "")
+    if(ARGC EQUAL 5 AND "${ARGV3}" STREQUAL "AFTER_PROBLEM")
+        set(after_problem "${ARGV4}")
+    elseif(NOT ARGC EQUAL 3)
         message(FATAL_ERROR "${what}: praenora_test_run() was handed the command as several "
             "arguments; hand it over as one, quoted (\"\${command}\"), because CMake drops the "
-            "empty elements of a list that it expands unquoted")
+            "empty elements of a list that it expands unquoted (it takes <prefix> <what> "
+            "<command>, then optionally AFTER_PROBLEM and its text, as one argument too)")
     endif()
     # execute_process(COMMAND ${command}) would drop them as well. The call is built instead with
     # one quoted variable reference per element, which passes the element as one argument, as it
@@ -83,8 +89,8 @@ function(praenora_test_run prefix what command)
     # UndefinedBehaviorSanitizer looks like.
     set(sanitizer_report "runtime error:|AddressSanitizer|LeakSanitizer|ThreadSanitizer")
     if(out MATCHES "${sanitizer_report}" OR err MATCHES "${sanitizer_report}")
-        praenora_test_fail("${what}" "a sanitizer reported a problem" "${command}"
-            "${exit_code}" "${out}" "${err}")
+        praenora_test_fail("${what}" "a sanitizer reported a problem${after_problem}"
+            "${command}" "${exit_code}" "${out}" "${err}")
     endif()
     set(${prefix}_EXIT "${exit_code}" PARENT_SCOPE)
     set(${prefix}_OUT "${out}" PARENT_SCOPE)
