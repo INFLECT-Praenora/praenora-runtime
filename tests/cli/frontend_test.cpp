@@ -1,8 +1,10 @@
 // What the two front ends share (src/frontend/frontend.hpp): the tables of the names they take,
 // with the lookups and the lists of names derived from them; names taken in any letter case,
-// folded the same way whatever the process's locale; and the JSON of a service provider.
+// folded the same way whatever the process's locale; the JSON of a service provider; and the
+// failure of a validation.
 #include <frontend.hpp>
 
+#include <praenora/runtime/error.hpp>
 #include <praenora/runtime/options.hpp>
 #include <praenora/runtime/runtime.hpp>
 
@@ -153,4 +155,33 @@ TEST(Frontend, ServiceJsonRefusesTextOfAnotherForm) {
                              "test.echo@4294967296.0"}) {
         EXPECT_THROW(frontend::service_json(text), std::invalid_argument) << text;
     }
+}
+
+// The failure of a validation names the file as it was given, but an empty path as '', as the
+// diagnostics write it, so that the message never starts with ": ". It counts the errors, not
+// the warnings, and takes the first error's code and location.
+TEST(Frontend, ValidationFailureQuotesOnlyAnEmptyPath) {
+    praenora::ValidationReport report;
+    praenora::Diagnostic warning;
+    warning.severity = praenora::Severity::warning;
+    warning.code = praenora::ErrorCode::PARSE_ERROR;
+    report.add(warning);
+    praenora::Diagnostic error;
+    error.code = praenora::ErrorCode::IO_ERROR;
+    error.message = "cannot read '': no such file";
+    error.location.pointer = "/a";
+    report.add(error);
+    praenora::Diagnostic second;
+    second.code = praenora::ErrorCode::SCHEMA_VIOLATION;
+    second.location.pointer = "/b";
+    report.add(second);
+
+    const praenora::Error empty = frontend::validation_failure(report, "");
+    EXPECT_STREQ(empty.what(), "'': validation failed: 2 error(s)");
+    EXPECT_EQ(empty.code(), praenora::ErrorCode::IO_ERROR);
+    EXPECT_EQ(empty.location().pointer, "/a");
+    EXPECT_EQ(empty.details_json(), "{}");
+
+    EXPECT_STREQ(frontend::validation_failure(report, "missing.yaml").what(),
+                 "missing.yaml: validation failed: 2 error(s)");
 }

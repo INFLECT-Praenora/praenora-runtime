@@ -193,6 +193,22 @@ class ValidateTest(unittest.TestCase):
         self.assertEqual(error.location["pointer"], "/entry_point")
         self.assertEqual(error.details["diagnostics"][0]["name"], "SCHEMA_VIOLATION")
 
+    def test_empty_path_is_named_quoted(self):
+        # The failure names an empty path '', as its diagnostic does and as praenora validate
+        # does, so that the message does not start with ": ".
+        calls = {"validate": lambda: pr.validate(""),
+                 "validate_document": lambda: pr.validate_document("")}
+        for name, call in calls.items():
+            with self.subTest(name):
+                with self.assertRaises(pr.PraenoraError) as caught:
+                    call()
+                error = caught.exception
+                self.assertEqual((error.name, error.message),
+                                 ("IO_ERROR", "'': validation failed: 1 error(s)"))
+                self.assertEqual([diagnostic["message"]
+                                  for diagnostic in error.details["diagnostics"]],
+                                 ["cannot read '': no such file"])
+
 
 class ModulesTest(unittest.TestCase):
     KEYS = {"name", "version", "manifest_path", "library_path", "os", "arch", "capabilities"}

@@ -166,7 +166,8 @@ def validate(config, module_paths=None, catalog_paths=None, load=False, *, provi
 
     Returns the report, {"ok": True, "diagnostics": [...]}, whose diagnostics are warnings and
     notes. When the report holds an error, raises PraenoraError with the first error's code and
-    location, the message "<config>: validation failed: N error(s)" and the report in `details`.
+    location, the message "<config>: validation failed: N error(s)" (<config> written '' when it
+    is empty) and the report in `details`.
     """
     return _decoded(_bindings.validate_json, _path(config), _paths(module_paths),
                     _paths(catalog_paths), _paths(provider_paths), bool(load))

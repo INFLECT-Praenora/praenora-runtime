@@ -36,7 +36,8 @@ std::string version_json();
 // service providers of the workflow's services are started, and the module libraries loaded and
 // their identities checked, too. A report that holds an error is thrown instead, as the praenora
 // tool reports it: the first error's code and location, the message "<config>: validation failed:
-// N error(s)" and the report as the details. Warnings and notes are returned.
+// N error(s)" (<config> written '' when it is empty) and the report as the details. Warnings and
+// notes are returned.
 std::string validate_json(const std::string& config, const std::vector<std::string>& module_paths,
                           const std::vector<std::string>& catalog_paths,
                           const std::vector<std::string>& provider_paths, bool load);

@@ -248,11 +248,18 @@ praenora_add_cli_test(cli.modules.check_missing_vectors
         --vectors "${_praenora_missing}/vectors.json" ${_praenora_fixture_paths}
     EXPECT_EXIT 74
     EXPECT_STDERR_REGEX "cannot read the test vectors")
-# An empty path exits 74 too: it reaches the tool as an argument of its own.
+# An empty path exits 74 too: it reaches the tool as an argument of its own. The failure names it
+# '', as the diagnostic does, in the text and in the JSON.
 praenora_add_cli_test(cli.validate.empty_path
     CMD validate ""
     EXPECT_EXIT 74
-    EXPECT_STDERR_REGEX "error\\[IO_ERROR\\]: cannot read ''")
+    EXPECT_STDERR_REGEX
+        "error\\[IO_ERROR\\]: cannot read ''.*\npraenora: '': validation failed: 1 error\\(s\\)\n")
+praenora_add_cli_test(cli.validate.empty_document_path
+    CMD validate --document "" --json
+    EXPECT_EXIT 74
+    EXPECT_JSON_PATH ok error.name error.message
+    EXPECT_JSON_VALUE false IO_ERROR "'': validation failed: 1 error(s)")
 # A missing data file is a diagnostic of the validation report, TARGET_DATA_UNAVAILABLE: the tool
 # exits with 3, as for every report that holds an error other than IO_ERROR.
 set(_praenora_missing_data "${_praenora_cli_configs}/missing-data/workflow.yaml")

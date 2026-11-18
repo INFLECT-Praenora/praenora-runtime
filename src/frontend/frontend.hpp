@@ -115,13 +115,15 @@ inline nlohmann::json run_summary_json(const RunSummary& summary) {
 
 // The failure of the validation of `what` (a file) whose `report` holds an error: the first
 // error's code and location, the message "<what>: validation failed: N error(s)" and
-// `details_json` as the details (INTERNAL, without a location, should the report hold none).
+// `details_json` as the details (INTERNAL, without a location, should the report hold none). An
+// empty `what` is written '', as the diagnostics write it, so the message does not start with
+// ": ".
 inline Error validation_failure(const ValidationReport& report, const std::string& what,
                                 std::string details_json = "{}") {
     const Diagnostic* first = report.first_error();
     return Error(first != nullptr ? first->code : ErrorCode::INTERNAL,
-                 what + ": validation failed: " + std::to_string(report.error_count()) +
-                     " error(s)",
+                 (what.empty() ? "''" : what) +
+                     ": validation failed: " + std::to_string(report.error_count()) + " error(s)",
                  first != nullptr ? first->location : SourceLocation{}, std::move(details_json));
 }
 
