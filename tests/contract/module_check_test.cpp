@@ -194,12 +194,14 @@ TEST(ModuleCheck, IdentityMismatchFailsDescribeIdentity) {
     expect_skipped_from(report, "lifecycle.create_destroy", "describe.identity");
 }
 
-TEST(ModuleCheck, DescribeIdentityNamesTheSdkVersion) {
+TEST(ModuleCheck, DescribeIdentityNamesTheVersionsItCompares) {
     const Runtime runtime(check_options());
     const ModuleCheckReport report = runtime.check_module(utf8(fixture_manifest("fx-echo")));
     const CheckResult& identity = check_of(report, "describe.identity");
     EXPECT_EQ(identity.status, "pass") << shown(report);
-    EXPECT_TRUE(contains(identity.message, "SDK " PRAENORA_SDK_VERSION_STRING)) << identity.message;
+    EXPECT_EQ(identity.message, "describe() agrees with the manifest: fx-echo@0.1.0, ABI 0.0, "
+                                "SDK " PRAENORA_SDK_VERSION_STRING
+                                ", PMP " PRAENORA_PMP_VERSION_STRING ", 1 capability");
 }
 
 TEST(ModuleCheck, SdkVersionMismatchFailsDescribeIdentity) {
@@ -222,6 +224,48 @@ TEST(ModuleCheck, SdkVersionMismatchFailsDescribeIdentity) {
     EXPECT_TRUE(contains(identity.message,
                          "sdk_version (manifest 9.9.9, describe() " PRAENORA_SDK_VERSION_STRING
                          ")"))
+        << identity.message;
+    expect_skipped_from(report, "lifecycle.create_destroy", "describe.identity");
+}
+
+TEST(ModuleCheck, AbiMinorMismatchFailsDescribeIdentity) {
+    // A manifest that names another ABI minor than the library reports.
+    const ScratchDir dir;
+    const fs::path manifest = praenora::test::copy_fixture_module(
+        "fx-echo", dir.path(), [](json& document) { document["abi"]["minor"] = 7; });
+    const Runtime runtime(check_options());
+    const ModuleCheckReport report = runtime.check_module(utf8(manifest));
+    EXPECT_EQ(ids_of(report), kCheckIds);
+    EXPECT_FALSE(report.passed());
+    const auto statuses = statuses_of(report);
+    for (const char* id :
+         {"manifest.schema", "manifest.semantics", "library.digest", "library.load",
+          "library.entry_point", "api.header", "api.required_functions", "describe.schema"}) {
+        EXPECT_EQ(statuses.at(id), "pass") << id << "\n" << shown(report);
+    }
+    const CheckResult& identity = check_of(report, "describe.identity");
+    EXPECT_EQ(identity.status, "fail");
+    EXPECT_TRUE(contains(identity.message, "abi.minor (manifest 7, describe() 0)"))
+        << identity.message;
+    expect_skipped_from(report, "lifecycle.create_destroy", "describe.identity");
+}
+
+TEST(ModuleCheck, AnotherPmpInDescribeFailsDescribeIdentity) {
+    // The manifest is compatible with this runtime, but the library speaks PMP 0.2.0.
+    const Runtime runtime(check_options());
+    const ModuleCheckReport report = runtime.check_module(utf8(fixture_manifest("fx-newer-pmp")));
+    EXPECT_EQ(ids_of(report), kCheckIds);
+    EXPECT_FALSE(report.passed());
+    const auto statuses = statuses_of(report);
+    for (const char* id :
+         {"manifest.schema", "manifest.semantics", "library.digest", "library.load",
+          "library.entry_point", "api.header", "api.required_functions", "describe.schema"}) {
+        EXPECT_EQ(statuses.at(id), "pass") << id << "\n" << shown(report);
+    }
+    const CheckResult& identity = check_of(report, "describe.identity");
+    EXPECT_EQ(identity.status, "fail");
+    EXPECT_TRUE(contains(identity.message, "pmp_version (manifest " PRAENORA_PMP_VERSION_STRING
+                                           ", describe() 0.2.0)"))
         << identity.message;
     expect_skipped_from(report, "lifecycle.create_destroy", "describe.identity");
 }

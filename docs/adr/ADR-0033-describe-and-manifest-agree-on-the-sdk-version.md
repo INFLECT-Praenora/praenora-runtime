@@ -1,9 +1,9 @@
 # ADR-0033: describe() and the manifest agree on the SDK version
 
-- Status: Proposed
+- Status: Superseded
 - Date: 2026-11-17
 - Supersedes: none
-- Superseded by: none
+- Superseded by: [ADR-0036](ADR-0036-describe-and-manifest-agree-on-every-field-they-share.md)
 
 ## Context
 

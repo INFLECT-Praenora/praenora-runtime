@@ -231,18 +231,21 @@ compares the document with the manifest. The two MUST agree on:
 
 - `name`;
 - `version`, by SemVer precedence;
-- `abi.major`;
+- `abi.major` and `abi.minor`;
 - `sdk_version`, by SemVer precedence;
+- `pmp_version`, by SemVer precedence;
 - the capabilities, compared as sets of `{id, version}`.
 
-A disagreement, or a `describe()` that fails or writes no valid `pmp-describe` document, is
-`MODULE_IDENTITY_MISMATCH`; the message and the details (`differences`: field, manifest value,
-`describe()` value) name every differing field. `abi.minor` and `pmp_version` of the `describe()`
-document are not compared with the manifest. A stale manifest beside a rebuilt library is caught
-here, also when the library was only rebuilt against another SDK. The SDK version decides no
-compatibility ([compatibility-policy.md](compatibility-policy.md#versioned-items)): the two
-documents must agree on it, and the run fingerprint holds it
-([reproducibility.md](reproducibility.md#run-fingerprint)).
+These are all the fields the two documents share. A disagreement, or a `describe()` that fails or
+writes no valid `pmp-describe` document, is `MODULE_IDENTITY_MISMATCH`; the message and the details
+(`differences`: field, manifest value, `describe()` value) name every differing field, in the order
+of the list above. A stale manifest beside a rebuilt library is caught here, also when the library
+was only rebuilt against another SDK. The compatibility rules read the manifest before the library
+is loaded ([Compatibility and library checks](#compatibility-and-library-checks)); since
+`describe()` must report the same ABI and PMP versions, what they decided holds for the library
+too. The SDK version decides no compatibility
+([compatibility-policy.md](compatibility-policy.md#versioned-items)): the two documents must agree
+on it, and the run fingerprint holds it ([reproducibility.md](reproducibility.md#run-fingerprint)).
 
 ## Generating manifests
 

@@ -127,9 +127,9 @@ JSON.
 |---|---|
 | `name` | The module name. MUST equal the manifest's `module.name`. |
 | `version` | The module version. MUST equal the manifest's `module.version` (SemVer precedence). |
-| `abi` | `{major, minor}`: the ABI the module was built for. `major` MUST equal the manifest's `abi.major`. |
+| `abi` | `{major, minor}`: the ABI the module was built for. Both MUST equal the manifest's `abi`. |
 | `sdk_version` | The SDK the module was built with. MUST equal the manifest's `sdk_version` (SemVer precedence); it decides no compatibility. |
-| `pmp_version` | The PMP version the module implements. The runtime checks its form only; compatibility is decided from the manifest. |
+| `pmp_version` | The PMP version the module implements. MUST equal the manifest's `pmp_version` (SemVer precedence); compatibility is decided from the manifest. |
 | `capabilities` | `[{id, version}]`. MUST equal the manifest's capabilities as a set. |
 
 ### Create document

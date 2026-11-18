@@ -1,5 +1,6 @@
 // The loader: shared libraries, the entry point, function-table validation, the describe()
 // identity cross-check and library digests, with the fixture modules.
+#include "compat/compat.hpp"
 #include "core/paths.hpp"
 #include "core/semver.hpp"
 #include "core/sha256.hpp"
@@ -338,13 +339,106 @@ TEST(Loader, RejectsUnusableDescribeSdkVersion) {
         << failure.message;
 }
 
+// A manifest that names another ABI minor than the one describe() reports is a stale manifest:
+// refused, although the runtime accepts any minor.
+TEST(Loader, RejectsAbiMinorMismatch) {
+    ModuleManifest manifest = load_manifest(fixture_manifest("fx-echo"));
+    manifest.abi_minor = 7;
+    try {
+        static_cast<void>(LoadedModule::load(manifest));
+        ADD_FAILURE() << "a manifest naming ABI minor 7 was accepted";
+    } catch (const Error& error) {
+        const std::string message = error.what();
+        EXPECT_EQ(error.code(), ErrorCode::MODULE_IDENTITY_MISMATCH) << message;
+        EXPECT_TRUE(contains(message, "abi.minor (manifest 7, describe() 0)")) << message;
+        // Only the ABI minor differs, so no other field is named.
+        EXPECT_FALSE(contains(message, "capabilities")) << message;
+        EXPECT_EQ(nlohmann::json::parse(error.details_json()),
+                  nlohmann::json::parse(R"({"differences":[{"field":"abi.minor",)"
+                                        R"("manifest":"7","describe":"0"}]})"));
+        EXPECT_EQ(error.location().file, praenora::detail::path_to_utf8(manifest.manifest_path));
+    }
+}
+
+// The manifest's PMP version decides compatibility before the library is loaded, so describe()
+// must report the same one.
+TEST(Loader, RejectsPmpVersionMismatch) {
+    ModuleManifest manifest = load_manifest(fixture_manifest("fx-echo"));
+    manifest.pmp_version = parse_semver(PRAENORA_PMP_VERSION_STRING "-rc.1");
+    try {
+        static_cast<void>(LoadedModule::load(manifest));
+        ADD_FAILURE() << "a manifest naming another PMP version was accepted";
+    } catch (const Error& error) {
+        const std::string message = error.what();
+        EXPECT_EQ(error.code(), ErrorCode::MODULE_IDENTITY_MISMATCH) << message;
+        EXPECT_TRUE(contains(message, "pmp_version (manifest " PRAENORA_PMP_VERSION_STRING
+                                      "-rc.1, describe() " PRAENORA_PMP_VERSION_STRING ")"))
+            << message;
+        // Only the PMP version differs, so no other field is named.
+        EXPECT_FALSE(contains(message, "capabilities")) << message;
+        EXPECT_EQ(nlohmann::json::parse(error.details_json()),
+                  nlohmann::json::parse(R"({"differences":[{"field":"pmp_version",)"
+                                        R"("manifest":")" PRAENORA_PMP_VERSION_STRING
+                                        R"(-rc.1","describe":")" PRAENORA_PMP_VERSION_STRING
+                                        R"("}]})"));
+        EXPECT_EQ(error.location().file, praenora::detail::path_to_utf8(manifest.manifest_path));
+    }
+}
+
+// PMP versions are compared by SemVer precedence: build metadata does not count.
+TEST(Loader, ComparesPmpVersionsByPrecedence) {
+    ModuleManifest manifest = load_manifest(fixture_manifest("fx-echo"));
+    manifest.pmp_version = parse_semver(PRAENORA_PMP_VERSION_STRING "+local.7");
+    const auto failure = load_failure(manifest);
+    EXPECT_EQ(failure.code, ErrorCode::OK) << failure.message;
+}
+
+// A module that reports another ABI minor and PMP version than the SDK it is built with, in both
+// documents, loads: the two documents agree, and both values are compatible with the runtime.
+TEST(Loader, AcceptsAnotherAbiMinorAndPmpVersionThatBothDocumentsReport) {
+    const ModuleManifest manifest = load_manifest(fixture_manifest("fx-other-protocol"));
+    const auto incompatibility =
+        praenora::detail::check_module_compat(manifest, {"test.echo", parse_semver("0.1.0")});
+    EXPECT_FALSE(incompatibility.has_value()) << incompatibility->message;
+    const auto module = LoadedModule::load(manifest);
+    EXPECT_EQ(module->describe().at("abi"), (nlohmann::json{{"major", 0}, {"minor", 7}}));
+    EXPECT_EQ(module->describe().at("pmp_version"), "0.1.0-rc.1");
+    EXPECT_EQ(module->manifest().abi_minor, 7u);
+    EXPECT_EQ(praenora::detail::to_string(module->manifest().pmp_version), "0.1.0-rc.1");
+    EXPECT_EQ(module->api().header.abi_minor, 7u);
+}
+
+// The stale manifest of a library rebuilt to speak another PMP version: the manifest is
+// compatible with the runtime, so only the identity check can refuse the library.
+TEST(Loader, RejectsLibrarySpeakingAnotherPmpThanItsManifest) {
+    const ModuleManifest manifest = load_manifest(fixture_manifest("fx-newer-pmp"));
+    const auto incompatibility =
+        praenora::detail::check_module_compat(manifest, {"test.echo", parse_semver("0.1.0")});
+    EXPECT_FALSE(incompatibility.has_value()) << incompatibility->message;
+    const auto failure = load_failure(manifest);
+    EXPECT_EQ(failure.code, ErrorCode::MODULE_IDENTITY_MISMATCH) << failure.message;
+    EXPECT_TRUE(contains(failure.message, "pmp_version (manifest " PRAENORA_PMP_VERSION_STRING
+                                          ", describe() 0.2.0)"))
+        << failure.message;
+}
+
+TEST(Loader, RejectsUnusableDescribePmpVersion) {
+    // The PMP version matches the schema's pattern, but its minor number overflows 64 bits.
+    const auto failure = fixture_load_failure("fx-pmp-overflow");
+    EXPECT_EQ(failure.code, ErrorCode::MODULE_IDENTITY_MISMATCH) << failure.message;
+    EXPECT_TRUE(contains(failure.message, "pmp_version '0.99999999999999999999.0'"))
+        << failure.message;
+}
+
 // Every differing field is named, in the order of the describe() document's fields.
 TEST(Loader, NamesDifferencesInTheOrderOfTheDescribeDocument) {
     ModuleManifest manifest = load_manifest(fixture_manifest("fx-echo"));
     manifest.name = "fx-other";
     manifest.version = parse_semver("9.9.9");
     manifest.abi_major = 7;
+    manifest.abi_minor = 7;
     manifest.sdk_version = parse_semver("9.9.9");
+    manifest.pmp_version = parse_semver("0.1.0-rc.1");
     manifest.capabilities = {{"test.other", parse_semver("1.0.0")}};
     try {
         static_cast<void>(LoadedModule::load(manifest));
@@ -356,8 +450,8 @@ TEST(Loader, NamesDifferencesInTheOrderOfTheDescribeDocument) {
         for (const auto& difference : details.at("differences")) {
             fields.push_back(difference.at("field").get<std::string>());
         }
-        EXPECT_EQ(fields, (std::vector<std::string>{"name", "version", "abi.major", "sdk_version",
-                                                    "capabilities"}));
+        EXPECT_EQ(fields, (std::vector<std::string>{"name", "version", "abi.major", "abi.minor",
+                                                    "sdk_version", "pmp_version", "capabilities"}));
     }
 }
 

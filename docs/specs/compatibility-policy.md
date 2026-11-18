@@ -21,8 +21,8 @@ and identity.
 |---|---|---|---|---|
 | Runtime package | SemVer | 0.2.0 | `project(VERSION)` in the top-level `CMakeLists.txt` | None; reported by `praenora version` and recorded in the run record. |
 | Module SDK | SemVer | 0.2.0 | `cmake/PraenoraVersions.cmake`, published in the generated `praenora/sdk/version.h` | None for compatibility. A module's manifest and `describe()` report it and agree on it ([manifest.md](manifest.md#identity-check)); the run record holds the manifest's. |
-| Module ABI | `major.minor` | 0.0 | [`abi.h`](../../include/praenora/sdk/abi.h); the table header; the manifest's `abi` | The major is equal; the minor is negotiated. |
-| Protocol (PMP) | SemVer | 0.1.0 | `cmake/PraenoraVersions.cmake`; `pmp_version` in manifests and ABI documents | Same compatibility class and not newer than the runtime's. |
+| Module ABI | `major.minor` | 0.0 | [`abi.h`](../../include/praenora/sdk/abi.h); the table header; the manifest's `abi` | The major is equal; the minor is negotiated. A module's manifest and `describe()` report the same `abi` ([manifest.md](manifest.md#identity-check)). |
+| Protocol (PMP) | SemVer | 0.1.0 | `cmake/PraenoraVersions.cmake`; `pmp_version` in manifests and ABI documents | Same compatibility class and not newer than the runtime's, from the manifest. A module's manifest and `describe()` report the same version ([manifest.md](manifest.md#identity-check)). |
 | Document formats, one per kind | SemVer | `module-manifest` and `run-record` 0.2.0, every other kind 0.1.0 | `PRAENORA_FORMAT_VERSIONS` in `cmake/PraenoraVersions.cmake`; `format_version` in each document | The runtime has a schema for the version's major and minor. |
 | Catalog entries | SemVer per entry | 0.1.0 | `version` of each entry | References name exact versions. |
 | Modules | SemVer | the module's | the manifest's `module.version` and `describe()` | The configuration pins an exact version. |
@@ -54,7 +54,8 @@ SDK, PMP and ABI versions and the format version of every document kind that car
 
 - The runtime accepts a module only when its ABI major equals the runtime's: the manifest's
   `abi.major` before loading (`ABI_INCOMPATIBLE`), and the table header's `abi_major` after
-  (`ABI_INCOMPATIBLE`). Any minor is accepted.
+  (`ABI_INCOMPATIBLE`). Any minor is accepted, but the manifest's `abi` and the one `describe()`
+  reports MUST be equal (`MODULE_IDENTITY_MISMATCH`, [manifest.md](manifest.md#identity-check)).
 - The minor is negotiated through `struct_size` on both tables: the runtime uses only the module
   functions that the module's `struct_size` covers, and a module MUST use only the host callbacks
   that the host's `struct_size` covers. A module that cannot work without a callback MAY refuse
@@ -74,7 +75,9 @@ NOT be newer than the runtime's PMP version (`PROTOCOL_INCOMPATIBLE`). For the r
 | `0.1.1` | no | Newer than the runtime's. |
 | `0.2.0`, `1.0.0` | no | Another compatibility class. |
 
-The `pmp_version` that `describe()` reports is checked for its form only.
+The `pmp_version` that `describe()` reports MUST equal the manifest's by SemVer precedence
+(`MODULE_IDENTITY_MISMATCH`, [manifest.md](manifest.md#identity-check)), so the decision made from
+the manifest before loading holds for the library.
 
 ### Document formats
 
@@ -117,8 +120,8 @@ Once versions are bumped again, a published entry is never changed; a change is 
 - A manifest's `platform.os` and `platform.arch` MUST equal the host's (`PLATFORM_MISMATCH`). The
   host platform is the one the runtime was compiled for: os `linux`, `macos` or `windows`, arch
   `x86_64` or `arm64`.
-- `describe()` MUST agree with the manifest on name, version, ABI major, SDK version and
-  capabilities ([manifest.md](manifest.md#identity-check)).
+- `describe()` MUST agree with the manifest on name, version, ABI major and minor, SDK version, PMP
+  version and capabilities ([manifest.md](manifest.md#identity-check)).
 
 ### Service providers
 

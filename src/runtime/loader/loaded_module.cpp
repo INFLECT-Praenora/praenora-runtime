@@ -163,14 +163,25 @@ void check_identity(const ModuleManifest& manifest, const nlohmann::json& descri
     if (version != manifest.version) {
         differ("version", to_string(manifest.version), to_string(version));
     }
-    const nlohmann::json& abi_major = describe.at("abi").at("major");
-    if (!abi_major.is_number_unsigned() || abi_major.get<std::uint64_t>() != manifest.abi_major) {
-        differ("abi.major", std::to_string(manifest.abi_major), abi_major.dump());
-    }
+    const auto differ_abi = [&](const char* field, const nlohmann::json& in_describe,
+                                std::uint32_t in_manifest) {
+        if (!in_describe.is_number_unsigned() || in_describe.get<std::uint64_t>() != in_manifest) {
+            differ(field, std::to_string(in_manifest), in_describe.dump());
+        }
+    };
+    differ_abi("abi.major", describe.at("abi").at("major"), manifest.abi_major);
+    differ_abi("abi.minor", describe.at("abi").at("minor"), manifest.abi_minor);
     const SemVer sdk_version =
         describe_version(describe.at("sdk_version").get<std::string>(), "sdk_version", fail);
     if (sdk_version != manifest.sdk_version) {
         differ("sdk_version", to_string(manifest.sdk_version), to_string(sdk_version));
+    }
+    // The manifest's PMP version decided compatibility before the library was loaded; equal by
+    // precedence, the library's is compatible too.
+    const SemVer pmp_version =
+        describe_version(describe.at("pmp_version").get<std::string>(), "pmp_version", fail);
+    if (pmp_version != manifest.pmp_version) {
+        differ("pmp_version", to_string(manifest.pmp_version), to_string(pmp_version));
     }
     std::vector<CapabilityRef> described;
     for (const auto& capability : describe.at("capabilities")) {

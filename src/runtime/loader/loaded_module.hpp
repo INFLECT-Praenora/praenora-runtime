@@ -48,8 +48,8 @@ public:
     //   7. no required function is NULL (API_TABLE_INVALID, naming the functions);
     //   8. describe() succeeds, writes JSON and satisfies the pmp-describe schema, and its
     //      versions are usable semantic versions; and
-    //   9. its name, version, ABI major, SDK version and capabilities agree with the manifest
-    //      (MODULE_IDENTITY_MISMATCH for 8 and 9, naming the fields that differ).
+    //   9. its name, version, ABI major and minor, SDK version, PMP version and capabilities agree
+    //      with the manifest (MODULE_IDENTITY_MISMATCH for 8 and 9, naming the fields that differ).
     // describe() runs on the calling thread. With PRAENORA_DEBUG_KEEP_LIBRARIES=1 in the
     // environment the library is pinned at once, so it is never unloaded.
     static std::shared_ptr<LoadedModule> load(const ModuleManifest& manifest);

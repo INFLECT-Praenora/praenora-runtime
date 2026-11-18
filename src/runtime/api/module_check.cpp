@@ -419,9 +419,11 @@ private:
             return "describe() writes a document that satisfies pmp-describe";
         case Check::identity:
             return "describe() agrees with the manifest: " +
-                   identity(manifest.name, manifest.version) + ", ABI major " +
-                   std::to_string(manifest.abi_major) + ", SDK " + to_string(manifest.sdk_version) +
-                   ", " + std::to_string(manifest.capabilities.size()) + " capabilit" +
+                   identity(manifest.name, manifest.version) + ", ABI " +
+                   std::to_string(manifest.abi_major) + "." + std::to_string(manifest.abi_minor) +
+                   ", SDK " + to_string(manifest.sdk_version) + ", PMP " +
+                   to_string(manifest.pmp_version) + ", " +
+                   std::to_string(manifest.capabilities.size()) + " capabilit" +
                    (manifest.capabilities.size() == 1 ? "y" : "ies");
         }
         return "passed";
