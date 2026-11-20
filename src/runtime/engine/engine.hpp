@@ -124,10 +124,12 @@
 // failed, sticky, for a step whose call failed or whose finalize failed; unresponsive; crashed),
 // every invocation, every tick, and the last errors: a failure is the workflow's last error and the
 // failing step's (counted with its invocation, or set on its own for load, create, initialize,
-// finalize and an invoke that was refused); a failed finalize at the end, and a destroy whose
-// module host crashed, are only the step's (warnings teardown.finalize_failed and
-// teardown.destroy_failed). An invoke that a stop ended while it waited for its library is not
-// counted. A stop sets no last error.
+// finalize and an invoke that was refused); a finalize at the end that fails, times out, never
+// returns or whose module host crashed (not one that is refused), and a destroy that never returns
+// or whose module host crashed, are only the step's, with the call in details.phase (warnings
+// teardown.finalize_failed and teardown.destroy_failed); a destroy that returns after its
+// deadline, within the grace, sets none. An invoke that a stop ended while it waited for its
+// library is not counted. A stop sets no last error.
 //
 // Threading. start(), run_tick() and shutdown() are control calls, made by one thread at a time;
 // the destructor too. All other methods are thread-safe and may be called at any time from any

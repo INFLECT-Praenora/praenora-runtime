@@ -3,8 +3,9 @@
 // fixture modules and the test catalog: the outputs, message trace and run-record reproducibility
 // section of the runtime's process; a module host of its own for each step; a crash mid-run that
 // fails its step while the other steps end normally; a crash at load; a call that never returns,
-// whose module host is killed and whose library runs again at once; a stop during a call and
-// during a load, which end the run as stopped; a Ctrl+C that reaches the runtime only;
+// whose module host is killed and whose library runs again at once; a finalize or destroy of the
+// teardown that never returns, killed the same way and its step's last error; a stop during a
+// call and during a load, which end the run as stopped; a Ctrl+C that reaches the runtime only;
 // `validate --load` in a module host, with the codes and locations of the runtime's process; and
 // the run record's isolation, the override, and the status's crashed state. Each test that starts
 // module hosts checks that none is left.
@@ -696,6 +697,74 @@ TEST(IsolationRun, ACallThatNeverReturnsIsKilledAndItsLibraryRunsAgainAtOnce) {
     }
     first->close();
     expect_module_hosts_gone(log);
+}
+
+// A finalize or destroy of the teardown that never returns and never polls is killed with its
+// module host when its deadline and grace pass, as any call is. The run's ending stays as it was
+// (completed), but the step is unresponsive and its last error says why: MODULE_UNRESPONSIVE,
+// naming the call and that the module host was terminated, in the status and the run record,
+// with a warning.
+TEST(IsolationRun, ATeardownCallThatNeverReturnsIsKilledAndIsItsStepsLastError) {
+    for (const std::string call : {"finalize", "destroy"}) {
+        SCOPED_TRACE(call);
+        ScratchDir dir;
+        const fs::path log = dir.path() / "run.log";
+        const Runtime runtime(options_logging_to(log));
+        // The lifecycle timeout bounds create and initialize too, which return at once.
+        const std::string config =
+            write_config(dir.path(), "test.single",
+                         "run:\n  ticks: 2\n  timeouts: { lifecycle: 1s, cancel_grace: 200ms }\n"
+                         "  isolation: { mode: process }\n",
+                         step("a", "fx-hang", "{ hang: " + call + ", without_gate: block }"));
+        WorkflowOptions options;
+        options.output_dir = utf8(dir.path() / "out");
+        const auto workflow = runtime.open(config, options);
+        const auto started = Clock::now();
+        const praenora::RunSummary summary = workflow->run();
+        EXPECT_LT(Clock::now() - started, std::chrono::seconds(10));
+        EXPECT_EQ(summary.final_state, WorkflowState::completed);
+        EXPECT_FALSE(summary.error.has_value()) << summary.error->message;
+
+        const StatusSnapshot status = workflow->status();
+        EXPECT_FALSE(status.last_error.has_value()); // the run did not fail
+        EXPECT_EQ(status.health, Health::unhealthy);
+        const praenora::StepStatus& a = step_status(status, "a");
+        EXPECT_EQ(a.state, StepState::unresponsive);
+        EXPECT_EQ(a.succeeded, 2u);
+        ASSERT_TRUE(a.last_error.has_value());
+        EXPECT_EQ(a.last_error->code, ErrorCode::MODULE_UNRESPONSIVE);
+        const std::string& message = a.last_error->message;
+        EXPECT_TRUE(contains(message, "step 'a' (module fx-hang@0.1.0): " + call +
+                                          " did not return within its timeout of 1s and the "
+                                          "cancellation grace of 200ms"))
+            << message;
+        EXPECT_TRUE(contains(message, "its module host was terminated")) << message;
+        const json details = {{"phase", call}, {"terminated", true}};
+        EXPECT_EQ(json::parse(a.last_error->details_json), details);
+        EXPECT_TRUE(a.last_error->cause_json.empty()); // the call never returned
+
+        const auto warnings = event_bodies(log, "praenora.engine", "teardown." + call + "_failed");
+        ASSERT_EQ(warnings.size(), 1u);
+        EXPECT_EQ(warnings.front(), message);
+        if (call == "destroy") { // its finalize went as usual
+            EXPECT_TRUE(event_bodies(log, "praenora.engine", "teardown.finalize_failed").empty());
+        }
+        EXPECT_TRUE(has_event(log, "module.a", "instance.unresponsive"));
+        EXPECT_TRUE(has_event(log, "module.a", "module_host.terminated"));
+        EXPECT_FALSE(has_event(log, "module.a", "module_host.crashed"));
+
+        // The run record's final status names it too.
+        const json record = run_record(dir.path() / "out");
+        EXPECT_EQ(record.at("execution").at("status"), "completed");
+        const json& recorded = record.at("execution").at("final_status").at("steps").at(0);
+        EXPECT_EQ(recorded.at("step"), "a");
+        EXPECT_EQ(recorded.at("state"), "unresponsive");
+        EXPECT_EQ(recorded.at("last_error").at("name"), "MODULE_UNRESPONSIVE");
+        EXPECT_EQ(recorded.at("last_error").at("message"), message);
+        EXPECT_EQ(recorded.at("last_error").at("details"), details);
+        workflow->close();
+        expect_module_hosts_gone(log);
+    }
 }
 
 namespace {

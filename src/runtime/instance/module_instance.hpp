@@ -192,9 +192,12 @@ public:
     // while another call is in progress it does nothing but log a warning. Returns the call's
     // outcome: succeeded (or timed_out) once the instance is gone, also when there was nothing to
     // destroy; unresponsive; refused, when the module's instance still exists and may not be
-    // called; crashed, when its module host ended during the call or before it (`*details_json`,
-    // when given, then receives CallResult::details_json: the phase and how it ended); failed
-    // when it was not called for another reason.
+    // called; crashed, when its module host ended during the call or before it; failed when it
+    // was not called for another reason. When this call crashed or became unresponsive,
+    // `*details_json`, when given, receives its CallResult::details_json: the phase and how the
+    // module host ended, or {"terminated":true} for a module host killed after the call's
+    // deadline and grace (empty in the runtime's process). Nothing is written when no call was
+    // made, as for an instance that was unresponsive or crashed already.
     CallOutcome destroy(std::string* details_json = nullptr) noexcept;
     // The module's diagnostics document, called between calls with the lifecycle timeout. nullopt
     // when the module has no diagnostics(), when no module instance exists or the instance is

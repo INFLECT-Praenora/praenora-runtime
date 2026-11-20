@@ -374,8 +374,9 @@ default, set by the configuration). When it passes, `cancel_requested()` returns
 call: a module with long loops should poll it and return `PRAENORA_STATUS_CANCELLED` soon. A call
 that still has not returned after the cancellation grace makes the instance unresponsive: the
 runtime abandons it, never destroys it and keeps its library loaded, and an unresponsive `create`,
-`initialize` or `invoke` fails the run. The time a call waits for its turn at the library is not
-part of its deadline.
+`initialize` or `invoke` fails the run, while an unresponsive `finalize` or `destroy` is its step's
+last error (`MODULE_UNRESPONSIVE`, naming the call in `details.phase`). The time a call waits for
+its turn at the library is not part of its deadline.
 
 **Errors.** A failing call returns a status: a general code from 1 to 99 (`PRAENORA_STATUS_*`, 1 to
 12 defined) or a code of the module's own from `PRAENORA_STATUS_MODULE_BASE` (10000) up, never one

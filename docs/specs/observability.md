@@ -20,7 +20,7 @@ unaffected.
 | Logger | What it records | Events |
 |---|---|---|
 | `praenora.runtime` | The `Runtime`. | `runtime.ready` (module and provider search paths, number of modules, providers and catalog entries) |
-| `praenora.engine` | A run. | `run.started`, `step.ready`, `invocation.completed`, `tick.completed`, `run.completed`, `run.stopped`, `run.failed`, `run.output_failed`, `trace.skipped`, `teardown.finalize_failed`, `teardown.destroy_failed` (a `destroy` whose module host crashed), `teardown.skipped` (an instance left as it is: kept, or gone with the module host that a stop ended before it took a call) |
+| `praenora.engine` | A run. | `run.started`, `step.ready`, `invocation.completed`, `tick.completed`, `run.completed`, `run.stopped`, `run.failed`, `run.output_failed`, `trace.skipped`, `teardown.finalize_failed`, `teardown.destroy_failed` (a `destroy` that did not return within its deadline plus the cancellation grace, or whose module host crashed), `teardown.skipped` (an instance left as it is: kept, or gone with the module host that a stop ended before it took a call) |
 | `module.<step>` | The messages a step's module logs through the host API, and events about the step's instance. | `call.deadline`, `instance.unresponsive`, `call.refused`, `call.failed`, `library.refused` (a call not made: an abandoned call may still be running in the library), `instance.kept` (an instance kept because its `finalize` or `destroy` was refused), `service.lookup`; for an instance in a module host ([process-isolation.md](process-isolation.md)), with the attributes `module` and `pid`: `module_host.started` (debug), `module_host.exited` (debug), `module_host.terminated` (warn: killed after a call that never returned, after it did not exit when asked, when a stop came during its start, its load or the write of a call, or when it broke the channel's protocol while it was being ended), `module_host.crashed` (error: how it ended, or how it broke the channel's protocol), `module_host.directory_left` (warn: its temporary directory, under the restricted sandbox profile, could not be removed, and is left); for a module host that shares compiled models ([process-isolation.md](process-isolation.md#shared-compiled-models)), with the attributes `module`, `pid`, `provider` and `key`: `compiled_models.hit` (debug, with `size`), `compiled_models.miss` (debug), `compiled_models.saved` (debug, with `size` and `evicted`), `compiled_models.refused` (debug: over a limit, with `key_size` and `size`) |
 | `module.check` | Module messages during the contract checks, and events about the checks' instances. | the events of `module.<step>` |
 | `provider.<name>` | The messages a service provider logs through its host, with the attribute `provider` (`name@version`), and events about it, in the logs of the run (or, for `validate --load` and the contract checks, of the `Runtime`) that loaded it last ([runtime-services.md](runtime-services.md#loading)); from a provider in a step's module host too, with the same attributes ([process-isolation.md](process-isolation.md#service-providers)). | `provider.loaded` (once per process, a module host's included, with `library_sha256`) |
@@ -133,9 +133,10 @@ from a copy of the metrics, so it never waits for a module call.
   document hold them: `location` has the parts that are set (`file`, `line`, `column`, `pointer`;
   a column only with a line), or is null when none is, and `details` is the error's details object
   (for a run failure the `step`, `module`, `phase`, `tick`, `cause` and `diagnostics` of
-  [error-taxonomy.md](error-taxonomy.md#how-errors-are-reported)), or null when it has none (text
-  that is not a JSON object is kept as `{"text": ...}`). Every key is always written. A record
-  that does not come from an error, such as `RUN_STOPPED`, has a null `location` and null
+  [error-taxonomy.md](error-taxonomy.md#how-errors-are-reported), and for a step's last error from
+  the teardown its `phase`, `finalize` or `destroy`, beside those of its code), or null when it has
+  none (text that is not a JSON object is kept as `{"text": ...}`). Every key is always written. A
+  record that does not come from an error, such as `RUN_STOPPED`, has a null `location` and null
   `details`. A step's last error stays until a later error replaces it; a stop sets no error.
 - The error records of the snapshots that stay in the process (`Workflow::status()`,
   `status_json()`, `StatusSnapshot::to_json()`, Python `Workflow.status()`) hold absolute paths.

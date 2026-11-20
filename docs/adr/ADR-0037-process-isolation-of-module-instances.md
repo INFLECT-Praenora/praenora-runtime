@@ -254,12 +254,16 @@ The specification is [process-isolation.md](../specs/process-isolation.md).
 - A module host that crashes in the teardown's `destroy` is recorded as one that crashes in its
   `finalize`: the step's last error `MODULE_CRASHED` with `details.phase` `destroy` and how it
   ended, the warning `teardown.destroy_failed`, the step marked failed (shown `crashed`); the
-  run's ending stays as it was and its health is `unhealthy`. This differs from what a `destroy`
-  in the runtime's process can leave, by rule and not only by code: there a `destroy` cannot
-  crash (the process would end), and one that times out or never returns sets no last error, only
-  its instance's state (`finalize` records both); in a module host a `destroy` that never returns
-  is killed and, likewise, sets none. Only a crash, whose state alone would name no call and no
-  signal, gets a record.
+  run's ending stays as it was and its health is `unhealthy`. In the runtime's process a `destroy`
+  cannot crash (the process would end). A `destroy` that does not return within its deadline plus
+  the cancellation grace is recorded as such a `finalize` is, in both places: the step's last
+  error `MODULE_UNRESPONSIVE` with `details.phase` `destroy` (and `details.terminated` in a module
+  host, which is killed) and the warning `teardown.destroy_failed`, since the step's state alone
+  named no call and the run record named nothing. Every error the teardown records, a
+  `finalize`'s too, names its call in `details.phase`, as a run failure's details do. A `destroy`
+  that returns after its deadline, within the grace, still sets no last error: it has freed its
+  instance, and the warning `call.deadline` says it was late (such a `finalize` is
+  `STEP_TIMEOUT`).
 - A stop reaches a module host's start as it reaches a call: `ChildSettings::stop_flag`, the run's
   stop flag, is looked at every 5 ms, during the handshake (waiting until the channel is readable,
   so a frame is never cut by a short read) and during the load. Once it is raised, the module host

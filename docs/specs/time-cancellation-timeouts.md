@@ -91,14 +91,19 @@ The outcome of a `create`, `initialize` or `invoke` call, and its effect on the 
 
 - A `finalize` or `destroy` call of the teardown, and a `diagnostics` call made while a failure is
   reported, never change how the run ends, whatever their outcome: a run that completed, stopped or
-  failed keeps that ending and its error. A `finalize` that fails or times out is logged as a
-  warning (event `teardown.finalize_failed`) and becomes its step's last error; so does a `destroy`
-  whose module host crashes (event `teardown.destroy_failed`; a step in process mode,
-  [process-isolation.md](process-isolation.md#runs-and-validation)), while a `destroy` that times
-  out or never returns leaves only its instance's state; a `diagnostics` call that does not succeed
-  only leaves the diagnostics out of the error's details; any of them that does not return within
-  its deadline plus the cancellation grace still makes its instance unresponsive and abandoned, and
-  a refused `finalize` or `destroy` leaves its instance as it is
+  failed keeps that ending and its error. A `finalize` that fails or times out, and a `finalize`
+  or `destroy` that does not return within its deadline plus the cancellation grace or whose
+  module host crashes (a step in process mode,
+  [process-isolation.md](process-isolation.md#runs-and-validation)), are logged as a warning (event
+  `teardown.finalize_failed` or `teardown.destroy_failed`) and become their step's last error,
+  whose details name the call in `phase` beside those of its code: a `destroy` that never returned
+  is `MODULE_UNRESPONSIVE` with the details `{"phase": "destroy"}`, or
+  `{"phase": "destroy", "terminated": true}` in a module host. A `destroy` that returns after its
+  deadline, within the cancellation grace, has freed its instance: it leaves only the warning
+  `call.deadline`. A `diagnostics` call that does not succeed only leaves the diagnostics out of
+  the error's details. Any of them that does not return within its deadline plus the cancellation
+  grace still makes its instance unresponsive and abandoned (in a module host, its module host is
+  killed instead), and a refused `finalize` or `destroy` leaves its instance as it is
   ([threading-and-ownership.md](threading-and-ownership.md#unresponsive-instances)).
 - An invocation that fails, times out or is cancelled leaves its instance `ready`, so it is still
   finalized. A `create`, `initialize` or `finalize` that does not succeed leaves it `failed`.

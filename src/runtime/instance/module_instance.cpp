@@ -781,11 +781,14 @@ CallOutcome ModuleInstance::destroy(std::string* details_json) noexcept {
     ModuleCode* const code = &module_->code();
     praenora_instance* const instance = instance_;
     try {
-        const CallResult result = run(claim, "destroy", options_.lifecycle_timeout,
-                                      StopFlag::ignored, module_->call_access(), std::string(),
-                                      [code, instance](Call&) { return code->destroy(instance); });
-        if (details_json != nullptr && result.outcome == CallOutcome::crashed) {
-            *details_json = result.details_json;
+        CallResult result = run(claim, "destroy", options_.lifecycle_timeout, StopFlag::ignored,
+                                module_->call_access(), std::string(),
+                                [code, instance](Call&) { return code->destroy(instance); });
+        if (details_json != nullptr && (result.outcome == CallOutcome::crashed ||
+                                        result.outcome == CallOutcome::unresponsive)) {
+            // Moved, not copied: a copy could throw once the call was made, and the handler below
+            // would then report the call as one that was never made.
+            *details_json = std::move(result.details_json);
         }
         if (claim.called() && result.outcome != CallOutcome::unresponsive &&
             result.outcome != CallOutcome::crashed) {

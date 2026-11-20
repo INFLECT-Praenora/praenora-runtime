@@ -240,11 +240,14 @@ library or in a provider's `start()`, fails the load with `MODULE_CRASHED` and `
   module fails the run with `MODULE_CRASHED` (`details.phase` `load`) and its state is `crashed`;
   one for which no module host can be started fails it with `MODULE_HOST_UNAVAILABLE`.
 - **Teardown.** The other steps are finalized and destroyed as usual; a crashed instance is not
-  called again, and an unresponsive one's module host was killed. A module host that crashes in
-  the teardown's `finalize` or `destroy` leaves the run's ending as it was (a completed run stays
-  `completed`), but not unreported: its step is `crashed`, its last error is `MODULE_CRASHED` with
-  that `details.phase` and how the module host ended, a warning says so (event
-  `teardown.finalize_failed` or `teardown.destroy_failed`), and the run's health is `unhealthy`.
+  called again, and an unresponsive one's module host was killed. A `finalize` or `destroy` of the
+  teardown whose module host crashes, or that outlives its deadline and the cancellation grace, so
+  that its module host is killed ([Unresponsive calls](#unresponsive-calls)), leaves the run's
+  ending as it was (a completed run stays `completed`), but not unreported: its step is `crashed`
+  or `unresponsive`; its last error is `MODULE_CRASHED` with that `details.phase` and how the
+  module host ended, or `MODULE_UNRESPONSIVE` with that `details.phase` and `details.terminated:
+  true`; a warning says so (event `teardown.finalize_failed` or `teardown.destroy_failed`); and
+  the run's health is `unhealthy`.
 - **Status.** A step's state is `crashed` once its module host crashed, in status snapshots, the
   run record's final status, the CLI and Python; the health of a run with a crashed step is
   `unhealthy` ([observability.md](observability.md#health)). The metrics count a crashed call as

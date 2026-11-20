@@ -132,7 +132,8 @@ host is not: its module host is killed and waited for, and nothing of the call i
 
 - its state becomes `unresponsive`; when the call was a `create`, `initialize` or `invoke`, the run
   fails with `MODULE_UNRESPONSIVE`, while a `finalize` or `destroy` of the teardown, or a
-  `diagnostics` call made while a failure is reported, leaves the run's ending as it was
+  `diagnostics` call made while a failure is reported, leaves the run's ending as it was (a
+  `finalize` or `destroy` is its step's last error, `MODULE_UNRESPONSIVE` with `details.phase`)
   ([time-cancellation-timeouts.md](time-cancellation-timeouts.md#deadlines));
 - its worker thread is detached and keeps running the call; its library stays loaded (pinned);
 - its host API stays valid, but `get_service` returns NULL from then on for every service, provider

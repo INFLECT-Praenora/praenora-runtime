@@ -155,7 +155,9 @@ Notes on the table:
   `phase` is the call (`create`, `initialize`, `invoke`, `finalize`, `destroy`, `diagnostics`) or
   `load`. Under sanitizers a crash may end the process with another signal or an exit code instead
   of its own signal. A `MODULE_UNRESPONSIVE` in a module host has the details
-  `{"terminated": true}`: the module host was killed, so nothing of the call is left running.
+  `{"terminated": true}`: the module host was killed, so nothing of the call is left running. As
+  a step's last error from the teardown, it names the call too, as every error of the teardown
+  does (`{"phase": "destroy", "terminated": true}`).
   Load errors that a module host reports keep the codes, messages and locations they have in the
   runtime's process, those of the service providers it loads for the module included (located in
   the provider's manifest). A provider runs in the module host's process: one that ends it is a
@@ -198,6 +200,13 @@ Notes on the table:
   file, the error record names the run's directories by placeholders
   ([observability.md](observability.md#known-directories-in-the-files-of-a-run)); the thrown error,
   the run summary and `Workflow::status()` keep absolute paths.
+- **Teardown errors.** A `finalize` or `destroy` of the teardown never fails the run. One that
+  ends in an error (which ones do is in
+  [time-cancellation-timeouts.md](time-cancellation-timeouts.md#deadlines)) is only its step's last
+  error, in the status snapshot and the run record's `execution.final_status`, with a warning
+  (event `teardown.finalize_failed` or `teardown.destroy_failed`). Its details name the call,
+  `phase` (`finalize` or `destroy`), beside those of its code, and its `cause` is the module's
+  error document when the module returned one.
 - **Python.** The bindings raise `praenora.runtime.PraenoraError` with the same code, name,
   category, message, location and details.
 
@@ -206,7 +215,9 @@ Notes on the table:
 If you see a code, start where this table points. The owner column of the code table says who
 usually fixes it; [`praenora modules check`](../adr/ADR-0024-contract-checks-and-test-vectors.md)
 isolates module problems from configuration problems. A module's own status, a general code or one
-from 10000 up, never appears as the error's code: it is `details.cause.code` of a `STEP_FAILED`.
+from 10000 up, never appears as the error's code: it is `details.cause.code` of a `STEP_FAILED`
+that failed the run, and `cause.code` of one that a teardown `finalize` left as its step's last
+error.
 
 | If you see | Look at |
 |---|---|
@@ -233,7 +244,7 @@ from 10000 up, never appears as the error's code: it is `details.cause.code` of 
 | `CATALOG_ENTRY_NOT_FOUND`, `CATALOG_ENTRY_DUPLICATE` | The catalog entry and origins named in the message; `--catalog-path` and `PRAENORA_CATALOG_PATH`. |
 | `GRAPH_INVALID`, `GRAPH_CYCLE`, `PORT_UNCONNECTED`, `PORT_UNKNOWN`, `PORT_TYPE_MISMATCH` | The workflow definition at the pointer in the message ([workflow-definitions.md](workflow-definitions.md#graph-rules)); `praenora graph --workflow <name>@<version>`. |
 | `MESSAGE_TYPE_INCOMPATIBLE` | The connection at the pointer in the message: its ends carry two versions of one message type. The workflow definition's inputs, outputs and step capabilities must agree on the version of each message type they connect; pin a definition whose versions agree ([workflow-definitions.md](workflow-definitions.md#graph-rules)). |
-| `STEP_FAILED` | `details.step`, `details.phase`, `details.cause` (the module's own code and message) and `details.diagnostics`; the step's log records (logger `module.<step>`). |
+| `STEP_FAILED` | `details.step`, `details.phase`, `details.cause` (the module's own code and message) and `details.diagnostics`; for a step's last error from the teardown, `details.phase` and the record's `cause`; the step's log records (logger `module.<step>`). |
 | `OUTPUT_INVALID` | `details.port`, the pointer into the result and `details.issues`; with tracing on, the trace's last records ([observability.md](observability.md#message-trace)); the module's test vectors. |
 | `STEP_TIMEOUT` | The step's timeouts (`run.timeouts`, `steps.<step>.timeouts`) against its durations in the metrics, and whether the module polls `cancel_requested()` ([time-cancellation-timeouts.md](time-cancellation-timeouts.md)). |
 | `MODULE_UNRESPONSIVE` | A module that ignored cancellation and never returned. In the runtime's process, its library stays loaded and its thread keeps running, and until the call returns the process refuses the calls and loads of that library that would wait for it (all of them for `features.concurrency: "module"`); a refusal names the call in `details.abandoned_call` (`call`, `by`, `module`) ([threading-and-ownership.md](threading-and-ownership.md#concurrency-across-instances)). In a module host (`details.terminated`), the module host was killed and nothing is held on to. Make the module poll `cancel_requested()`; a new process starts without the abandoned call. |

@@ -129,6 +129,20 @@ ErrorRecord record_of(const Error& error, std::optional<std::uint64_t> tick) {
     return error_record_of(error, tick, now_unix_ns());
 }
 
+// The record of `error`, which a call of the teardown (`phase`: finalize or destroy) ended with:
+// only its step's last error. Its details name the call, as a run failure's do, beside those of
+// the error (how its module host ended, or that it was terminated).
+ErrorRecord teardown_record_of(const Error& error, const char* phase) {
+    ErrorRecord record = record_of(error, std::nullopt);
+    json details = json::parse(record.details_json, nullptr, false);
+    if (!details.is_object()) {
+        details = json::object();
+    }
+    details["phase"] = phase;
+    record.details_json = dump(details);
+    return record;
+}
+
 // INTERNAL: an envelope the engine built around `what` in `tick` breaks pmp-envelope. Only a defect
 // of the runtime can cause that, never the module or the data, so the error says so and blames
 // neither. `details` (step, module and port, or input) gain the issues.
@@ -1123,7 +1137,7 @@ void Engine::teardown() noexcept {
             } else if (result.outcome != CallOutcome::succeeded) {
                 step.failed = step.instance->state() != StepState::unresponsive;
                 const Error error = call_error(step, "finalize", result, std::nullopt);
-                ErrorRecord record = record_of(error, std::nullopt);
+                ErrorRecord record = teardown_record_of(error, "finalize");
                 if (auto cause = module_cause(result)) {
                     record.cause_json = dump(*cause);
                 }
@@ -1144,22 +1158,25 @@ void Engine::teardown() noexcept {
             continue; // an unresponsive or crashed instance is never destroyed
         }
         show_step_state(*it, StepState::busy);
-        std::string crash;
-        const CallOutcome destroyed = it->instance->destroy(&crash);
+        std::string details;
+        const CallOutcome destroyed = it->instance->destroy(&details);
         trace(*it);
         if (destroyed == CallOutcome::refused) {
             keep(*it, it->instance->last_refusal());
-        } else if (destroyed == CallOutcome::crashed) {
-            // Recorded as a crashed finalize is: the step's last error (MODULE_CRASHED, phase
-            // destroy) and a warning. Only a module host crashes; other destroy outcomes leave
-            // only the step's state.
+        } else if (destroyed == CallOutcome::crashed || destroyed == CallOutcome::unresponsive) {
+            // Recorded as a finalize that crashes or never returns is: the step's last error
+            // (MODULE_CRASHED or MODULE_UNRESPONSIVE, phase destroy) and a warning. A destroy
+            // that returns after its deadline, within the grace, has freed its instance: it
+            // leaves only its call.deadline warning.
             try {
-                it->failed = true;
+                if (destroyed == CallOutcome::crashed) {
+                    it->failed = true;
+                }
                 CallResult result;
-                result.outcome = CallOutcome::crashed;
-                result.details_json = crash;
+                result.outcome = destroyed;
+                result.details_json = details;
                 const Error error = call_error(*it, "destroy", result, std::nullopt);
-                metrics_.set_step_error(it->resolved->id, record_of(error, std::nullopt));
+                metrics_.set_step_error(it->resolved->id, teardown_record_of(error, "destroy"));
                 log(LogLevel::warn, error.what(),
                     {{"event", "teardown.destroy_failed"}, {"step", it->resolved->id}});
             } catch (const std::exception& e) {

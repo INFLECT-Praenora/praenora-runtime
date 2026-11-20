@@ -622,6 +622,8 @@ TEST(Engine, FinalizeFailureMarksTheStep) {
     ASSERT_TRUE(a.last_error.has_value());
     EXPECT_EQ(a.last_error->code, ErrorCode::STEP_FAILED);
     EXPECT_EQ(json::parse(a.last_error->cause_json).at("details").at("phase"), "finalize");
+    // The record's own details name the call, as a run failure's do.
+    EXPECT_EQ(json::parse(a.last_error->details_json), json({{"phase", "finalize"}}));
     EXPECT_FALSE(status.last_error.has_value()); // the run did not fail
     EXPECT_EQ(status.health, Health::unhealthy);
     EXPECT_EQ(fixture.lifecycle(),
@@ -1413,10 +1415,148 @@ TEST(Engine, TeardownSkipWarningSaysWhatWasLeftUndone) {
     ASSERT_EQ(skipped.count("b"), 1u);
     EXPECT_TRUE(contains(skipped.at("b"), "is finalized but not destroyed")) << skipped.at("b");
     EXPECT_FALSE(contains(skipped.at("b"), "neither")) << skipped.at("b");
+    // a's finalize is its last error, which names the call.
+    const auto& a_error = fixture.step_status(status, "a").last_error;
+    ASSERT_TRUE(a_error.has_value());
+    EXPECT_EQ(a_error->code, ErrorCode::MODULE_UNRESPONSIVE);
+    EXPECT_EQ(json::parse(a_error->details_json), json({{"phase", "finalize"}}));
     fixture.engine.reset();
 
     gate.open();
     EXPECT_TRUE(praenora::test::wait_until_loadable("fx-hang"));
+}
+
+TEST(Engine, ADestroyThatNeverReturnsIsItsStepsLastError) {
+    // a's destroy does not return within its deadline and grace. The run still completes, and a
+    // is unresponsive: like a finalize that never returns, the destroy is a's last error
+    // (MODULE_UNRESPONSIVE, naming the call), in the status and the run record, and a warning. a's
+    // lifecycle timeout bounds its create, initialize and finalize too, which must return within
+    // it on a loaded machine.
+    static TestGate gate; // static: the detached thread polls it after the engine is gone
+    gate.close();
+    ServiceRegistry services;
+    services.add("test.gate", 0, gate.table());
+    EngineFixture fixture;
+    Engine& engine =
+        fixture.open(single("fx-hang", "{ hang: destroy }",
+                            "    timeouts: { lifecycle: 500ms, cancel_grace: 50ms }\n"),
+                     {}, &services);
+    engine.start();
+    while (!engine.finished()) {
+        engine.run_tick();
+    }
+    EXPECT_EQ(engine.state(), WorkflowState::completed);
+    EXPECT_FALSE(engine.summary().error.has_value());
+    const StatusSnapshot status = fixture.metrics.snapshot();
+    EXPECT_FALSE(status.last_error.has_value()); // the run did not fail
+    EXPECT_EQ(status.health, Health::unhealthy);
+    const StepStatus& a = fixture.step_status(status, "a");
+    EXPECT_EQ(a.state, StepState::unresponsive);
+    EXPECT_EQ(a.succeeded, 3u);
+    ASSERT_TRUE(a.last_error.has_value());
+    EXPECT_EQ(a.last_error->code, ErrorCode::MODULE_UNRESPONSIVE);
+    const std::string& message = a.last_error->message;
+    EXPECT_TRUE(contains(message, "step 'a' (module fx-hang@0.1.0): destroy did not return "
+                                  "within its timeout of 500ms and the cancellation grace of 50ms"))
+        << message;
+    EXPECT_TRUE(contains(message, "the instance is abandoned")) << message;
+    EXPECT_EQ(json::parse(a.last_error->details_json), json({{"phase", "destroy"}}));
+    EXPECT_TRUE(a.last_error->cause_json.empty()); // the call never returned
+
+    // One warning, which says what the last error says; a's finalize went as usual.
+    std::vector<std::string> warnings;
+    for (const json& event : fixture.logs.events()) {
+        const json& attributes = event.at("attributes");
+        EXPECT_NE(attributes.value("event", std::string()), "teardown.finalize_failed")
+            << event.dump();
+        if (attributes.value("event", std::string()) == "teardown.destroy_failed") {
+            EXPECT_EQ(event.at("severity_text"), "WARN") << event.dump();
+            EXPECT_EQ(attributes.value("step", std::string()), "a") << event.dump();
+            warnings.push_back(event.value("body", std::string()));
+        }
+    }
+    ASSERT_EQ(warnings.size(), 1u);
+    EXPECT_EQ(warnings.front(), message);
+    EXPECT_TRUE(skipped_in_teardown(fixture).empty());
+
+    // The run record's final status names it too.
+    const json record = json::parse(read_file(fixture.out() / "run-record.json"));
+    EXPECT_TRUE(schema_of("run-record").validate(record).empty()) << record.dump(2);
+    EXPECT_EQ(record.at("execution").at("status"), "completed");
+    const json& recorded = record.at("execution").at("final_status").at("steps").at(0);
+    EXPECT_EQ(recorded.at("step"), "a");
+    EXPECT_EQ(recorded.at("state"), "unresponsive");
+    EXPECT_EQ(recorded.at("last_error").at("name"), "MODULE_UNRESPONSIVE");
+    EXPECT_EQ(recorded.at("last_error").at("message"), message);
+    EXPECT_EQ(recorded.at("last_error").at("details"), json({{"phase", "destroy"}}));
+    EXPECT_EQ(recorded.at("last_error").at("cause"), nullptr);
+    fixture.engine.reset(); // the unresponsive instance is left alone
+
+    // Release the detached thread, so it finishes before the test ends.
+    gate.open();
+    EXPECT_TRUE(praenora::test::wait_until_loadable("fx-hang"));
+}
+
+TEST(Engine, ADestroyThatReturnsWithinTheGraceLeavesOnlyItsWarning) {
+    // a's destroy returns after its deadline but within the cancellation grace: a helper opens the
+    // gate once the deadline's warning is logged. The instance is gone, so a is destroyed. Unlike
+    // a late finalize (STEP_TIMEOUT), the late destroy sets no last error and the run stays
+    // healthy: only the warning call.deadline says it was late.
+    static TestGate gate; // static: should the call outlive its grace, its thread polls it later
+    gate.close();
+    ServiceRegistry services;
+    services.add("test.gate", 0, gate.table());
+    EngineFixture fixture;
+    Engine& engine = fixture.open(single("fx-hang", "{ hang: destroy }",
+                                         "    timeouts: { lifecycle: 500ms, cancel_grace: 10s }\n"),
+                                  {}, &services);
+    const auto destroy_is_late = [&fixture] {
+        for (const json& event : fixture.logs.events()) {
+            if (event.at("attributes").value("event", std::string()) == "call.deadline" &&
+                contains(event.value("body", std::string()), "destroy did not return")) {
+                return true;
+            }
+        }
+        return false;
+    };
+    std::atomic<bool> run_over{false};
+    std::thread opener([&destroy_is_late, &run_over] {
+        // a's destroy has begun once fx-hang asks for the gate; only then does the wait for its
+        // deadline's warning start, so a slow run before it does not count against that wait.
+        while (gate.polled() == 0 && !run_over.load()) {
+            std::this_thread::sleep_for(milliseconds(1));
+        }
+        EXPECT_TRUE(wait_for(destroy_is_late));
+        gate.open();
+    });
+    engine.start();
+    while (!engine.finished()) {
+        engine.run_tick();
+    }
+    run_over.store(true);
+    opener.join();
+    EXPECT_EQ(engine.state(), WorkflowState::completed);
+    const StatusSnapshot status = fixture.metrics.snapshot();
+    EXPECT_FALSE(status.last_error.has_value());
+    EXPECT_EQ(status.health, Health::healthy);
+    const StepStatus& a = fixture.step_status(status, "a");
+    EXPECT_EQ(a.state, StepState::destroyed);
+    EXPECT_FALSE(a.last_error.has_value()) << a.last_error->message;
+    std::size_t deadlines = 0;
+    for (const json& event : fixture.logs.events()) {
+        const std::string name = event.at("attributes").value("event", std::string());
+        EXPECT_NE(name, "teardown.finalize_failed") << event.dump();
+        EXPECT_NE(name, "teardown.destroy_failed") << event.dump();
+        EXPECT_NE(name, "instance.unresponsive") << event.dump();
+        if (name == "call.deadline") {
+            ++deadlines;
+        }
+    }
+    EXPECT_EQ(deadlines, 1u);
+    const json record = json::parse(read_file(fixture.out() / "run-record.json"));
+    const json& recorded = record.at("execution").at("final_status").at("steps").at(0);
+    EXPECT_EQ(recorded.at("state"), "destroyed");
+    EXPECT_EQ(recorded.at("last_error"), nullptr);
 }
 
 TEST(Engine, ExistingRunRecordIsNotOverwritten) {
