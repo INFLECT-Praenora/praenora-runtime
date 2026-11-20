@@ -50,6 +50,23 @@
 // a call runs. A failed, timed-out or cancelled create, initialize or finalize leaves `failed`;
 // invoke returns to `ready` whatever its outcome, so an initialized instance is always finalized
 // at the end. Calls made in a state that does not allow them throw praenora::Error(INVALID_STATE).
+//
+// A module in a module host (LoadedModule::runs_in_child(), docs/specs/process-isolation.md).
+// Every call goes through the module's code (loader/module_code.hpp) to the module host; the
+// state machine, deadlines, stop flags, logging and lookup recording above are the same. What
+// differs:
+//   - unresponsive: the module host is killed and waited for, so the call returns; nothing is
+//     detached, pinned, kept or marked abandoned (CallResult::details_json {"terminated": true}),
+//     and the library can be loaded again at once;
+//   - crashed: when the module host ends (a signal, an exit) or breaks its channel's protocol
+//     during a call, or before it, the outcome is crashed and the state becomes `crashed`, for
+//     good: no later call (finalize, destroy, diagnostics) reaches the module host;
+//   - a successful destroy is followed by the module host's exit, which is waited for during the
+//     lifecycle timeout before the module host is killed;
+//   - a module host that the runtime killed for a stop before it had taken a call takes the
+//     module's instance with it: release_terminated() then marks the instance destroyed without a
+//     call, and the destructor finalizes and destroys nothing;
+//   - self_test() is refused (UNSUPPORTED): the contract checks run modules in this process.
 #ifndef PRAENORA_RUNTIME_INSTANCE_MODULE_INSTANCE_HPP
 #define PRAENORA_RUNTIME_INSTANCE_MODULE_INSTANCE_HPP
 
@@ -80,9 +97,9 @@ namespace praenora::detail {
 class InstanceWorker;
 struct HostContext;
 
-enum class CallOutcome { succeeded, failed, timed_out, cancelled, unresponsive, refused };
+enum class CallOutcome { succeeded, failed, timed_out, cancelled, unresponsive, refused, crashed };
 
-// "succeeded", "failed", "timed_out", "cancelled", "unresponsive" or "refused".
+// "succeeded", "failed", "timed_out", "cancelled", "unresponsive", "refused" or "crashed".
 std::string to_string(CallOutcome outcome);
 
 // What one call into the module came to.
@@ -92,7 +109,8 @@ std::string to_string(CallOutcome outcome);
 //   unresponsive (status is then PRAENORA_STATUS_TIMEOUT: the call never returned); refused (the
 //   module was not called: an abandoned call that it would have to wait for may still be running
 //   in the library; status INVALID_STATE, error_json a host error saying so, refused_by that
-//   call).
+//   call); crashed (the module's module host ended or broke its channel: the call never
+//   returned; status INTERNAL, output and error_json empty).
 // - output: what the module wrote to the call's output sink (result, diagnostics);
 //   error_json: what it wrote to its error sink (normally {"code","message","details"}).
 // - duration: from the call being posted, once it had its lease, until the module returned (or,
@@ -106,6 +124,10 @@ struct CallResult {
     std::optional<LibraryCall> refused_by;
     bool called = false; // whether the call reached the module: false when refused, or stopped
                          // while it waited for its library
+    // The runtime's details of how a call into a module host ended, a JSON object's text, or
+    // empty: {"terminated": true} when it was unresponsive; for crashed {"phase", "signal",
+    // "signal_name"}, {"phase", "exit_code"} or {"phase", "reason": "protocol"}.
+    std::string details_json;
 };
 
 struct InstanceOptions {
@@ -121,11 +143,12 @@ struct InstanceOptions {
     std::shared_ptr<spdlog::logger> logger;
     // The runtime's built-in services, served through get_service() to every module whatever its
     // manifest declares; NULL offers none. Must outlive the instance, or at least its abandonment
-    // or withdraw_services().
+    // or withdraw_services(). A module in a module host is not offered them: it is served there.
     const ServiceRegistry* services = nullptr;
     // The provider services this instance's module may use: those its manifest declares that
     // resolved for the run (docs/specs/runtime-services.md). get_service() looks here first, then
-    // in `services`. Provider tables live until the process ends; the instance keeps a copy.
+    // in `services`. Provider tables live until the process ends; the instance keeps a copy. For a
+    // module in a module host, empty: its providers are loaded there (ChildSettings::providers).
     ServiceRegistry provider_services;
     // Each of a call's sinks refuses writes beyond this many bytes with
     // PRAENORA_STATUS_RESOURCE_EXHAUSTED.
@@ -169,8 +192,10 @@ public:
     // while another call is in progress it does nothing but log a warning. Returns the call's
     // outcome: succeeded (or timed_out) once the instance is gone, also when there was nothing to
     // destroy; unresponsive; refused, when the module's instance still exists and may not be
-    // called; failed when it was not called for another reason.
-    CallOutcome destroy() noexcept;
+    // called; crashed, when its module host ended during the call or before it (`*details_json`,
+    // when given, then receives CallResult::details_json: the phase and how it ended); failed
+    // when it was not called for another reason.
+    CallOutcome destroy(std::string* details_json = nullptr) noexcept;
     // The module's diagnostics document, called between calls with the lifecycle timeout. nullopt
     // when the module has no diagnostics(), when no module instance exists or the instance is
     // busy or unresponsive, or when the call does not succeed; it never throws for a state.
@@ -181,6 +206,15 @@ public:
     // Throws praenora::Error: INVALID_STATE in another state, UNSUPPORTED when the module has no
     // self_test().
     CallResult self_test();
+
+    // For an instance in a module host that the runtime killed while the instance existed (a stop
+    // came before the module host had taken a call: ModuleCode::terminated()): the module's
+    // instance went with that process, so there is nothing left to finalize or destroy, and no
+    // call could reach it. The state becomes destroyed without a call, and the state it had
+    // (created, ready, finalized or failed) is returned, for the caller to say what was left
+    // undone. nullopt, and nothing changes, for any other instance. For the controlling thread;
+    // never throws.
+    std::optional<StepState> release_terminated() noexcept;
 
     // Asks the call in flight to stop: cancel_requested() reports nonzero to the module until that
     // call returns, and if it returns CANCELLED its outcome is cancelled. Without a call in
@@ -208,7 +242,7 @@ public:
 private:
     struct Call;
     class Claim;
-    using Body = std::function<praenora_status(Call&)>;
+    using Body = std::function<CodeStatus(Call&)>;
 
     // Moves the state from one of `allowed` to busy and returns the state it left; throws
     // praenora::Error(INVALID_STATE) for any other state.

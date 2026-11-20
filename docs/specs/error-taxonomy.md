@@ -91,6 +91,7 @@ as `a/b` names both parties that commonly own the fix; `none` marks codes that r
 | 500 | `LIBRARY_LOAD_FAILED` | load | 4 | environment/module | no | A module or provider library could not be loaded, or a provider failed its load checks. |
 | 501 | `ENTRY_POINT_MISSING` | load | 4 | module | no | The library does not export its entry point (praenora_module_get_api or praenora_provider_get_api). |
 | 502 | `API_TABLE_INVALID` | load | 4 | module | no | The function table of a module or provider is missing, malformed or incomplete. |
+| 503 | `MODULE_HOST_UNAVAILABLE` | load | 4 | environment | no | A module host (praenora-module-host) for a step's module could not be found, started or used: it is missing, did not start, failed the handshake, is of another runtime version or channel protocol, or cannot apply its sandbox profile. |
 | 600 | `GRAPH_INVALID` | validation | 3 | protocol | no | The workflow graph breaks a structural rule, such as fan-in or a delayed connection into a required input. |
 | 601 | `GRAPH_CYCLE` | validation | 3 | protocol | no | The connections without delay form a cycle. |
 | 602 | `PORT_UNCONNECTED` | validation | 3 | protocol | no | A required step input or a workflow output has no incoming connection. |
@@ -99,9 +100,10 @@ as `a/b` names both parties that commonly own the fix; `none` marks codes that r
 | 700 | `STEP_FAILED` | execution | 1 | module | no | A module call returned an error. |
 | 701 | `OUTPUT_INVALID` | execution | 1 | module | no | A module result is malformed, names an undeclared port or violates the port's schema. |
 | 702 | `STEP_TIMEOUT` | timeout | 5 | module/config | yes | A module call passed its deadline and returned within the cancellation grace period. |
-| 703 | `MODULE_UNRESPONSIVE` | timeout | 5 | module | no | A module call did not return within its deadline plus the cancellation grace period, or a call or load was refused because such a call may still be running in the module's library. |
+| 703 | `MODULE_UNRESPONSIVE` | timeout | 5 | module | no | A module call did not return within its deadline plus the cancellation grace period (in a module host, which is then terminated), or a call or load was refused because such a call may still be running in the module's library. |
 | 704 | `INPUT_MISSING` | execution | 1 | runtime | no | A required input message was not available when a step ran. |
 | 705 | `RUN_STOPPED` | cancelled | 130 | none | no | The run was stopped on request. |
+| 706 | `MODULE_CRASHED` | execution | 1 | module | no | A module host ended (a signal or an exit) or broke its channel's protocol during a load or a call into its module. |
 | 800 | `TARGET_DATA_INVALID` | data | 1 | user data | no | Target data is malformed or breaks the observation rules. |
 | 801 | `TARGET_DATA_UNAVAILABLE` | data | 1 | environment | yes | Target data could not be read, for example because its file does not exist. |
 
@@ -134,6 +136,32 @@ Notes on the table:
   `LIBRARY_DIGEST_MISMATCH`, `ENTRY_POINT_MISSING` and `API_TABLE_INVALID` for its library, and
   `LIBRARY_LOAD_FAILED` with `details.reason` `library`, `identity`, `start`, `service` or
   `conflict` for the rest of its loading.
+- `MODULE_HOST_UNAVAILABLE`, `MODULE_CRASHED` and `MODULE_UNRESPONSIVE` with `details.terminated`
+  come from process isolation, a module instance that runs in a module host of its own
+  ([process-isolation.md](process-isolation.md)). `MODULE_HOST_UNAVAILABLE` is located in the
+  module's manifest, and `details.reason` says why: `missing` (no executable where the runtime
+  looks for it, `details.executable`), `spawn` (it could not be started, for example because it is
+  not executable; `details.system` holds the operating system's text; always on Windows, where
+  process isolation is not available in this version), `handshake` (it did not answer as a module
+  host, or not in time), `build` (it answered with another runtime version or channel protocol) or
+  `sandbox` (the restricted sandbox profile cannot be applied, for example in a runtime that runs in
+  a sandbox already, or its temporary directory cannot be made, or the platform has no restricted
+  profile; `details.system` holds the system's text).
+  `MODULE_CRASHED` has the details `{"phase", "signal", "signal_name"}` (a signal ended the module
+  host, for example 11 and `SIGSEGV`), `{"phase", "exit_code"}` (it exited, for example by `exit()`
+  in a module), `{"phase", "reason": "protocol"}` (it broke the channel's protocol, or closed the
+  channel and kept running) or `{"phase", "reason": "ended"}` (it ended, and the system could not
+  say how: its status was taken by someone else, as when children are reaped automatically), where
+  `phase` is the call (`create`, `initialize`, `invoke`, `finalize`, `destroy`, `diagnostics`) or
+  `load`. Under sanitizers a crash may end the process with another signal or an exit code instead
+  of its own signal. A `MODULE_UNRESPONSIVE` in a module host has the details
+  `{"terminated": true}`: the module host was killed, so nothing of the call is left running.
+  Load errors that a module host reports keep the codes, messages and locations they have in the
+  runtime's process, those of the service providers it loads for the module included (located in
+  the provider's manifest). A provider runs in the module host's process: one that ends it is a
+  `MODULE_CRASHED` of the step, with `phase` `load` when it ends during the load (its `start()`
+  included), the call that was running when it ends during a call, and the next call when it ends
+  between calls.
 - `TARGET_DATA_INVALID` exits with 1 when a run meets it and with 3 when validation finds it, like
   every error of a validation report. `TARGET_DATA_UNAVAILABLE` is found only by validation, so the
   CLI exits with 3 for it.
@@ -186,7 +214,7 @@ from 10000 up, never appears as the error's code: it is `details.cause.code` of 
 | `SCHEMA_VIOLATION` | The JSON pointer: usually a misspelled property ("property 'x' is not allowed") or a value of the wrong type. For a catalog entry, the entry's file. |
 | `FORMAT_VERSION_UNSUPPORTED` | The document's `format_version`; the message lists what this runtime reads (`praenora schema list`). |
 | `DOCUMENT_KIND_MISMATCH` | The document's `kind`: the wrong file was given. |
-| `CONFIG_INVALID` | Values of the configuration that the schema cannot check: durations, paths, `columns`, `outputs.record`, a missing `run.ticks` when no input replays data, a log file inside the output directory's managed files; or an invalid `PRAENORA_LOG_LEVEL` or `PRAENORA_LOG_FORMAT`. |
+| `CONFIG_INVALID` | Values of the configuration that the schema cannot check: durations, paths, `columns`, `outputs.record`, a missing `run.ticks` when no input replays data, a log file inside the output directory's managed files, `share_compiled_models` or `sandbox: restricted` on a step that runs in the runtime's process ([process-isolation.md](process-isolation.md#configuration)); or an invalid `PRAENORA_LOG_LEVEL` or `PRAENORA_LOG_FORMAT`. |
 | `WORKFLOW_NOT_FOUND` | `workflow.name` and `workflow.version` against `praenora catalog list --kind workflows`, and any extra catalog paths. |
 | `BINDING_INVALID` | The configuration's `steps` against the definition's steps (`praenora graph --workflow <name>@<version>`). |
 | `PARAMETERS_INVALID` | The pointer `/steps/<step>/parameters/...` against the module's `parameters_schema` (`praenora modules inspect <name>@<version>`). |
@@ -208,11 +236,13 @@ from 10000 up, never appears as the error's code: it is `details.cause.code` of 
 | `STEP_FAILED` | `details.step`, `details.phase`, `details.cause` (the module's own code and message) and `details.diagnostics`; the step's log records (logger `module.<step>`). |
 | `OUTPUT_INVALID` | `details.port`, the pointer into the result and `details.issues`; with tracing on, the trace's last records ([observability.md](observability.md#message-trace)); the module's test vectors. |
 | `STEP_TIMEOUT` | The step's timeouts (`run.timeouts`, `steps.<step>.timeouts`) against its durations in the metrics, and whether the module polls `cancel_requested()` ([time-cancellation-timeouts.md](time-cancellation-timeouts.md)). |
-| `MODULE_UNRESPONSIVE` | A module that ignored cancellation and never returned. Its library stays loaded and its thread keeps running, and until the call returns the process refuses the calls and loads of that library that would wait for it (all of them for `features.concurrency: "module"`); a refusal names the call in `details.abandoned_call` (`call`, `by`, `module`) ([threading-and-ownership.md](threading-and-ownership.md#concurrency-across-instances)). Make the module poll `cancel_requested()`; a new process starts without the abandoned call. |
+| `MODULE_UNRESPONSIVE` | A module that ignored cancellation and never returned. In the runtime's process, its library stays loaded and its thread keeps running, and until the call returns the process refuses the calls and loads of that library that would wait for it (all of them for `features.concurrency: "module"`); a refusal names the call in `details.abandoned_call` (`call`, `by`, `module`) ([threading-and-ownership.md](threading-and-ownership.md#concurrency-across-instances)). In a module host (`details.terminated`), the module host was killed and nothing is held on to. Make the module poll `cancel_requested()`; a new process starts without the abandoned call. |
+| `MODULE_CRASHED` | `details.phase` and the signal or exit code that ended the module host, or `details.reason` (`protocol`, or `ended` when the system could not say how); the step's log records (event `module_host.crashed`) and what the module wrote to standard error. A crash is the module's: run it under a debugger or a sanitizer in the runtime's process to find it ([process-isolation.md](process-isolation.md#crashes)). |
+| `MODULE_HOST_UNAVAILABLE` | `details.reason`: `missing` (the installation lacks `libexec/praenora/praenora-module-host`, or the runtime came from a Python wheel, which has none), `spawn` (`details.system`: for example an executable that is not executable; or Windows), `handshake`, `build` (a module host of another runtime version or channel protocol: reinstall) or `sandbox` (the restricted profile cannot be applied, `details.system`: "Operation not permitted" when the runtime itself runs in a sandbox; or not on this platform) ([process-isolation.md](process-isolation.md#the-module-host)). |
 | `RUN_STOPPED` | A stop was requested (Ctrl+C, SIGTERM, `request_stop()`, `close()`). Not a fault. |
 | `IO_ERROR` | The path in the message: permissions, free space; an output directory that already holds a run record (pass `--overwrite`). |
 | `INVALID_ARGUMENT`, `INVALID_STATE` | The calling code or command line: argument values, and the order of calls (for example `tick()` before `start()`, or two control calls at once). |
-| `UNSUPPORTED` | A version or feature this runtime does not offer, named in the message. |
+| `UNSUPPORTED` | A version or feature this runtime does not offer, named in the message; for a step in process mode, located at the `isolation.mode` that set it: process isolation on Windows; for a step in process mode with `sandbox: restricted`, located at the `isolation.sandbox` that set it: the restricted sandbox profile anywhere but on macOS ([process-isolation.md](process-isolation.md#configuration)). |
 | `RESOURCE_EXHAUSTED` | Memory, or a module output beyond the 256 MiB sink limit. |
 | `NOT_FOUND` | A module search path that is not a directory, or a configured one that does not exist (warnings). |
 | `INPUT_MISSING`, `INTERNAL`, `UNKNOWN` | A defect, usually of the runtime: keep the run record and the log, and report it. An envelope that fails its schema is `INTERNAL` and blames neither the module nor the data. |

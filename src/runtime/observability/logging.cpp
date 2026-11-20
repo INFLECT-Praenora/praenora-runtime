@@ -304,6 +304,27 @@ void log_event(spdlog::logger& logger, LogLevel level, std::string_view message,
                spdlog::string_view_t(payload.data(), payload.size()));
 }
 
+LoggedEvent decode_logged_event(std::string_view payload) {
+    const Event event = decode(payload);
+    LoggedEvent result;
+    result.message = std::string(event.body);
+    if (event.json_attributes.empty()) {
+        return result;
+    }
+    // log_event() wrote them as the members of a JSON object, in order.
+    const auto attributes = nlohmann::ordered_json::parse(
+        "{" + std::string(event.json_attributes) + "}", nullptr, false);
+    if (!attributes.is_object()) {
+        return result;
+    }
+    for (const auto& attribute : attributes.items()) {
+        result.attributes.push_back(LogAttribute{
+            attribute.key(), nlohmann::json::parse(attribute.value().dump(
+                                 -1, ' ', false, nlohmann::json::error_handler_t::replace))});
+    }
+    return result;
+}
+
 void set_log_level(spdlog::logger& logger, LogLevel level) { logger.set_level(to_spdlog(level)); }
 
 LogLevel log_level_from_abi(std::int32_t level) noexcept {

@@ -1,10 +1,10 @@
 // What the two front ends of the runtime, the praenora tool (src/cli) and the Python extension
-// (src/python), share so that they report the same documents and failures: the JSON of a module,
-// of a service provider, of a catalog entry and of a run's summary, the failure of a validation
-// and of the contract checks, the tables of the names that they take (catalog kinds, graph
-// formats, log levels and log formats), from which their lookups, the lists of names in messages
-// and the praenora tool's usage texts come, and the limit of seeds and tick counts. Header-only
-// and internal: the target praenora_frontend is neither installed nor exported.
+// (src/python), share so that they report the same documents and failures: the JSON of a module, of
+// a service provider, of a catalog entry and of a run's summary, the failure of a validation and of
+// the contract checks, the tables of the names that they take (catalog kinds, graph formats, log
+// levels, log formats and isolation modes), from which their lookups, the lists of names in
+// messages and the praenora tool's usage texts come, and the limit of seeds and tick counts.
+// Header-only and internal: the target praenora_frontend is neither installed nor exported.
 #ifndef PRAENORA_FRONTEND_FRONTEND_HPP
 #define PRAENORA_FRONTEND_FRONTEND_HPP
 
@@ -220,6 +220,18 @@ inline constexpr Named<GraphFormat> kGraphFormats[] = {
 // The graph format that `name` stands for, or nullopt.
 inline std::optional<GraphFormat> graph_format(std::string_view name) {
     return value_named(kGraphFormats, name);
+}
+
+// The isolation modes by the names that `praenora run --isolation` and the Python keyword
+// `isolation` take, those of the configuration's isolation.mode.
+inline constexpr Named<IsolationMode> kIsolationModes[] = {
+    {"in-process", IsolationMode::in_process},
+    {"process", IsolationMode::process},
+};
+
+// The isolation mode that `name`, exactly as written, stands for, or nullopt.
+inline std::optional<IsolationMode> isolation_mode(std::string_view name) {
+    return value_named(kIsolationModes, name);
 }
 
 // The log levels and formats by their canonical names, which the front ends take in any case.

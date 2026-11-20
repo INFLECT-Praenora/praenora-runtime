@@ -55,7 +55,7 @@ What the specifications own, and where to find it:
 |---|---|---|
 | C1. Compiled into the runtime | `PRAENORA_WITH_ANTIMONY=ON` compiles the service into `praenora_runtime`, which registers it when a `Runtime` is constructed. | Recommended by this document's first version; rejected ([ADR-0035](../adr/ADR-0035-model-conversion-service-v0.md), following [ADR-0026](../adr/ADR-0026-runtime-service-providers.md)): every runtime built with the option would carry and load libAntimony and libSBML, also when no run converts, and the run fingerprint would not record the engine. |
 | C2. Each module bundles libAntimony | Possible: nothing stops a module from linking it. | Not supported: every such module must apply the rules itself, and two modules that load the same shared libAntimony share one copy of its global state, because the dynamic loader returns the same handle for the same library [A14], and no lock covers both. |
-| C3. Out-of-process conversion | A helper process that owns libAntimony. | Not needed yet. It would isolate libAntimony's global state, could run without file system access and could stop a translation (OQ-5, OQ-30), at the cost of a process and of copying every source and text. |
+| C3. Out-of-process conversion | A helper process that owns libAntimony. | Not built as a helper that owns the engine. Process isolation gives much of it another way: a step in a module host has the provider, with a libAntimony, global state and lock of its own, loaded in that process; a translation that outlives its call's deadline and grace ends with the module host (OQ-30, answered there); and on macOS the restricted sandbox profile refuses it the network and writes outside its own temporary directory, though not reads ([process-isolation.md](../specs/process-isolation.md#service-providers), [ADR-0037](../adr/ADR-0037-process-isolation-of-module-instances.md); OQ-5 is resolved). A helper process that owns libAntimony for the steps in the runtime's process, at the cost of a process and of copying every source and text, stays unbuilt. |
 | C4. libAntimony compiled to WebAssembly, run by an embedded engine | A converter inside the engine of [webassembly.md](webassembly.md), Model B, with no file system imports. | Future work ([WebAssembly](#webassembly)): the sandbox would leave no file to open. |
 | C5. No conversion | Modules accept SBML only. | Rejected: `ode-uq-spec` allows Antimony model sources, so a module that reads them would bundle a translator anyway (C2). |
 | C6. A service provider of its own | A separately built library, shipped with the runtime, that the runtime loads only when a run needs its service: one engine per process. | Chosen and built ([ADR-0035](../adr/ADR-0035-model-conversion-service-v0.md)): the provider `antimony`. |
@@ -386,7 +386,10 @@ documents (unverified how libAntimony resolves them).
 - Providers that use the services of other providers.
 - Pinned downloads of libAntimony (FetchContent): its dependency chain (libSBML, SBMLNetwork, expat)
   would need pins of its own ([ADR-0017](../adr/ADR-0017-dependency-management.md)).
-- An engine out of process (option C3; OQ-5, OQ-30).
+- An engine out of process for the steps in the runtime's process (option C3; OQ-30). A step in a
+  module host has its engine out of the runtime's process already
+  ([process-isolation.md](../specs/process-isolation.md#service-providers),
+  [ADR-0037](../adr/ADR-0037-process-isolation-of-module-instances.md)).
 
 ## Risks
 

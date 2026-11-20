@@ -20,10 +20,10 @@ unaffected.
 | Logger | What it records | Events |
 |---|---|---|
 | `praenora.runtime` | The `Runtime`. | `runtime.ready` (module and provider search paths, number of modules, providers and catalog entries) |
-| `praenora.engine` | A run. | `run.started`, `step.ready`, `invocation.completed`, `tick.completed`, `run.completed`, `run.stopped`, `run.failed`, `run.output_failed`, `trace.skipped`, `teardown.finalize_failed`, `teardown.skipped` |
-| `module.<step>` | The messages a step's module logs through the host API, and events about the step's instance. | `call.deadline`, `instance.unresponsive`, `call.refused`, `call.failed`, `library.refused` (a call not made: an abandoned call may still be running in the library), `instance.kept` (an instance kept because its `finalize` or `destroy` was refused), `service.lookup` |
+| `praenora.engine` | A run. | `run.started`, `step.ready`, `invocation.completed`, `tick.completed`, `run.completed`, `run.stopped`, `run.failed`, `run.output_failed`, `trace.skipped`, `teardown.finalize_failed`, `teardown.destroy_failed` (a `destroy` whose module host crashed), `teardown.skipped` (an instance left as it is: kept, or gone with the module host that a stop ended before it took a call) |
+| `module.<step>` | The messages a step's module logs through the host API, and events about the step's instance. | `call.deadline`, `instance.unresponsive`, `call.refused`, `call.failed`, `library.refused` (a call not made: an abandoned call may still be running in the library), `instance.kept` (an instance kept because its `finalize` or `destroy` was refused), `service.lookup`; for an instance in a module host ([process-isolation.md](process-isolation.md)), with the attributes `module` and `pid`: `module_host.started` (debug), `module_host.exited` (debug), `module_host.terminated` (warn: killed after a call that never returned, after it did not exit when asked, when a stop came during its start, its load or the write of a call, or when it broke the channel's protocol while it was being ended), `module_host.crashed` (error: how it ended, or how it broke the channel's protocol), `module_host.directory_left` (warn: its temporary directory, under the restricted sandbox profile, could not be removed, and is left); for a module host that shares compiled models ([process-isolation.md](process-isolation.md#shared-compiled-models)), with the attributes `module`, `pid`, `provider` and `key`: `compiled_models.hit` (debug, with `size`), `compiled_models.miss` (debug), `compiled_models.saved` (debug, with `size` and `evicted`), `compiled_models.refused` (debug: over a limit, with `key_size` and `size`) |
 | `module.check` | Module messages during the contract checks, and events about the checks' instances. | the events of `module.<step>` |
-| `provider.<name>` | The messages a service provider logs through its host, with the attribute `provider` (`name@version`), and events about it, in the logs of the run (or, for `validate --load` and the contract checks, of the `Runtime`) that loaded it last ([runtime-services.md](runtime-services.md#loading)). | `provider.loaded` (once per process, with `library_sha256`) |
+| `provider.<name>` | The messages a service provider logs through its host, with the attribute `provider` (`name@version`), and events about it, in the logs of the run (or, for `validate --load` and the contract checks, of the `Runtime`) that loaded it last ([runtime-services.md](runtime-services.md#loading)); from a provider in a step's module host too, with the same attributes ([process-isolation.md](process-isolation.md#service-providers)). | `provider.loaded` (once per process, a module host's included, with `library_sha256`) |
 
 Records go to standard error, without colors, unless `RuntimeOptions::logging.to_stderr` is false;
 and, when a log file is set, also to that file, which is appended to, created with its parent
@@ -84,7 +84,8 @@ Each logging setting is resolved on its own, from the first source that sets it:
 Each run keeps an in-process metrics registry:
 
 - per step: the module, the state, invocation counts by outcome (`succeeded`, `failed`, `timed_out`,
-  `cancelled`; an unresponsive call counts as `timed_out`), the last, total, minimum, maximum and
+  `cancelled`; an unresponsive call counts as `timed_out`, a crashed one as `failed`), the last,
+  total, minimum, maximum and
   mean invocation durations, the times of the last invocation and the last success, and the last
   error. An invoke that never reached the module is not an invocation: one refused because an
   abandoned call may still be running in its library is only the step's last error, and one stopped
@@ -124,7 +125,8 @@ from a copy of the metrics, so it never waits for a module call.
 - Workflow states: `created`, `starting`, `ready`, `running`, `stopping`, `completed`, `stopped`,
   `failed`. `stopping` is shown only while a stop or a failure winds the run down.
 - Step states are the instance states of the [module ABI](module-abi.md#lifecycle), `busy` during
-  each call; a step whose call failed is shown as `failed` from then on.
+  each call; a step whose call failed is shown as `failed` from then on. A step whose module host
+  crashed ([process-isolation.md](process-isolation.md#crashes)) is `crashed`, for good.
 - An error record is `{code, name, message, tick, at, cause, location, details}`. `cause` is the
   module's error document (one that is not a JSON object is kept as `{"text": ...}`), or null.
   `location` and `details` are those of the error, as `praenora::Error` and the CLI's error
@@ -204,7 +206,7 @@ The workflow's `health` is decided by the first rule that applies:
 
 | Health | Rule |
 |---|---|
-| `unhealthy` | The run failed, or an instance is `failed` or `unresponsive`. |
+| `unhealthy` | The run failed, or an instance is `failed`, `unresponsive` or `crashed`. |
 | `unknown` | The run has not started (states `created` and `starting`). |
 | `degraded` | A timeout, a cancellation or a failure was counted; or the run is `stopping` or `stopped`; or the workflow has a last error, for example a status file that could not be written. |
 | `healthy` | Otherwise. |

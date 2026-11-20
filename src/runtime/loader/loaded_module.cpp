@@ -1,5 +1,7 @@
 #include "loader/loaded_module.hpp"
 
+#include "isolation/child_module.hpp"
+
 #include "core/paths.hpp"
 #include "core/semver.hpp"
 #include "document/json_util.hpp"
@@ -93,6 +95,25 @@ bool same_capabilities(const std::vector<CapabilityRef>& a, const std::vector<Ca
     return true;
 }
 
+// Checks a describe() document against the pmp-describe schema.
+void check_describe_schema(const nlohmann::json& document, const LocatedFailure& fail) {
+    const auto& schema =
+        SchemaRegistry::builtin().for_kind("pmp-describe", parse_semver(kPmpVersion));
+    const auto issues = schema.validate(document);
+    if (!issues.empty()) {
+        nlohmann::json list = nlohmann::json::array();
+        for (const auto& issue : issues) {
+            list.push_back({{"pointer", issue.pointer}, {"message", issue.message}});
+        }
+        const auto& first = issues.front();
+        fail(ErrorCode::MODULE_IDENTITY_MISMATCH,
+             "describe() wrote a document that violates the pmp-describe schema: " +
+                 (first.pointer.empty() ? std::string("(root)") : first.pointer) + ": " +
+                 first.message,
+             "", nlohmann::json{{"issues", std::move(list)}}.dump());
+    }
+}
+
 // Runs describe() and checks its document against the pmp-describe schema.
 nlohmann::json describe_document(const praenora_module_api_v0& api, const LocatedFailure& fail) {
     OutputSink out(kMaxDescribeBytes);
@@ -111,21 +132,7 @@ nlohmann::json describe_document(const praenora_module_api_v0& api, const Locate
         fail(ErrorCode::MODULE_IDENTITY_MISMATCH,
              std::string("describe() did not write JSON: ") + error.what());
     }
-    const auto& schema =
-        SchemaRegistry::builtin().for_kind("pmp-describe", parse_semver(kPmpVersion));
-    const auto issues = schema.validate(document);
-    if (!issues.empty()) {
-        nlohmann::json list = nlohmann::json::array();
-        for (const auto& issue : issues) {
-            list.push_back({{"pointer", issue.pointer}, {"message", issue.message}});
-        }
-        const auto& first = issues.front();
-        fail(ErrorCode::MODULE_IDENTITY_MISMATCH,
-             "describe() wrote a document that violates the pmp-describe schema: " +
-                 (first.pointer.empty() ? std::string("(root)") : first.pointer) + ": " +
-                 first.message,
-             "", nlohmann::json{{"issues", std::move(list)}}.dump());
-    }
+    check_describe_schema(document, fail);
     return document;
 }
 
@@ -204,13 +211,65 @@ void check_identity(const ModuleManifest& manifest, const nlohmann::json& descri
     }
 }
 
+// The code of a module loaded in this process: its function table, called directly.
+class InProcessCode final : public ModuleCode {
+public:
+    explicit InProcessCode(const praenora_module_api_v0& api) noexcept : api_(api) {}
+
+    bool has_diagnostics() const noexcept override { return api_.diagnostics != nullptr; }
+    bool has_self_test() const noexcept override { return api_.self_test != nullptr; }
+
+    CodeStatus create(const std::shared_ptr<InstanceHost>& host, praenora_bytes create_json,
+                      praenora_instance** out_instance, OutputSink& error) override {
+        return {api_.create(host->host_api(), create_json, out_instance, error.sink()), {}};
+    }
+    CodeStatus initialize(praenora_instance* instance, praenora_bytes initialize_json,
+                          OutputSink& error) override {
+        return {api_.initialize(instance, initialize_json, error.sink()), {}};
+    }
+    CodeStatus invoke(praenora_instance* instance, praenora_bytes invocation_json,
+                      OutputSink& result, OutputSink& error) override {
+        return {api_.invoke(instance, invocation_json, result.sink(), error.sink()), {}};
+    }
+    CodeStatus finalize(praenora_instance* instance, OutputSink& error) override {
+        return {api_.finalize(instance, error.sink()), {}};
+    }
+    CodeStatus destroy(praenora_instance* instance) override {
+        api_.destroy(instance);
+        return {PRAENORA_STATUS_OK, {}};
+    }
+    CodeStatus diagnostics(praenora_instance* instance, OutputSink& out) override {
+        if (api_.diagnostics == nullptr) {
+            return {PRAENORA_STATUS_UNSUPPORTED, {}};
+        }
+        return {api_.diagnostics(instance, out.sink()), {}};
+    }
+    CodeStatus self_test(const praenora_host_api* host, OutputSink& report) override {
+        if (api_.self_test == nullptr) {
+            return {PRAENORA_STATUS_UNSUPPORTED, {}};
+        }
+        return {api_.self_test(host, report.sink()), {}};
+    }
+
+private:
+    praenora_module_api_v0 api_;
+};
+
 } // namespace
 
-LoadedModule::LoadedModule(ModuleManifest manifest, SharedLibrary library,
+void check_describe_document(const ModuleManifest& manifest, const nlohmann::json& describe) {
+    const LocatedFailure fail = module_failure(manifest);
+    check_describe_schema(describe, fail);
+    check_identity(manifest, describe, fail);
+}
+
+LoadedModule::LoadedModule(ModuleManifest manifest, std::optional<SharedLibrary> library,
                            std::shared_ptr<LibraryGate> gate, const praenora_module_api_v0& api,
-                           nlohmann::json describe, std::string library_sha256)
+                           nlohmann::json describe, std::string library_sha256,
+                           std::unique_ptr<ModuleCode> code, bool child)
     : manifest_(std::move(manifest)), library_(std::move(library)), gate_(std::move(gate)),
-      api_(api), describe_(std::move(describe)), library_sha256_(std::move(library_sha256)) {}
+      api_(api), describe_(std::move(describe)), library_sha256_(std::move(library_sha256)),
+      child_(child), code_(std::move(code)) {}
 
 std::string check_library_file(const ModuleManifest& manifest) {
     LibraryFile file;
@@ -244,6 +303,12 @@ std::shared_ptr<LoadedModule> LoadedModule::load(const ModuleManifest& manifest)
 }
 
 std::shared_ptr<LoadedModule> LoadedModule::load(const ModuleManifest& manifest, Check* reached) {
+    return load(manifest, reached, std::nullopt);
+}
+
+std::shared_ptr<LoadedModule>
+LoadedModule::load(const ModuleManifest& manifest, Check* reached,
+                   const std::optional<std::string>& expected_sha256) {
     const LocatedFailure fail = module_failure(manifest);
     const std::string library_file = path_to_utf8(manifest.library_path);
     const auto reach = [reached](Check check) {
@@ -255,6 +320,13 @@ std::shared_ptr<LoadedModule> LoadedModule::load(const ModuleManifest& manifest,
     // 1. The file and its digest, before any of its code runs.
     reach(Check::library_file);
     const std::string digest = check_library_file(manifest);
+    if (expected_sha256 && *expected_sha256 != digest) {
+        fail(ErrorCode::LIBRARY_DIGEST_MISMATCH,
+             "the module library '" + library_file +
+                 "' changed after validation: its SHA-256 is now " + digest + ", it was " +
+                 *expected_sha256,
+             "/library/path");
+    }
 
     // 2. The library.
     reach(Check::library_open);
@@ -331,11 +403,27 @@ std::shared_ptr<LoadedModule> LoadedModule::load(const ModuleManifest& manifest,
     reach(Check::identity);
     check_identity(manifest, describe, fail);
 
+    auto code = std::make_unique<InProcessCode>(api);
+    return std::shared_ptr<LoadedModule>(new LoadedModule(manifest, std::move(library),
+                                                          std::move(gate), api, std::move(describe),
+                                                          digest, std::move(code), false));
+}
+
+std::shared_ptr<LoadedModule> LoadedModule::load_in_child(const ModuleManifest& manifest,
+                                                          ChildSettings settings) {
+    ChildModule::Loaded loaded;
+    std::unique_ptr<ChildModule> child = ChildModule::start(manifest, settings, loaded);
+    // Nothing of this module is shared in this process: its gate is its own.
     return std::shared_ptr<LoadedModule>(new LoadedModule(
-        manifest, std::move(library), std::move(gate), api, std::move(describe), digest));
+        manifest, std::nullopt, std::make_shared<LibraryGate>(), praenora_module_api_v0{},
+        std::move(loaded.describe), std::move(loaded.library_sha256), std::move(child), true));
 }
 
 const praenora_module_api_v0& LoadedModule::api() const noexcept { return api_; }
+
+ModuleCode& LoadedModule::code() const noexcept { return *code_; }
+
+bool LoadedModule::runs_in_child() const noexcept { return child_; }
 
 const nlohmann::json& LoadedModule::describe() const noexcept { return describe_; }
 
@@ -345,10 +433,16 @@ const ModuleManifest& LoadedModule::manifest() const noexcept { return manifest_
 
 LibraryGate& LoadedModule::gate() const noexcept { return *gate_; }
 
-LibraryGate::Access LoadedModule::call_access() const noexcept { return access_of(manifest_); }
+LibraryGate::Access LoadedModule::call_access() const noexcept {
+    return child_ ? LibraryGate::Access::exclusive : access_of(manifest_);
+}
 
-void LoadedModule::pin() noexcept { library_.pin(); }
+void LoadedModule::pin() noexcept {
+    if (library_) {
+        library_->pin();
+    }
+}
 
-bool LoadedModule::pinned() const noexcept { return library_.pinned(); }
+bool LoadedModule::pinned() const noexcept { return library_ && library_->pinned(); }
 
 } // namespace praenora::detail

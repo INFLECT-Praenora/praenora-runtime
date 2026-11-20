@@ -241,13 +241,67 @@ class ServiceWorkflowTest(WorkflowTestCase):
         self.assertEqual(reproducibility["steps"]["a"]["services"], ["test.echo@0"])
 
 
+@unittest.skipIf(os.name == "nt", "steps cannot run in module hosts on Windows")
+class IsolationWorkflowTest(WorkflowTestCase):
+    """Steps in module hosts (process isolation): the keyword isolation sets every step's mode."""
+
+    def test_isolation_keyword(self):
+        config = write_config(self.directory / "config", "test.chain", "run: { ticks: 3 }\n",
+                              step("a", "fx-echo") + step("b", "fx-lifecycle"))
+        records, outputs = {}, {}
+        for mode in ("in-process", "process"):
+            with self.subTest(mode=mode):
+                out = self.directory / mode
+                with pr.Workflow(config, **FIXTURE_PATHS, output_dir=out,
+                                 isolation=mode) as workflow:
+                    self.assertEqual(workflow.run()["state"], "completed")
+                    records[mode] = workflow.run_record()
+                outputs[mode] = (out / "outputs" / "result.jsonl").read_bytes()
+                execution = records[mode]["execution"]
+                self.assertEqual(execution["isolation"],
+                                 {"a": {"mode": mode, "share_compiled_models": False,
+                                        "sandbox": "none"},
+                                  "b": {"mode": mode, "share_compiled_models": False,
+                                        "sandbox": "none"}})
+                self.assertEqual(execution["overrides"], {"isolation": mode})
+        # The same results, and the same fingerprint, in either place.
+        self.assertEqual(outputs["in-process"], outputs["process"])
+        self.assertEqual(records["in-process"]["fingerprint"], records["process"]["fingerprint"])
+        self.assertEqual(records["in-process"]["reproducibility"],
+                         records["process"]["reproducibility"])
+
+    def test_crash_in_a_module_host(self):
+        # fx-crash ends its module host in its second invocation; the run fails, its step is
+        # crashed, and the Python process goes on.
+        config = FIXTURES / "configs" / "cli" / "isolation-crash" / "workflow.yaml"
+        with pr.Workflow(config, **FIXTURE_PATHS) as workflow:
+            with self.assertRaises(pr.PraenoraError) as caught:
+                workflow.run()
+            error = caught.exception
+            self.assertEqual((error.name, error.code, error.category),
+                             ("MODULE_CRASHED", 706, "execution"))
+            self.assertEqual((error.details["phase"], error.details["signal_name"]),
+                             ("invoke", "SIGSEGV"))
+            status = workflow.status()
+            self.assertEqual(status["steps"][0]["state"], "crashed")
+            self.assertEqual(status["workflow"]["health"], "unhealthy")
+            self.assertEqual(workflow.state, "failed")
+
+    def test_validate_loads_in_a_module_host(self):
+        config = write_config(self.directory, "test.single",
+                              "run: { ticks: 1, isolation: { mode: process } }\n",
+                              step("a", "fx-echo"))
+        self.assertTrue(pr.validate(config, load=True, **FIXTURE_PATHS)["ok"])
+
+
 class WorkflowErrorTest(WorkflowTestCase):
     def test_invalid_options_raise(self):
         config = write_config(self.directory, "test.single", "run: { ticks: 1 }\n",
                               step("a", "fx-echo"))
         for options in ({"log_level": "loud"}, {"log_format": "xml"}, {"log_level": 3},
                         {"seed": -1}, {"seed": 2**53}, {"seed": True}, {"seed": 1.5},
-                        {"ticks": "3"}):
+                        {"ticks": "3"}, {"isolation": "thread"}, {"isolation": "Process"},
+                        {"isolation": 1}):
             with self.subTest(options=options):
                 with self.assertRaises(pr.PraenoraError) as caught:
                     pr.Workflow(config, **FIXTURE_PATHS, **options)

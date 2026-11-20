@@ -95,11 +95,13 @@ TEST(Metrics, CountsOutcomes) {
     metrics.record_invocation("a", CallOutcome::cancelled, 1ms, at, std::nullopt);
     // An unresponsive call passed its deadline too: it counts as timed out.
     metrics.record_invocation("a", CallOutcome::unresponsive, 1ms, at, std::nullopt);
+    // A call whose module host crashed counts as failed.
+    metrics.record_invocation("a", CallOutcome::crashed, 1ms, at, std::nullopt);
     const auto snapshot = metrics.snapshot();
     const auto& a = step(snapshot, "a");
-    EXPECT_EQ(a.invocations, 8u);
+    EXPECT_EQ(a.invocations, 9u);
     EXPECT_EQ(a.succeeded, 3u);
-    EXPECT_EQ(a.failed, 2u);
+    EXPECT_EQ(a.failed, 3u);
     EXPECT_EQ(a.timed_out, 2u);
     EXPECT_EQ(a.cancelled, 1u);
     const auto& b = step(snapshot, "b");
@@ -347,6 +349,9 @@ TEST(Health, Rules) {
         {"an instance is unresponsive", Health::unhealthy,
          with(WorkflowState::stopping,
               [](StatusSnapshot& s) { s.steps[0].state = StepState::unresponsive; })},
+        {"an instance crashed", Health::unhealthy,
+         with(WorkflowState::stopping,
+              [](StatusSnapshot& s) { s.steps[0].state = StepState::crashed; })},
     };
     for (const Case& c : cases) {
         EXPECT_EQ(praenora::to_string(c.actual), praenora::to_string(c.expected)) << c.name;
@@ -440,6 +445,12 @@ TEST(StatusJson, ValidatesAgainstSchema) {
     EXPECT_EQ(b.at("last_error").at("cause"), json::parse(R"({"text":"{oops"})"));
     EXPECT_EQ(b.at("last_error").at("at"), nullptr);
     EXPECT_EQ(b.at("last_error").at("tick"), nullptr);
+
+    // A step whose module host crashed.
+    metrics.set_step_state("b", StepState::crashed);
+    const json crashed = json::parse(metrics.snapshot().to_json());
+    expect_valid_status_document(crashed);
+    EXPECT_EQ(crashed.at("steps").at(1).at("state"), "crashed");
 }
 
 TEST(StatusJson, ErrorRecordKeepsTheLocationAndDetailsOfItsError) {

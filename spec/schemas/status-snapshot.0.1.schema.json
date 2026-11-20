@@ -154,7 +154,8 @@
               "finalized",
               "destroyed",
               "failed",
-              "unresponsive"
+              "unresponsive",
+              "crashed"
             ]
           },
           "invocations": {

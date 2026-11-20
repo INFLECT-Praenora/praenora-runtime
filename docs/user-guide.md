@@ -49,7 +49,7 @@ cmake --install build/dev --prefix "${TMPDIR:-/tmp}/praenora-install" --componen
 | `praenora modules check <manifest>` | The contract checks of a module ([module-developer-guide.md](module-developer-guide.md#contract-checks)), with the services its manifest declares served by their providers. `--vectors F` uses other test vectors. |
 | `praenora providers list` | Every service provider manifest on the provider search paths: the services each offers and whether the runtime can use it ([Finding service providers](#finding-service-providers)). |
 | `praenora graph <config>` or `--workflow <name>@<version>` | A workflow definition's schedule and connections: `--format text` (default), `json`, `dot` or `asyncapi`. |
-| `praenora run <config>` | Validates and runs a workflow. Options: `--ticks N`, `--seed S`, `--output-dir D`, `--overwrite`, `--trace`, `--status-file F`. |
+| `praenora run <config>` | Validates and runs a workflow. Options: `--ticks N`, `--seed S`, `--output-dir D`, `--overwrite`, `--trace`, `--status-file F`, `--isolation in-process\|process`. |
 | `praenora status <file>` | Prints the status file a run keeps. |
 | `praenora catalog list` / `catalog show <id>@<version>` | The protocol catalog's entries (`--kind workflows`, `capabilities` or `messages`), or one entry's document. |
 | `praenora schema list` / `schema show <kind>` | The embedded JSON Schemas; `--format-version V` picks a version. |
@@ -158,6 +158,50 @@ traces every message and runs only three ticks:
 Overrides such as `--ticks` and `--seed` are recorded in the run record, and change the
 fingerprint; `--output-dir`, `--trace`, `--status-file` and the logging options do not.
 
+`--isolation process` runs each step's module in a module host, a process of its own, instead of
+the tool's process ([Process isolation](#process-isolation)). The outputs and the fingerprint are
+the same; the run record says where each step ran:
+
+```bash
+./build/dev/bin/praenora run examples/workflows/estimate-predict/workflow.yaml \
+    --module-path build/dev/modules --output-dir "$RUN" --overwrite --isolation process
+```
+
+## Process isolation
+
+A module is native code: in the runtime's process, a segmentation fault or an `abort()` in it ends
+the runtime, and a call that never returns can only be abandoned, its library kept loaded. A step
+in process mode runs its module instance in a module host, the executable
+`praenora-module-host` that the runtime starts for that step alone and ends with the run:
+
+- a crash of the module (a signal, an `abort()`, an `exit()`) fails its step with `MODULE_CRASHED`
+  (exit 1), whose details say how the module host ended, for example
+  `{"phase": "invoke", "signal": 11, "signal_name": "SIGSEGV"}`; the step's state is `crashed`, the
+  other steps are finalized and destroyed as usual, and the runtime goes on to write its run record;
+- a call that outlives its deadline and the cancellation grace is ended by killing its module host
+  (`MODULE_UNRESPONSIVE` with `details.terminated: true`), and nothing of the library is held on
+  to: the next run uses it at once;
+- Ctrl+C reaches only the runtime, which stops the call in the module host: the run ends as
+  `stopped`, never as a crash.
+
+Choose it per step or for the whole run in the configuration (`isolation.mode`,
+[configuration.md](configuration.md#isolation)), or for every step of one run with `--isolation`.
+`praenora validate --load` loads such a step's module in a module host too. A step whose module
+uses runtime services has their providers (engines such as libRoadRunner) loaded in its module host,
+so a crash in the engine ends only that step too, and a long engine call that outlives its deadline
+is ended with the module host. Steps in module hosts that set `share_compiled_models` compile a
+model once between them: the provider of the first keeps the compiled model in a store in the
+runtime's process, and the others load it from there
+([configuration.md](configuration.md#shared-compiled-models)). On macOS, a step in a module host
+with `sandbox: restricted` keeps its module host's own process from the network, from starting
+programs and from writing files outside its own temporary directory
+([configuration.md](configuration.md#the-restricted-sandbox-profile)); it is no boundary against a
+module meant to do harm, and a runtime that itself runs in a sandbox cannot give a module host the
+profile. Each call costs a round trip to the module host;
+[specs/process-isolation.md](specs/process-isolation.md) has the details. In this version no step
+can run in a module host on Windows (`UNSUPPORTED`). The tool finds the module host beside its
+runtime library, in `libexec/praenora/` of the build tree or the installation.
+
 ## Finding modules
 
 A configuration names modules by name and exact version. The runtime looks for their manifests
@@ -252,7 +296,7 @@ writes nothing to disk. With one, it writes:
 
 | File | Content |
 |---|---|
-| `run-record.json` | The run record: the `reproducibility` section that the fingerprint hashes (versions, workflow and catalog digests, time base, seed, ticks, timeouts, input digests, the runtime services of providers with each provider's identity, digests and engine, and per step the module, its manifest and library digests, parameters, seed and the services it may use), and the `execution` section (start and finish times, status, ticks completed, the error of a failed run (naming the run's directories by placeholders such as `<output>` and `<home>`), overrides, platform, where each module and provider manifest was found (relative to its search path, never as an absolute path), each output file's digest and message count, the final status snapshot). It is written when the run starts and rewritten when it ends. |
+| `run-record.json` | The run record: the `reproducibility` section that the fingerprint hashes (versions, workflow and catalog digests, time base, seed, ticks, timeouts, input digests, the runtime services of providers with each provider's identity, digests and engine, and per step the module, its manifest and library digests, parameters, seed and the services it may use), and the `execution` section (start and finish times, status, ticks completed, the error of a failed run (naming the run's directories by placeholders such as `<output>` and `<home>`), overrides, platform, where each module and provider manifest was found (relative to its search path, never as an absolute path), where each step's module instance ran, whether it shared compiled models, and its sandbox profile (`isolation`), each output file's digest and message count, the final status snapshot). It is written when the run starts and rewritten when it ends. |
 | `outputs/<output>.jsonl` | One envelope per line for each recorded workflow output (`outputs.record`, by default all of them). |
 | `trace/messages.jsonl` | With `--trace` (or `outputs.trace_messages: true`): every envelope into and out of a step, as `{"tick", "step", "direction", "port", "envelope"}`, plus the result's `diagnostics` when it has them, and the runtime services each call into a step's module looked up, as `{"tick", "step", "phase", "service", "major", "provided", "count"}`. |
 | `status.json` | The status file, when it is configured inside the directory. |
@@ -301,7 +345,8 @@ steps:
 
 A workflow's state is one of `created`, `starting`, `ready`, `running`, `stopping`, `completed`,
 `stopped` and `failed` ([architecture.md](architecture.md#states)). Its health is `unknown` before
-it starts, `unhealthy` when the run failed or an instance failed or never returned, `degraded` when
+it starts, `unhealthy` when the run failed or an instance failed, never returned or crashed (its
+module host ended), `degraded` when
 a timeout, cancellation or failure was counted without failing the run, when the run is stopping or
 stopped, or when the status file could not be written, and `healthy` otherwise. With `--json`,
 `praenora status` prints `{"ok": true, "result": <the snapshot>}`, as every command wraps its
@@ -377,6 +422,9 @@ step, module and `details` (for example the service, the search paths and the pr
 | `LIBRARY_LOAD_FAILED`, exit 4 | The operating system could not load the module library, for example because a library it needs is missing; the message holds the system's text. For a service provider, located in its manifest, `details.reason` names the check that failed: `start` (the provider's own error in `details.cause`), `identity` (a stale provider manifest), `service`, `conflict` or `library`. |
 | `STEP_FAILED`, exit 1 | A module returned an error. Its own code and message are in the error's `cause`; its log records are on the logger `module.<step>`. |
 | `STEP_TIMEOUT`, `MODULE_UNRESPONSIVE`, exit 5 | A call ran past its deadline (`run.timeouts`, `steps.<step>.timeouts`); an unresponsive module ignored the cancellation and never returned. While such a call may still be running, the process refuses the calls and loads of its library that would have to wait for it (all of them for `features.concurrency: "module"`) with `MODULE_UNRESPONSIVE` too, naming the call in `details.abandoned_call`. |
+| `MODULE_CRASHED`, exit 1 | The module host of a step in process mode ended while it loaded the module or during a call: `details` say how (`signal` and `signal_name`, `exit_code`, or `reason` `protocol`, or `ended` when the system cannot say) and in which `phase`. Look at the module; the operating system's crash report names the module host. |
+| `MODULE_HOST_UNAVAILABLE`, exit 4 | No module host could be started for a step in process mode: `details.reason` says why (`missing`: no `libexec/praenora/praenora-module-host` beside the runtime library, as in an installation from the Python wheel; `spawn`, `handshake`, `build`; `sandbox`: the restricted profile cannot be applied, as when the runtime itself runs in a sandbox). Run the step in process mode from a build tree or a full installation, or set it to `in-process`; run a restricted step outside any other sandbox, or set its `sandbox` to `none`. |
+| `UNSUPPORTED`, exit 3 | A step in process mode on Windows: set its `isolation.mode` to `in-process`. A step with `sandbox: restricted` anywhere but on macOS (located at its `isolation.sandbox`): set it to `none`. |
 | `RUN_STOPPED`, exit 130 | The run was stopped on request. |
 
 The [error taxonomy's triage table](specs/error-taxonomy.md#triage) says where to look for every

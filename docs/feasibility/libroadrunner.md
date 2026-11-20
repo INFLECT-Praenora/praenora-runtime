@@ -55,7 +55,7 @@ What the specifications own, and where to find it:
 | S1. Compiled into the runtime | `PRAENORA_WITH_ROADRUNNER=ON` links `roadrunner-static` PRIVATE into `praenora_runtime`. | Rejected ([ADR-0026](../adr/ADR-0026-runtime-service-providers.md)): every runtime built with the option would carry and load LLVM, SUNDIALS and libSBML, also when no run needs them, and the runtime's build would depend on the engine's toolchain. The upstream C++ archives alone are 160 to 477 MB ([LLVM and JIT footprint](#llvm-and-jit-footprint)). |
 | S2. A service provider | A separately built library, shipped with the runtime, that the runtime loads only when a run needs its services: one engine per process. | Chosen and built ([ADR-0026](../adr/ADR-0026-runtime-service-providers.md)): the provider `roadrunner`. |
 | S3. Each module bundles libRoadRunner | Possible: nothing stops a module from linking it. | Not supported: every such module carries the whole dependency set, gives up ABI v0's freedom of compilers, and the runtime cannot record which engine ran. A module that links the shared library brings the LLVM it exports into the process, beside any other LLVM there [R36]. |
-| S4. Out-of-process simulation | A helper process that owns libRoadRunner. | Not needed yet. It would isolate crashes (a crash in the engine would not end the run's process; OQ-5), at the cost of serializing every call. |
+| S4. Out-of-process simulation | A helper process that owns libRoadRunner. | Not built as a helper that owns the engine. Process isolation contains its crashes another way: a step in a module host has the provider, and so libRoadRunner and LLVM, loaded in that process with its module, so a crash in the engine ends only that step, and a kernel's functions are still called in the process that holds them ([process-isolation.md](../specs/process-isolation.md#service-providers), [ADR-0037](../adr/ADR-0037-process-isolation-of-module-instances.md); OQ-5 is resolved). A helper process for the engine alone, serializing every call, stays unbuilt. |
 | S5. Modules link libRoadRunner's C++ API | An optional C++ tier beside the C service table. | Rejected for now ([ADR-0027](../adr/ADR-0027-simulation-service-v0.md)): the installed `rr/llvm` headers do not compile ([Build and link](#build-and-link)), libRoadRunner's classes are not exported on Windows (unverified here), and modules would be pinned to one exact build of the engine. |
 
 ## libRoadRunner 2.11.0: checked facts
@@ -171,6 +171,20 @@ settled the following. The binaries hold SUNDIALS 7.9.0, libSBML 5.21.2 and POCO
 - **Copies.** `RoadRunner(const RoadRunner&)` saves the model's state and loads it into a new
   object, reloading the generated code without compiling again; copies of one compiled model give
   the same doubles.
+- **Saved states across processes.** `saveStateS('b')` writes an object's state, the generated
+  code of its model included, to a `std::stringstream` the caller owns; `loadStateS()` reads it
+  into another object, in another process too, without compiling, and takes the stream over
+  (it frees it also when it throws) [R10]. The state begins with a magic number and
+  libRoadRunner's data version, which `loadStateS()` checks first (it throws for others); past
+  them it trusts the bytes, so a state that is corrupt or cut short can make it read lengths that
+  are not there. The provider's shared compiled models
+  ([process-isolation.md](../specs/process-isolation.md#shared-compiled-models)) therefore keep a
+  state in an envelope with its length and SHA-256, checked before `loadStateS()` reads it
+  ([simulation-service.md](../specs/simulation-service.md#the-roadrunner-provider)). Informative,
+  measured once (Release, macOS arm64, libRoadRunner 2.11.0, a fresh process for the load): a
+  model of 400 reactions compiled in 2.79 s and loaded from its state in 0.038 s; one of 1500
+  reactions compiled in 20.1 s and loaded in 0.164 s; the doubles simulated after the load were
+  byte-identical to those after the compile.
 - **Tolerances.** CVODE's default tolerances in libRoadRunner are 1e-6 (relative) and 1e-12
   (absolute), and its default step limit 20000; a single absolute tolerance is scaled by each
   state's initial value (or compartment size), a vector of one value per state is used as given.

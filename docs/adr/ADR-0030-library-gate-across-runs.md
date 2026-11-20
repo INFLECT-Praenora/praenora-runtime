@@ -95,6 +95,13 @@ another call into the library, had the same gap.
   the worker as the call starts, after its turn at the library.
 - The fixture module fx-hang fails an `invoke` or `finalize` that starts while another call into
   its library is running, so the tests see calls that overlap.
+- Later: [ADR-0037](ADR-0037-process-isolation-of-module-instances.md) gives a module in a module
+  host a gate of its own, shared with nothing, since its library is loaded in that process only,
+  and never marks its leases abandoned: a call that does not return within its deadline and the
+  cancellation grace is ended by killing the module host, and returns once the module host has been
+  waited for (`MODULE_UNRESPONSIVE` with `details.terminated`). Nothing of the call is left
+  running, so its lease goes back as any other's, and no later call or load of the library, in
+  the runtime's process or in another module host, is refused because of it.
 
 ## Alternatives considered
 

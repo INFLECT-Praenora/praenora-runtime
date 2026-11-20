@@ -10,21 +10,25 @@
 - [architecture.md](architecture.md): components, data flow, the life of a run and of a module
   instance, threads (Mermaid diagrams), and the security rules.
 - [user-guide.md](user-guide.md): getting the tool, the CLI's commands, running the example
-  workflow, the files a run writes, status, stopping, logging, troubleshooting.
+  workflow, process isolation, the files a run writes, status, stopping, logging, troubleshooting.
 - [configuration.md](configuration.md): the workflow configuration reference: every section and
-  key, input sources, durations, paths, overrides, environment variables, validation.
+  key, input sources, durations, paths, isolation (module hosts, shared compiled models, the
+  restricted sandbox profile), overrides, environment variables, validation.
 - [developer-guide.md](developer-guide.md): dependencies, presets, building and installing,
-  debugging modules, keeping libraries loaded, message tracing, logging, sanitizer builds, adding a
-  module locally, conventions and the ADR process.
+  debugging modules (in module hosts too), keeping libraries loaded, message tracing, logging,
+  sanitizer builds, adding a module locally, conventions and the ADR process.
 - [module-developer-guide.md](module-developer-guide.md): writing a module: the SDK, ABI rules, the
   C++ adapter, the manifest, `praenora_add_module()`, the test kit, test vectors, the contract
-  checks, determinism and portability, versioning.
-- [testing.md](testing.md): running the tests and their labels, sanitizer builds, golden files,
-  triage by label and error code, the module acceptance gate, adding tests.
-- [python.md](python.md): the Python API, its errors, threads and logging, building the bindings,
-  the tests and the wheel.
+  checks, a module in a module host and under the restricted sandbox profile, determinism and
+  portability, versioning.
+- [testing.md](testing.md): running the tests and their labels, module hosts and nested sandboxes,
+  sanitizer builds, golden files, triage by label and error code, the module acceptance gate,
+  adding tests.
+- [python.md](python.md): the Python API, process isolation, its errors, threads and logging,
+  building the bindings, the tests and the wheel (which holds no module host).
 - [platforms.md](platforms.md): macOS, Linux and Windows: dependencies, presets, run paths, DLL
-  search, code signing, and what is verified where.
+  search, code signing, the module host and the restricted sandbox profile, and what is verified
+  where.
 
 ## Normative specifications
 
@@ -50,6 +54,11 @@
   and owner, and triage.
 - [specs/threading-and-ownership.md](specs/threading-and-ownership.md): ownership across the ABI and
   the threads that call modules.
+- [specs/process-isolation.md](specs/process-isolation.md): process isolation of module instances:
+  the configuration's isolation settings, the module host and where it is found, the channel
+  (internal), loading, runs and validation, calls and the host API, service providers in module
+  hosts, shared compiled models and their trust, the restricted sandbox profile, crashes,
+  unresponsive calls, ending, determinism, stops, platforms and limits.
 - [specs/time-cancellation-timeouts.md](specs/time-cancellation-timeouts.md): logical time,
   durations, deadlines, cancellation and stop requests.
 - [specs/observability.md](specs/observability.md): logs, metrics, status snapshots, health, the

@@ -257,6 +257,15 @@ requirements. Several forces shape where such an engine lives:
   set `PRAENORA_PROVIDER_PATH` empty, which counts as unset; the test of an empty listing exists
   only in builds without `PRAENORA_WITH_ROADRUNNER`, whose provider would sit in the build tree's
   provider directory.
+- Later: [ADR-0037](ADR-0037-process-isolation-of-module-instances.md) loads and starts the
+  providers of a step in a module host in that module host, with the same loader and checks, so
+  that an engine lives in the process of the module that calls it. One engine per process still
+  holds, and a module host is a process of its own: a provider that steps in module hosts use is
+  started once in each of their module hosts, and the runtime's process loads only the providers
+  of its own steps. The out-of-process providers below are built that way, with their module.
+  [ADR-0038](ADR-0038-shared-compiled-models-between-module-hosts.md) appends `load_compiled` and
+  `save_compiled` to `praenora_provider_host`, NULL in the runtime's process, within interface
+  version 0.0.
 
 ## Alternatives considered
 

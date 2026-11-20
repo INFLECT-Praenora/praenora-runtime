@@ -231,6 +231,12 @@ which libRoadRunner's dependencies also provide.
 - **Open questions.** How libAntimony is built and distributed is OQ-29, and how long one
   translation may hold the provider's lock is OQ-30. Until OQ-30 is answered, the provider keeps
   the service's 16 MiB source limit and no limit of its own.
+- Later: [ADR-0037](ADR-0037-process-isolation-of-module-instances.md) answers OQ-30 for a step
+  in a module host: the provider is loaded and started in the step's module host, with a
+  libAntimony and a lock of its own, and a translation that outlives its call's deadline and the
+  cancellation grace is ended by killing that module host, so no lock is left held and the
+  conversions of other steps, each in a module host of its own, never wait for it. In the
+  runtime's process the lock is held as above.
 
 ## Alternatives considered
 

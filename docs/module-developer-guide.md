@@ -396,8 +396,9 @@ from 100 to 9999. It should write an error document to its error sink:
 step, module, tick and run fingerprint; `log_enabled(level)` saves formatting messages nobody reads.
 `get_service(name, major)` returns a runtime service's function table, or NULL: only the services
 of service providers that the manifest declares ([Requiring services](#requiring-services)), and
-the runtime's built-in ones, of which this version has no production one. Read `host->struct_size`
-before using a callback added in a later ABI minor version.
+the runtime's built-in ones, of which this version has no production one (and which a module host
+does not offer). Read `host->struct_size` before using a callback added in a later ABI minor
+version.
 
 ## The C++ adapter
 
@@ -534,16 +535,23 @@ praenora_add_module(simulating_module
   `/requires/services/<i>` of the manifest, whose details list the searched paths and every provider
   that came close and why it does not serve. An optional one that does not resolve is simply not
   there.
-- A run loads and starts the providers before any module is created. The module then asks for each
-  service with `get_service(name, major)` (`host.service(name, major)` in the C++ adapter), usually
-  once, in `create`, and keeps the table: tables live until the process ends. It gets the table of
-  every declared service that resolved, NULL for an optional one that did not, and NULL for any
-  provider service it did not declare. Check for NULL, and that the table's `header.struct_size`
-  covers the fields you use. A traced run (`--trace`) lists the lookups each call made, and whether
-  they got a table, in its message trace
+- A run loads and starts the providers before the module that uses them is loaded. The module then
+  asks for each service with `get_service(name, major)` (`host.service(name, major)` in the C++
+  adapter), usually once, in `create`, and keeps the table: tables live until the process ends. It
+  gets the table of every declared service that resolved, NULL for an optional one that did not,
+  and NULL for any provider service it did not declare. Check for NULL, and that the table's
+  `header.struct_size` covers the fields you use. A traced run (`--trace`) lists the lookups each
+  call made, and whether they got a table, in its message trace
   ([specs/observability.md](specs/observability.md#message-trace)).
 - The run record names each service with its provider and engine, so the run fingerprint changes
   when the engine does ([specs/reproducibility.md](specs/reproducibility.md)).
+- A step that runs in a module host (isolation mode `process`,
+  [specs/process-isolation.md](specs/process-isolation.md#service-providers)) has the providers of
+  its module's services loaded and started in that process, before its library. Nothing changes
+  for the module: it asks for the same services and gets the same tables, its lookups are traced
+  the same way, and the services give the same results. The one difference a module can meet is
+  that the runtime's built-in services (test services such as `test.gate`, which tests register)
+  are not offered there; a module should use only the services its manifest declares.
 - `praenora modules check` resolves the services and loads their providers as part of its
   `library.load` check, and serves them to the module as a run does; test vectors can then exercise
   the module with the real service.
@@ -850,6 +858,51 @@ and their order are specified in [ADR-0024](adr/ADR-0024-contract-checks-and-tes
 **The acceptance gate.** Before this project adopts a module version, the module's own test suite
 passes, `praenora modules check` passes on its manifest, and its test vectors are part of the module
 ([testing.md](testing.md#the-module-acceptance-gate)).
+
+## In a module host
+
+A step can run its module instance in a module host, a process of its own (isolation mode
+`process`, [specs/process-isolation.md](specs/process-isolation.md)). Nothing changes for the
+module: the ABI, the documents, the host API and the threading rules are those above, and the
+results are the same. What a module can meet there:
+
+- Its process is the module host's: the process id differs, and standard output and error are the
+  runtime's, shared with it. A crash ends the module host and fails the step (`MODULE_CRASHED`),
+  not the runtime; a call that does not return after its deadline and grace is ended with its
+  module host.
+- The stdio buffers are the module host's own: what you write through `stdout` or `std::cout`
+  reaches the runtime's standard output only when the module host flushes it, at the latest as it
+  exits at the end of the run, and is lost when the module host is killed or crashes (a call that
+  does not return, a crash, a stop that ends it). Its order among the runtime's own output can
+  differ from a run in the runtime's process. Flush what must arrive (`fflush(stdout)`,
+  `std::flush`), or write diagnostics to standard error, which is unbuffered; better still, log
+  through the host API.
+- The library loads on a thread with a main thread's stack (8 MiB unless `RLIMIT_STACK` says
+  otherwise), as it does in the runtime's process on its caller's thread; the calls run on a thread
+  with the stack of the instance's worker thread, as they do there.
+- The runtime's built-in services are not offered; the services the manifest declares are
+  ([Requiring services](#requiring-services)).
+- **Under the restricted sandbox profile** (`sandbox: restricted`, macOS,
+  [specs/process-isolation.md](specs/process-isolation.md#the-restricted-profile)) the module, its
+  static initializers included, may not use the network, may not start processes (`fork`, `exec`,
+  `posix_spawn`, `system()`, nor through launchd, LaunchServices or Apple events), and may not
+  write files anywhere but below its temporary directory (`TMPDIR`,
+  `std::filesystem::temp_directory_path()`), which is its module host's own, and to `/dev/null`.
+  Links do not get around it: a hard link to a file outside cannot be made there, and a symbolic
+  link to one cannot be written through. Write to standard output and error through descriptors
+  1 and 2 (`stdout`, `stderr`, `std::cerr`): opening `/dev/stdout`, `/dev/stderr`, `/dev/tty` or
+  `/dev/fd/<n>` by its path for writing is refused. What it may not do fails with `EPERM`
+  ("Operation not permitted"): return an error then (`PRAENORA_STATUS_UNSUPPORTED` or
+  `PRAENORA_STATUS_FAILED`, with a message that says what was refused). Reading files, loading
+  libraries, threads, and generating code at run time work. A module that keeps the rules below
+  (no file I/O in algorithm code, everything through its documents) needs nothing the profile
+  refuses.
+- The temporary directory is removed when the module host ends, with everything in it; leave
+  nothing there that cannot be removed (the runtime warns about what is left). Do not rely on it
+  between runs.
+- The profile keeps a module from doing these things by accident or by a library's habit; it is
+  not a boundary against a module meant to do harm (system services it can reach over Mach IPC
+  may act for it).
 
 ## Determinism and portability
 

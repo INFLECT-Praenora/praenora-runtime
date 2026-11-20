@@ -1,6 +1,8 @@
 #include "instance/module_instance.hpp"
 
+#include "core/deadline.hpp"
 #include "instance/worker.hpp"
+#include "loader/module_code.hpp"
 #include "loader/output_sink.hpp"
 #include "observability/logging.hpp"
 
@@ -36,14 +38,23 @@ static_assert(std::atomic<std::uint64_t>::is_always_lock_free,
 } // namespace
 
 // Everything a module reaches through its host API pointer. Owned jointly by the instance and the
-// tasks running on its worker thread; once the instance is abandoned (unresponsive) it is kept for
-// the rest of the process, because the module may still use it.
+// tasks running on its worker thread (and, for a module in a module host, by the module's code,
+// which reports what the module does there through the InstanceHost interface); once an instance
+// in this process is abandoned (unresponsive) it is kept for the rest of the process, because the
+// module may still use it.
 //
 // Cancellation is per call. Calls are numbered from 1; `in_flight` holds the number of the call
 // that is running, set just before the call is posted and cleared once its result is collected,
 // 0 between calls. A passed deadline or a stop request marks one call by its number, so the next
 // call always starts with cancel_requested() clear.
-struct HostContext {
+struct HostContext final : InstanceHost {
+    const praenora_host_api* host_api() const noexcept override { return &api; }
+    void log(std::int32_t level, std::string_view message) noexcept override;
+    std::int32_t log_threshold() const noexcept override;
+    bool cancel_requested() const noexcept override;
+    bool call_stopped() const noexcept override;
+    void lookup(std::string_view service, std::uint32_t major, bool provided) noexcept override;
+
     praenora_host_api api{};
     std::string step, module, run_fingerprint; // module: name@version
     std::shared_ptr<spdlog::logger> logger;
@@ -80,6 +91,7 @@ struct ModuleInstance::Call {
     std::condition_variable finished;
     bool done = false;
     praenora_status status = PRAENORA_STATUS_OK;
+    std::optional<std::string> crash; // the crash of the module's module host, if it crashed
     Clock::time_point end{};
 };
 
@@ -210,6 +222,19 @@ void record_lookup(HostContext& host, std::string_view service, std::uint32_t ma
     }
 }
 
+// Logs one lookup (event service.lookup, debug). May throw (out of memory).
+void log_lookup(const HostContext& host, std::string_view service, std::uint32_t major,
+                bool provided) {
+    if (host.logger != nullptr && host.logger->should_log(spdlog::level::debug)) {
+        auto attributes = attributes_of(host);
+        attributes.push_back({"event", "service.lookup"});
+        log_event(*host.logger, LogLevel::debug,
+                  "runtime service " + std::string(service) + "@" + std::to_string(major) +
+                      (provided ? " provided" : " is not available"),
+                  attributes);
+    }
+}
+
 const void* PRAENORA_CALL host_get_service(void* context, const char* name, std::size_t name_size,
                                            std::uint32_t major) noexcept {
     HostContext* host = host_of(context);
@@ -232,28 +257,22 @@ const void* PRAENORA_CALL host_get_service(void* context, const char* name, std:
                 record_lookup(*host, service, major, table != nullptr);
             }
         }
-        if (host->logger != nullptr && host->logger->should_log(spdlog::level::debug)) {
-            auto attributes = attributes_of(*host);
-            attributes.push_back({"event", "service.lookup"});
-            log_event(*host->logger, LogLevel::debug,
-                      "runtime service " + std::string(service) + "@" + std::to_string(major) +
-                          (table != nullptr ? " provided" : " is not available"),
-                      attributes);
-        }
+        log_lookup(*host, service, major, table != nullptr);
         return table;
     } catch (...) {
         return nullptr;
     }
 }
 
-// The deadline `wait` after `start`, or nullopt for none: `wait` is 0 or less, or beyond any
-// clock reading.
+// The deadline `wait` after `start`, or nullopt for none: `wait` is 0 or less, or reaches beyond
+// any clock reading (deadline_after() saturates there).
 std::optional<Clock::time_point> time_after(Clock::time_point start,
                                             std::chrono::nanoseconds wait) {
-    if (wait <= std::chrono::nanoseconds::zero() || wait >= Clock::time_point::max() - start) {
+    const Clock::time_point deadline = deadline_after(start, wait);
+    if (wait <= std::chrono::nanoseconds::zero() || deadline == Clock::time_point::max()) {
         return std::nullopt;
     }
-    return start + std::chrono::duration_cast<Clock::duration>(wait);
+    return deadline;
 }
 
 // Keeps an abandoned instance's host API valid for the rest of the process: a detached thread or
@@ -291,6 +310,45 @@ std::string host_error(praenora_status code, const std::string& message) {
 
 } // namespace
 
+// What a module in a module host does with its host API, handled as the same call on this
+// process's host API would be.
+
+void HostContext::log(std::int32_t level, std::string_view message) noexcept {
+    host_log(this, level, message.data(), message.size());
+}
+
+std::int32_t HostContext::log_threshold() const noexcept {
+    for (std::int32_t level = PRAENORA_LOG_TRACE; level <= PRAENORA_LOG_CRITICAL; ++level) {
+        if (host_log_enabled(const_cast<HostContext*>(this), level) != 0) {
+            return level;
+        }
+    }
+    return PRAENORA_LOG_CRITICAL + 1;
+}
+
+bool HostContext::cancel_requested() const noexcept {
+    return host_cancel_requested(const_cast<HostContext*>(this)) != 0;
+}
+
+bool HostContext::call_stopped() const noexcept {
+    const std::uint64_t call = in_flight.load();
+    return call != 0 && stop_requested.load() == call;
+}
+
+void HostContext::lookup(std::string_view service, std::uint32_t major, bool provided) noexcept {
+    try {
+        {
+            const std::lock_guard<std::mutex> lock(services_mutex);
+            if (recording != 0) {
+                record_lookup(*this, service, major, provided);
+            }
+        }
+        log_lookup(*this, service, major, provided);
+    } catch (...) {
+        // The lookup goes unlogged.
+    }
+}
+
 std::string to_string(CallOutcome outcome) {
     switch (outcome) {
     case CallOutcome::succeeded:
@@ -305,6 +363,8 @@ std::string to_string(CallOutcome outcome) {
         return "unresponsive";
     case CallOutcome::refused:
         return "refused";
+    case CallOutcome::crashed:
+        return "crashed";
     }
     return "unknown";
 }
@@ -339,7 +399,9 @@ ModuleInstance::ModuleInstance(std::shared_ptr<LoadedModule> module, InstanceOpt
 
 ModuleInstance::~ModuleInstance() {
     bool refused = false;
-    if (state_.load() == StepState::ready) {
+    if (release_terminated()) {
+        // Its module host was killed with the module's instance in it: nothing to call.
+    } else if (state_.load() == StepState::ready) {
         try {
             refused = finalize().outcome == CallOutcome::refused;
         } catch (...) {
@@ -409,16 +471,17 @@ CallResult ModuleInstance::run(Claim& claim, const char* call_name,
         worker_->post([call, host = host_, module = module_, lease, body = std::move(body)] {
             static_cast<void>(host);
             static_cast<void>(module);
-            praenora_status status = PRAENORA_STATUS_INTERNAL;
+            CodeStatus status{PRAENORA_STATUS_INTERNAL, {}};
             try {
                 status = body(*call);
             } catch (...) {
-                status = PRAENORA_STATUS_INTERNAL;
+                status = CodeStatus{PRAENORA_STATUS_INTERNAL, {}};
             }
             lease->release();
             {
                 const std::lock_guard<std::mutex> lock(call->mutex);
-                call->status = status;
+                call->status = status.status;
+                call->crash = std::move(status.crash);
                 call->end = Clock::now();
                 call->done = true;
             }
@@ -458,6 +521,42 @@ CallResult ModuleInstance::run(Claim& claim, const char* call_name,
         }
     }
 
+    if (!returned && module_->runs_in_child()) {
+        // The module host is killed, so the call returns: nothing is abandoned, pinned or kept.
+        module_->code().terminate();
+        {
+            std::unique_lock<std::mutex> lock(call->mutex);
+            call->finished.wait(lock, [&call] { return call->done; });
+        }
+        host_->in_flight.store(0);
+        finish_recording(true);
+        if (call->crash) {
+            // It crashed before it could be killed: a crash, not an unresponsive call.
+            result.outcome = CallOutcome::crashed;
+            result.status = PRAENORA_STATUS_INTERNAL;
+            result.details_json = *call->crash;
+            result.duration = call->end - start;
+            state_.store(StepState::crashed);
+            return result;
+        }
+        result.outcome = CallOutcome::unresponsive;
+        result.status = PRAENORA_STATUS_TIMEOUT;
+        result.duration = Clock::now() - start;
+        result.details_json = R"({"terminated":true})";
+        state_.store(StepState::unresponsive);
+        try {
+            log(LogLevel::error,
+                std::string(call_name) +
+                    " did not return within the cancellation grace period of " +
+                    shown(options_.cancel_grace) +
+                    " after its deadline; the instance is unresponsive: its module host was "
+                    "terminated",
+                "instance.unresponsive");
+        } catch (...) {
+            // Out of memory while building the message; the state says it all.
+        }
+        return result;
+    }
     if (!returned) {
         result.outcome = CallOutcome::unresponsive;
         result.status = PRAENORA_STATUS_TIMEOUT;
@@ -471,6 +570,15 @@ CallResult ModuleInstance::run(Claim& claim, const char* call_name,
     // The call is over: a stop requested from now on reaches no call. What the task wrote is ours.
     host_->in_flight.store(0);
     finish_recording(true);
+    if (call->crash) {
+        // The module host ended or broke its channel: the call never returned.
+        result.outcome = CallOutcome::crashed;
+        result.status = PRAENORA_STATUS_INTERNAL;
+        result.details_json = *call->crash;
+        result.duration = call->end - start;
+        state_.store(StepState::crashed);
+        return result;
+    }
     result.status = call->status;
     result.output = call->output.take();
     result.error_json = call->error.take();
@@ -553,21 +661,21 @@ void ModuleInstance::keep() noexcept {
 
 CallResult ModuleInstance::create(const std::string& create_json) {
     Claim claim(state_, begin("create", {StepState::loaded}));
-    const praenora_module_api_v0* api = &module_->api();
-    const praenora_host_api* host_api = &host_->api;
+    ModuleCode* const code = &module_->code();
+    const std::shared_ptr<InstanceHost> host = host_;
     praenora_instance* created = nullptr;
     CallResult result = run(
         claim, "create", options_.lifecycle_timeout, StopFlag::applies, module_->call_access(),
         create_json,
-        [api, host_api](Call& call) {
+        [code, host](Call& call) {
             praenora_instance* instance = nullptr;
-            const praenora_status status =
-                api->create(host_api, bytes(call.input), &instance, call.error.sink());
+            CodeStatus status = code->create(host, bytes(call.input), &instance, call.error);
             call.created = instance;
             return status;
         },
         &created);
-    if (!claim.called() || result.outcome == CallOutcome::unresponsive) {
+    if (!claim.called() || result.outcome == CallOutcome::unresponsive ||
+        result.outcome == CallOutcome::crashed) {
         return result;
     }
     if (result.status == PRAENORA_STATUS_OK && created != nullptr) {
@@ -585,14 +693,15 @@ CallResult ModuleInstance::create(const std::string& create_json) {
 
 CallResult ModuleInstance::initialize(const std::string& initialize_json) {
     Claim claim(state_, begin("initialize", {StepState::created}));
-    const praenora_module_api_v0* api = &module_->api();
+    ModuleCode* const code = &module_->code();
     praenora_instance* const instance = instance_;
     const CallResult result =
         run(claim, "initialize", options_.lifecycle_timeout, StopFlag::applies,
-            module_->call_access(), initialize_json, [api, instance](Call& call) {
-                return api->initialize(instance, bytes(call.input), call.error.sink());
+            module_->call_access(), initialize_json, [code, instance](Call& call) {
+                return code->initialize(instance, bytes(call.input), call.error);
             });
-    if (claim.called() && result.outcome != CallOutcome::unresponsive) {
+    if (claim.called() && result.outcome != CallOutcome::unresponsive &&
+        result.outcome != CallOutcome::crashed) {
         state_.store(result.outcome == CallOutcome::succeeded ? StepState::ready
                                                               : StepState::failed);
     }
@@ -601,7 +710,7 @@ CallResult ModuleInstance::initialize(const std::string& initialize_json) {
 
 CallResult ModuleInstance::invoke(const std::string& invocation_json, std::uint64_t tick) {
     Claim claim(state_, begin("invoke", {StepState::ready}));
-    const praenora_module_api_v0* api = &module_->api();
+    ModuleCode* const code = &module_->code();
     praenora_instance* const instance = instance_;
     HostContext* const host = host_.get();
     // The invocation's tick is set on the worker as the call starts, once it has its turn at the
@@ -609,10 +718,9 @@ CallResult ModuleInstance::invoke(const std::string& invocation_json, std::uint6
     const CallResult result = run(
         claim, "invoke", options_.invoke_timeout, StopFlag::applies, module_->call_access(),
         invocation_json,
-        [api, instance, host, tick](Call& call) {
+        [code, instance, host, tick](Call& call) {
             host->tick.store(tick);
-            const praenora_status status =
-                api->invoke(instance, bytes(call.input), call.output.sink(), call.error.sink());
+            CodeStatus status = code->invoke(instance, bytes(call.input), call.output, call.error);
             host->tick.store(kNoTick);
             return status;
         },
@@ -621,8 +729,8 @@ CallResult ModuleInstance::invoke(const std::string& invocation_json, std::uint6
         return result; // refused or stopped before it started; the claim restores ready
     }
     // Whatever the outcome, the module's instance is still initialized: it stays ready, so it
-    // is finalized at the end.
-    if (result.outcome != CallOutcome::unresponsive) {
+    // is finalized at the end (unless its module host is gone).
+    if (result.outcome != CallOutcome::unresponsive && result.outcome != CallOutcome::crashed) {
         state_.store(StepState::ready);
     }
     return result;
@@ -630,24 +738,28 @@ CallResult ModuleInstance::invoke(const std::string& invocation_json, std::uint6
 
 CallResult ModuleInstance::finalize() {
     Claim claim(state_, begin("finalize", {StepState::ready}));
-    const praenora_module_api_v0* api = &module_->api();
+    ModuleCode* const code = &module_->code();
     praenora_instance* const instance = instance_;
     const CallResult result =
         run(claim, "finalize", options_.lifecycle_timeout, StopFlag::ignored,
             module_->call_access(), std::string(),
-            [api, instance](Call& call) { return api->finalize(instance, call.error.sink()); });
-    if (claim.called() && result.outcome != CallOutcome::unresponsive) {
+            [code, instance](Call& call) { return code->finalize(instance, call.error); });
+    if (claim.called() && result.outcome != CallOutcome::unresponsive &&
+        result.outcome != CallOutcome::crashed) {
         state_.store(result.outcome == CallOutcome::succeeded ? StepState::finalized
                                                               : StepState::failed);
     }
     return result;
 }
 
-CallOutcome ModuleInstance::destroy() noexcept {
+CallOutcome ModuleInstance::destroy(std::string* details_json) noexcept {
     StepState current = state_.load();
     for (;;) {
         if (current == StepState::unresponsive) {
             return CallOutcome::unresponsive;
+        }
+        if (current == StepState::crashed) {
+            return CallOutcome::crashed; // its module host is gone, and the instance with it
         }
         if (current == StepState::destroyed) {
             return CallOutcome::succeeded;
@@ -666,18 +778,25 @@ CallOutcome ModuleInstance::destroy() noexcept {
     if (instance_ == nullptr) {
         return CallOutcome::succeeded; // nothing was created, so there is nothing to destroy
     }
-    const praenora_module_api_v0* api = &module_->api();
+    ModuleCode* const code = &module_->code();
     praenora_instance* const instance = instance_;
     try {
-        const CallResult result =
-            run(claim, "destroy", options_.lifecycle_timeout, StopFlag::ignored,
-                module_->call_access(), std::string(), [api, instance](Call&) {
-                    api->destroy(instance);
-                    return PRAENORA_STATUS_OK;
-                });
-        if (claim.called() && result.outcome != CallOutcome::unresponsive) {
+        const CallResult result = run(claim, "destroy", options_.lifecycle_timeout,
+                                      StopFlag::ignored, module_->call_access(), std::string(),
+                                      [code, instance](Call&) { return code->destroy(instance); });
+        if (details_json != nullptr && result.outcome == CallOutcome::crashed) {
+            *details_json = result.details_json;
+        }
+        if (claim.called() && result.outcome != CallOutcome::unresponsive &&
+            result.outcome != CallOutcome::crashed) {
             instance_ = nullptr;
             state_.store(StepState::destroyed);
+            // A module host serves this one instance: it is asked to exit now, and killed after
+            // the lifecycle timeout (no limit without one: the longest wait, which every deadline
+            // made of it saturates, never overflows).
+            code->end(options_.lifecycle_timeout > std::chrono::nanoseconds::zero()
+                          ? options_.lifecycle_timeout
+                          : std::chrono::nanoseconds::max());
         }
         return result.outcome;
     } catch (...) {
@@ -692,7 +811,8 @@ std::optional<std::string> ModuleInstance::diagnostics() {
     StepState current = state_.load();
     for (;;) {
         if (current == StepState::loaded || current == StepState::busy ||
-            current == StepState::unresponsive || current == StepState::destroyed) {
+            current == StepState::unresponsive || current == StepState::crashed ||
+            current == StepState::destroyed) {
             return std::nullopt;
         }
         if (state_.compare_exchange_weak(current, StepState::busy)) {
@@ -701,16 +821,17 @@ std::optional<std::string> ModuleInstance::diagnostics() {
     }
     // The instance is ours now (busy); the claim puts the state back when nothing is called.
     Claim claim(state_, current);
-    const praenora_module_api_v0* api = &module_->api();
-    if (instance_ == nullptr || api->diagnostics == nullptr) {
+    ModuleCode* const code = &module_->code();
+    if (instance_ == nullptr || !code->has_diagnostics()) {
         return std::nullopt;
     }
     praenora_instance* const instance = instance_;
     CallResult result = run(claim, "diagnostics", options_.lifecycle_timeout, StopFlag::ignored,
-                            module_->call_access(), std::string(), [api, instance](Call& call) {
-                                return api->diagnostics(instance, call.output.sink());
+                            module_->call_access(), std::string(), [code, instance](Call& call) {
+                                return code->diagnostics(instance, call.output);
                             });
-    if (!claim.called() || result.outcome == CallOutcome::unresponsive) {
+    if (!claim.called() || result.outcome == CallOutcome::unresponsive ||
+        result.outcome == CallOutcome::crashed) {
         return std::nullopt;
     }
     state_.store(current);
@@ -722,19 +843,43 @@ std::optional<std::string> ModuleInstance::diagnostics() {
 
 CallResult ModuleInstance::self_test() {
     Claim claim(state_, begin("self_test", {StepState::loaded}));
-    const praenora_module_api_v0* api = &module_->api();
-    if (api->self_test == nullptr) {
+    if (module_->runs_in_child()) {
+        throw Error(ErrorCode::UNSUPPORTED,
+                    "module " + identity_ +
+                        " runs in a module host; self_test() is called only in the runtime's "
+                        "process (by the contract checks)");
+    }
+    ModuleCode* const code = &module_->code();
+    if (!code->has_self_test()) {
         throw Error(ErrorCode::UNSUPPORTED, "module " + identity_ + " has no self_test()");
     }
     const praenora_host_api* host_api = &host_->api;
     const CallResult result =
         run(claim, "self_test", options_.invoke_timeout, StopFlag::ignored,
             LibraryGate::Access::exclusive, std::string(),
-            [api, host_api](Call& call) { return api->self_test(host_api, call.output.sink()); });
+            [code, host_api](Call& call) { return code->self_test(host_api, call.output); });
     if (claim.called() && result.outcome != CallOutcome::unresponsive) {
         state_.store(StepState::loaded);
     }
     return result;
+}
+
+std::optional<StepState> ModuleInstance::release_terminated() noexcept {
+    if (!module_->runs_in_child() || instance_ == nullptr || !module_->code().terminated()) {
+        return std::nullopt;
+    }
+    StepState current = state_.load();
+    for (;;) {
+        if (current != StepState::created && current != StepState::ready &&
+            current != StepState::finalized && current != StepState::failed) {
+            return std::nullopt; // busy, or already over (destroyed, unresponsive, crashed)
+        }
+        if (state_.compare_exchange_weak(current, StepState::destroyed)) {
+            break;
+        }
+    }
+    instance_ = nullptr;
+    return current;
 }
 
 void ModuleInstance::request_cancel() noexcept {

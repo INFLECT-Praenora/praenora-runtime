@@ -202,17 +202,20 @@ json describe_document(const praenora_provider_api_v0& api, const LocatedFailure
 } // namespace
 
 // What the runtime gives one provider: its praenora_provider_host, whose log callbacks write to
-// the provider's logger. The logger can be replaced at any time; the host stays where it is for
-// the rest of the process.
+// the provider's logger, and whose store callbacks reach `compiled`, when there is one (NULL
+// otherwise). The logger can be replaced at any time; the host stays where it is for the rest of
+// the process.
 class ProviderHost {
 public:
-    ProviderHost(std::string name, std::string provider)
-        : name_(std::move(name)), provider_(std::move(provider)) {
+    ProviderHost(std::string name, std::string provider, CompiledModelAccess* compiled)
+        : name_(std::move(name)), provider_(std::move(provider)), compiled_(compiled) {
         host_.struct_size = static_cast<std::uint32_t>(sizeof(praenora_provider_host));
         host_.reserved = 0;
         host_.context = this;
         host_.log = &ProviderHost::log;
         host_.log_enabled = &ProviderHost::log_enabled;
+        host_.load_compiled = compiled_ != nullptr ? &ProviderHost::load_compiled : nullptr;
+        host_.save_compiled = compiled_ != nullptr ? &ProviderHost::save_compiled : nullptr;
     }
     ProviderHost(const ProviderHost&) = delete;
     ProviderHost& operator=(const ProviderHost&) = delete;
@@ -311,8 +314,42 @@ private:
         }
     }
 
+    static std::int32_t PRAENORA_CALL load_compiled(void* context, const char* key,
+                                                    std::size_t key_size,
+                                                    praenora_sink* out) noexcept {
+        const auto* self = static_cast<const ProviderHost*>(context);
+        if (self == nullptr || self->compiled_ == nullptr || (key == nullptr && key_size != 0) ||
+            out == nullptr || out->write == nullptr) {
+            return 0;
+        }
+        try {
+            return self->compiled_->load(std::string_view(key == nullptr ? "" : key, key_size),
+                                         *out)
+                       ? 1
+                       : 0;
+        } catch (...) {
+            return 0;
+        }
+    }
+
+    static void PRAENORA_CALL save_compiled(void* context, const char* key, std::size_t key_size,
+                                            const char* data, std::size_t size) noexcept {
+        const auto* self = static_cast<const ProviderHost*>(context);
+        if (self == nullptr || self->compiled_ == nullptr || (key == nullptr && key_size != 0) ||
+            (data == nullptr && size != 0)) {
+            return;
+        }
+        try {
+            self->compiled_->save(std::string_view(key == nullptr ? "" : key, key_size),
+                                  std::string_view(data == nullptr ? "" : data, size));
+        } catch (...) {
+            // Not kept.
+        }
+    }
+
     std::string name_;     // the provider's name
     std::string provider_; // name@version, the attribute of its records
+    CompiledModelAccess* compiled_; // the shared compiled models, or nullptr
     praenora_provider_host host_{};
     mutable std::mutex mutex_;
     std::shared_ptr<spdlog::logger> logger_; // guarded by mutex_
@@ -331,8 +368,10 @@ public:
 
     const LoadedProvider& load(const ProviderManifest& manifest,
                                const std::vector<ServiceVersion>& services,
-                               const std::optional<std::string>& validated_sha256, LogHub* logs);
+                               const std::optional<std::string>& validated_sha256, LogHub* logs,
+                               CompiledModelAccess* compiled);
     const LoadedProvider* find(std::string_view name);
+    std::vector<std::string> names();
 
 private:
     ProviderRegistry() = default;
@@ -340,7 +379,7 @@ private:
     LoadedProvider& open(const ProviderManifest& manifest, const std::string& digest,
                          fs::path canonical, const LocatedFailure& fail);
     static void start(LoadedProvider& provider, const ProviderManifest& manifest, LogHub* logs,
-                      const LocatedFailure& fail);
+                      CompiledModelAccess* compiled, const LocatedFailure& fail);
 
     std::mutex mutex_;
     std::map<std::string, std::unique_ptr<LoadedProvider>, std::less<>> providers_;
@@ -363,7 +402,7 @@ const void* LoadedProvider::service(std::string_view name, std::uint32_t major) 
 const LoadedProvider& ProviderRegistry::load(const ProviderManifest& manifest,
                                              const std::vector<ServiceVersion>& services,
                                              const std::optional<std::string>& validated_sha256,
-                                             LogHub* logs) {
+                                             LogHub* logs, CompiledModelAccess* compiled) {
     const LocatedFailure fail = provider_failure(manifest);
 
     // 0. The services, each offered by the manifest: their indexes in its services.
@@ -436,7 +475,7 @@ const LoadedProvider& ProviderRegistry::load(const ProviderManifest& manifest,
         }
         break;
     case LoadedProvider::State::opened:
-        start(*provider, manifest, logs, fail);
+        start(*provider, manifest, logs, compiled, fail);
         break;
     }
 
@@ -488,7 +527,8 @@ LoadedProvider& ProviderRegistry::open(const ProviderManifest& manifest, const s
 }
 
 void ProviderRegistry::start(LoadedProvider& provider, const ProviderManifest& manifest,
-                             LogHub* logs, const LocatedFailure& fail) {
+                             LogHub* logs, CompiledModelAccess* compiled,
+                             const LocatedFailure& fail) {
     const std::string library_file = path_to_utf8(manifest.library_path);
 
     // 3.-4. The entry point and its table. They and describe() are free of side effects, so a
@@ -556,7 +596,8 @@ void ProviderRegistry::start(LoadedProvider& provider, const ProviderManifest& m
     provider.describe_ = std::move(describe);
     provider.api_ = api;
     if (!provider.host_) {
-        provider.host_ = std::make_unique<ProviderHost>(manifest.name, identity(manifest));
+        provider.host_ =
+            std::make_unique<ProviderHost>(manifest.name, identity(manifest), compiled);
     }
     if (logs != nullptr) {
         provider.host_->set_logs(*logs);
@@ -603,6 +644,15 @@ const LoadedProvider* ProviderRegistry::find(std::string_view name) {
                : provider->second.get();
 }
 
+std::vector<std::string> ProviderRegistry::names() {
+    const std::lock_guard<std::mutex> lock(mutex_);
+    std::vector<std::string> names;
+    for (const auto& entry : providers_) {
+        names.push_back(entry.first);
+    }
+    return names;
+}
+
 std::string check_provider_library_file(const ProviderManifest& manifest) {
     LibraryFile file;
     file.owner = provider_failure(manifest).owner();
@@ -616,12 +666,16 @@ std::string check_provider_library_file(const ProviderManifest& manifest) {
 const LoadedProvider& load_provider(const ProviderManifest& manifest,
                                     const std::vector<ServiceVersion>& services,
                                     const std::optional<std::string>& validated_sha256,
-                                    LogHub* logs) {
-    return ProviderRegistry::instance().load(manifest, services, validated_sha256, logs);
+                                    LogHub* logs, CompiledModelAccess* compiled) {
+    return ProviderRegistry::instance().load(manifest, services, validated_sha256, logs, compiled);
 }
 
 const LoadedProvider* loaded_provider(std::string_view name) {
     return ProviderRegistry::instance().find(name);
+}
+
+std::vector<std::string> opened_providers_for_testing() {
+    return ProviderRegistry::instance().names();
 }
 
 } // namespace praenora::detail

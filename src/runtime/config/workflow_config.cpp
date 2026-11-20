@@ -142,6 +142,27 @@ private:
             config.time.period = period->get<double>();
         }
         timeouts_at(find_value(run, "timeouts"), "/run/timeouts", config.timeouts);
+        isolation_at(find_value(run, "isolation"), "/run/isolation", config.isolation);
+    }
+
+    // The fields of an isolation object the schema has already checked, put over `isolation`.
+    static void isolation_at(const json* object, const std::string& pointer, Isolation& isolation) {
+        if (const json* mode = find_value(object, "mode")) {
+            // The schema allows only the names of the modes.
+            isolation.mode = isolation_mode_from_name(mode->get_ref<const std::string&>())
+                                 .value_or(IsolationMode::in_process);
+            isolation.mode_pointer = pointer + "/mode";
+        }
+        if (const json* share = find_value(object, "share_compiled_models")) {
+            isolation.share_compiled_models = share->get<bool>();
+            isolation.share_pointer = pointer + "/share_compiled_models";
+        }
+        if (const json* sandbox = find_value(object, "sandbox")) {
+            // The schema allows only the names of the profiles.
+            isolation.sandbox = sandbox_profile_from_name(sandbox->get_ref<const std::string&>())
+                                    .value_or(SandboxProfile::none);
+            isolation.sandbox_pointer = pointer + "/sandbox";
+        }
     }
 
     void read_modules(const json* modules, WorkflowConfig& config) {
@@ -243,6 +264,9 @@ private:
             if (const json* level = find_value(&entry, "log_level")) {
                 binding.log_level = parse_log_level(level->get<std::string>());
             }
+            binding.isolation = config.isolation;
+            isolation_at(find_value(&entry, "isolation"), pointer + "/isolation",
+                         binding.isolation);
             config.steps.emplace(id, std::move(binding));
         }
     }
@@ -344,6 +368,26 @@ void apply_overrides(const WorkflowOptions& overrides, WorkflowConfig& config,
             config.status_file = std::move(*path);
         }
     }
+    if (overrides.isolation) {
+        // Every step's mode, the run's included; no field of the file set it. In the runtime's
+        // process no step has a module host to share compiled models with, or to sandbox.
+        const auto override_mode = [&overrides](Isolation& isolation) {
+            isolation.mode = *overrides.isolation;
+            isolation.mode_pointer.clear();
+            isolation.mode_overridden = true;
+            if (*overrides.isolation == IsolationMode::in_process) {
+                isolation.share_compiled_models = false;
+                isolation.share_pointer.clear();
+                isolation.sandbox = SandboxProfile::none;
+                isolation.sandbox_pointer.clear();
+            }
+        };
+        override_mode(config.isolation);
+        for (auto& entry : config.steps) {
+            override_mode(entry.second.isolation);
+        }
+        config.overrides.isolation = *overrides.isolation;
+    }
 }
 
 void add_error(ValidationReport& report, ErrorCode code, std::string message,
@@ -421,6 +465,20 @@ bool check_document(const LoadedDocument& document, ValidationReport& report) {
 }
 
 } // namespace
+
+std::string_view isolation_mode_name(IsolationMode mode) {
+    return mode == IsolationMode::process ? "process" : "in-process";
+}
+
+std::optional<IsolationMode> isolation_mode_from_name(std::string_view name) {
+    if (name == "in-process") {
+        return IsolationMode::in_process;
+    }
+    if (name == "process") {
+        return IsolationMode::process;
+    }
+    return std::nullopt;
+}
 
 const std::vector<std::string>& observation_columns() {
     static const std::vector<std::string> columns = {

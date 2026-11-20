@@ -93,8 +93,8 @@ void prepare_output_dir(const fs::path& dir, bool overwrite) {
 }
 
 RunRecordWriter::RunRecordWriter(fs::path output_dir, json reproducibility, std::string fingerprint,
-                                 json manifests, RunOverrides overrides, bool strict_validation,
-                                 std::shared_ptr<const PathAnchors> anchors)
+                                 json manifests, json isolation, RunOverrides overrides,
+                                 bool strict_validation, std::shared_ptr<const PathAnchors> anchors)
     : anchors_(std::move(anchors)) {
     if (sha256_hex(canonical_json(reproducibility)) != fingerprint) {
         throw Error(ErrorCode::INVALID_ARGUMENT,
@@ -111,6 +111,9 @@ RunRecordWriter::RunRecordWriter(fs::path output_dir, json reproducibility, std:
     }
     if (overrides.ticks) {
         overridden["ticks"] = *overrides.ticks;
+    }
+    if (overrides.isolation) {
+        overridden["isolation"] = std::string(isolation_mode_name(*overrides.isolation));
     }
     document_ = {{"kind", "run-record"},
                  {"format_version", versions.formats.at("run-record")},
@@ -129,7 +132,8 @@ RunRecordWriter::RunRecordWriter(fs::path output_dir, json reproducibility, std:
                      {"build_type", versions.build_type}}},
                    {"overrides", std::move(overridden)},
                    {"validation", strict_validation ? "strict" : "off"},
-                   {"manifests", std::move(manifests)}}}};
+                   {"manifests", std::move(manifests)},
+                   {"isolation", std::move(isolation)}}}};
 }
 
 void RunRecordWriter::write_started(std::int64_t started_unix_ns) {

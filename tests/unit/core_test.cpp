@@ -1,5 +1,6 @@
-// Core utilities: SHA-256, SemVer, durations, RFC 3339 time, seed derivation, UTF-8 paths and the
-// comparison of JSON values with a tolerance.
+// Core utilities: SHA-256, SemVer, durations, deadlines, RFC 3339 time, seed derivation, UTF-8
+// paths and the comparison of JSON values with a tolerance.
+#include "core/deadline.hpp"
 #include "core/duration.hpp"
 #include "core/json_near.hpp"
 #include "core/paths.hpp"
@@ -196,6 +197,36 @@ TEST(Duration, FormatIsCanonicalAndParsesBack) {
         EXPECT_EQ(parse_duration(format_duration(parse_duration(text))), parse_duration(text))
             << text;
     }
+}
+
+TEST(Deadline, IsTheWaitAfterTheStart) {
+    using Clock = std::chrono::steady_clock;
+    const Clock::time_point start = Clock::now();
+    EXPECT_EQ(detail::deadline_after(start, std::chrono::seconds(5)),
+              start + std::chrono::seconds(5));
+    EXPECT_EQ(detail::deadline_after(start, std::chrono::nanoseconds(1)),
+              start + std::chrono::nanoseconds(1));
+    // No wait, or a negative one: the start itself.
+    EXPECT_EQ(detail::deadline_after(start, std::chrono::nanoseconds::zero()), start);
+    EXPECT_EQ(detail::deadline_after(start, -std::chrono::seconds(1)), start);
+}
+
+TEST(Deadline, SaturatesAtTheClocksLastInstant) {
+    using Clock = std::chrono::steady_clock;
+    const Clock::time_point start = Clock::now();
+    // A wait beyond any reading of the clock (no lifecycle timeout, for one) never wraps around to
+    // a time long past.
+    EXPECT_EQ(detail::deadline_after(start, std::chrono::nanoseconds::max()),
+              Clock::time_point::max());
+    const Clock::time_point late = Clock::time_point::max() - std::chrono::seconds(1);
+    EXPECT_EQ(detail::deadline_after(late, std::chrono::seconds(2)), Clock::time_point::max());
+    EXPECT_EQ(detail::deadline_after(late, std::chrono::seconds(1)), Clock::time_point::max());
+    EXPECT_EQ(detail::deadline_after(late, std::chrono::milliseconds(999)),
+              late + std::chrono::milliseconds(999));
+    // A start before the clock's epoch leaves room for the longest wait.
+    const Clock::time_point early = Clock::time_point() - std::chrono::seconds(1);
+    EXPECT_EQ(detail::deadline_after(early, std::chrono::nanoseconds::max()),
+              early + std::chrono::nanoseconds::max());
 }
 
 TEST(Time, Rfc3339) {

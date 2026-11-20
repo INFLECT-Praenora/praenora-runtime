@@ -1,0 +1,35 @@
+{
+  "kind": "module-manifest",
+  "format_version": "@PRAENORA_MODULE_MANIFEST_FORMAT_VERSION@",
+  "module": {
+    "name": "@PRAENORA_MODULE_NAME@",
+    "version": "@PRAENORA_MODULE_VERSION@",
+    "summary": "Test fixture: ends its own process in the call it is told to, for module hosts."
+  },
+  "abi": { "major": @PRAENORA_ABI_MAJOR@, "minor": @PRAENORA_ABI_MINOR@ },
+  "pmp_version": "@PRAENORA_PMP_VERSION@",
+  "sdk_version": "@PRAENORA_SDK_VERSION@",
+  "library": { "path": "@PRAENORA_MODULE_LIBRARY_FILE@" },
+  "platform": { "os": "@PRAENORA_MODULE_OS@", "arch": "@PRAENORA_MODULE_ARCH@" },
+  "capabilities": @PRAENORA_MODULE_CAPABILITIES_JSON@,
+  "parameters_schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "properties": {
+      "when": {
+        "enum": ["never", "create", "initialize", "invoke", "finalize", "destroy", "diagnostics"],
+        "default": "never"
+      },
+      "how": { "enum": ["segv", "abort", "exit"], "default": "segv" },
+      "crash_after_ms": { "type": "integer", "minimum": 0, "default": 0 },
+      "skip_invocations": { "type": "integer", "minimum": 0, "default": 0 },
+      "fail_invoke": { "type": "boolean", "default": false },
+      "spawn": { "enum": ["none", "sleep", "fork", "write-3"], "default": "none" },
+      "log_later_ms": { "type": "integer", "minimum": 0 },
+      "exit_blocked": { "type": "boolean", "default": false },
+      "print": { "type": "string" }
+    },
+    "additionalProperties": false
+  },
+  "features": { "diagnostics": true }
+}

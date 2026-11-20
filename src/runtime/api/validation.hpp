@@ -11,6 +11,7 @@
 #include "graph/graph.hpp"
 #include "instance/services.hpp"
 #include "io/input_source.hpp"
+#include "isolation/child_settings.hpp"
 #include "provider/provider_index.hpp"
 #include "provider/provider_manifest.hpp"
 
@@ -30,6 +31,8 @@
 
 namespace praenora::detail {
 
+class LogHub;
+
 // A step of the workflow with everything needed to run it.
 struct ResolvedStep {
     std::string id;
@@ -43,6 +46,8 @@ struct ResolvedStep {
     // The keys ("<name>@<major>") of ValidatedWorkflow::services that the step's module may use:
     // the services its manifest declares that resolved for the run, required or optional; sorted.
     std::vector<std::string> services;
+    // Where the step's module instance runs: in this process or in a module host.
+    Isolation isolation;
 };
 
 // A runtime service that a provider serves to a run.
@@ -92,6 +97,10 @@ struct ValidatedWorkflow {
     // each location {search_path {origin, index (absent for the installation's directory)},
     // file (relative to the search path, '/'-separated)}.
     nlohmann::json manifest_locations;
+    // The run record's execution.isolation, outside the hashed section too: every step's resolved
+    // isolation settings, {<step>: {"mode": "in-process" | "process", "share_compiled_models",
+    // "sandbox": "none" | "restricted"}}.
+    nlohmann::json isolation;
     // The module search paths that resolved the steps' modules, in search order, with their
     // origins and indexes: those of the context's index (RuntimeContext::modules), or the list
     // rebuilt with the configuration's modules.search_paths when it names any.
@@ -159,13 +168,23 @@ RuntimeContext make_runtime_context(const RuntimeOptions& options);
 //      (check_provider_library_file(), located in the provider's manifest, reported for the first
 //      step in schedule order that uses the provider). A service name and major that several
 //      steps declare is served by one provider: the one the highest minor any of them asks for
-//      resolved to. Nothing is loaded;
+//      resolved to. Then each step that runs in a module host (isolation mode "process") is
+//      checked: UNSUPPORTED where the platform has no process isolation (Windows in this
+//      version), located at the field that set the step's mode (/steps/<step>/isolation/mode or
+//      /run/isolation/mode), or nowhere when the caller's override set it; its module's services
+//      are served as any step's, by providers loaded in its module host. A step that runs in the
+//      runtime's process with share_compiled_models true or sandbox "restricted" is refused
+//      (CONFIG_INVALID, located at the field that set it, /steps/<step>/isolation/<field> or
+//      /run/isolation/<field>), and so is a step in a module host with sandbox "restricted" where
+//      the platform has no restricted profile (UNSUPPORTED, anything but macOS in this version,
+//      located at that field too). Nothing is loaded;
 //   7. each step's parameters satisfy its module's parameter schema (PARAMETERS_INVALID, located
 //      at /steps/<step>/parameters<pointer> in the configuration), which then fills in defaults;
 //   8. each input's data file exists, is a file and has a status that can be read
 //      (TARGET_DATA_UNAVAILABLE, located at /inputs/<name>/path in the configuration) and its
 //      source can be built (io/input_source.hpp);
-//   9. the reproducibility section and the fingerprint are computed.
+//   9. the reproducibility section and the fingerprint are computed. The steps' isolation is not
+//      part of them (results do not depend on it): it goes to ValidatedWorkflow::isolation.
 // Every problem is collected; a check is skipped only when it depends on one that failed (no
 // definition: nothing after step 3; an unknown capability or message type: the graph, and the
 // steps and inputs that use it; an error in an input's path or columns: its source). Diagnostics
@@ -184,9 +203,24 @@ Diagnostic service_unavailable(const ModuleManifest& manifest, std::size_t index
                                const ProviderIndex& providers,
                                const ServiceResolution& resolution);
 
-// The providers that `workflow` loads, each once, with the services the run gets from it: in the
-// order of the keys of workflow.services, a provider coming where its first service does.
-std::vector<ProviderLoad> provider_loads(const ValidatedWorkflow& workflow);
+// The providers that serve the services `keys` (keys of workflow.services, "<name>@<major>"), each
+// once, with the services of `keys` it serves: in the order of the keys of workflow.services, a
+// provider coming where its first service does. The providers of one step are
+// provider_loads(workflow, step.services); a module host loads those for a step in it.
+std::vector<ProviderLoad> provider_loads(const ValidatedWorkflow& workflow,
+                                         const std::vector<std::string>& keys);
+
+// The providers of the services that the steps of `workflow` in isolation mode `mode` may use, as
+// above: those a run loads in the runtime's process (IsolationMode::in_process), or those the
+// module hosts of its steps load (IsolationMode::process).
+std::vector<ProviderLoad> provider_loads(const ValidatedWorkflow& workflow, IsolationMode mode);
+
+// The providers of the services `keys` as the module host of a step loads them
+// (ChildSettings::providers): provider_loads(workflow, keys), each with validation's digest and
+// its records going to the logger provider.<name> of `logs`, as in this process (none without
+// logs).
+std::vector<ChildProvider> child_providers(const ValidatedWorkflow& workflow,
+                                           const std::vector<std::string>& keys, LogHub* logs);
 
 } // namespace praenora::detail
 

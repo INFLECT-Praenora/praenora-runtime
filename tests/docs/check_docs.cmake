@@ -12,7 +12,7 @@
 #      https:) and links to an anchor of the same document are skipped, and so are fenced code
 #      blocks and inline code spans, which hold no links. A code fence that a file never closes
 #      is a problem, since it would hide the rest of the file from the check;
-#   5. the open-questions register (docs/open-questions.md) has at least 30 rows.
+#   5. the open-questions register (docs/open-questions.md) has at least 32 rows.
 # Every check runs, and each one that finds nothing to check (no error code, schema file, ADR,
 # link or row) reports that as a problem rather than passing. Each problem is printed on its own
 # line, naming the file and the missing item or the broken link (with its line); the script then
@@ -185,7 +185,7 @@ message("docs.consistency: check 4: ${link_count} relative links checked in ${ma
 
 # Check 5: the open-questions register.
 set(register "docs/open-questions.md")
-set(minimum_rows 30)
+set(minimum_rows 32)
 _read(register_text "${register}")
 string(REGEX MATCHALL "\n\\| OQ-[0-9]+ \\|" rows "\n${register_text}")
 list(LENGTH rows row_count)

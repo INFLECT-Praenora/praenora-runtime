@@ -1,0 +1,14 @@
+# fx-crash ends its process with SIGSEGV in its second invocation; run.isolation puts it in a module
+# host, so the run fails with MODULE_CRASHED (CLI test cli.run.isolation_crash, exit code 1).
+kind: workflow-config
+format_version: "0.1.0"
+workflow: { name: test.single, version: "0.1.0" }
+run:
+  ticks: 3
+  isolation: { mode: process }
+inputs:
+  source: { source: json-document, path: ../source.json }
+steps:
+  a:
+    module: { name: fx-crash, version: "0.1.0" }
+    parameters: { when: invoke, how: segv, skip_invocations: 1 }

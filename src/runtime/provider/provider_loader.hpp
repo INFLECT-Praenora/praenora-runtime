@@ -28,6 +28,18 @@ class LogHub;
 class ProviderHost;
 class SharedLibrary;
 
+// What the load_compiled and save_compiled callbacks of a provider's host reach (provider_abi.h):
+// the shared compiled models, which only the module host of a step that shares them offers
+// (isolation/module_host_server.cpp). Thread-safe; it outlives the provider (the process).
+class CompiledModelAccess {
+public:
+    virtual ~CompiledModelAccess() = default;
+    // Writes the entry under `key` to `out`: true when there is one and `out` took it.
+    virtual bool load(std::string_view key, praenora_sink& out) = 0;
+    // Keeps `data` under `key`, or refuses it; copies it before it returns.
+    virtual void save(std::string_view key, std::string_view data) = 0;
+};
+
 // A provider in the process. Once its library has opened it stays, whatever its later checks or
 // its start() do: it is never unloaded, stopped or destroyed, and references to it stay valid until
 // the process ends. load_provider() returns only providers that started.
@@ -109,6 +121,9 @@ std::string check_provider_library_file(const ProviderManifest& manifest);
 //        LIBRARY_LOAD_FAILED with reason "start" and the provider's error document as
 //        details.cause; the failure is kept, and every later load reports it;
 //     7. the event provider.loaded is logged (info).
+// The host that start() gets offers the shared compiled models through `compiled` (its
+// load_compiled and save_compiled callbacks are NULL without it): the `compiled` of the load that
+// starts the provider, never changed afterwards.
 // Then, for every load:
 //   - with `logs`, the provider's records go to its logger "provider.<name>" of `logs` from now
 //     on (without, they go where they went). When those logs are destroyed, the provider's records
@@ -120,10 +135,15 @@ std::string check_provider_library_file(const ProviderManifest& manifest);
 const LoadedProvider& load_provider(const ProviderManifest& manifest,
                                     const std::vector<ServiceVersion>& services,
                                     const std::optional<std::string>& validated_sha256,
-                                    LogHub* logs);
+                                    LogHub* logs, CompiledModelAccess* compiled = nullptr);
 
 // The provider loaded and started in this process under `name`, or nullptr. Thread-safe.
 const LoadedProvider* loaded_provider(std::string_view name);
+
+// For tests only: the names of the providers whose libraries have opened in this process, whatever
+// became of them afterwards (checks that failed, a start() that failed), in name order. A provider
+// that only steps in module hosts use is never among them. Thread-safe.
+std::vector<std::string> opened_providers_for_testing();
 
 } // namespace praenora::detail
 

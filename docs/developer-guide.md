@@ -138,6 +138,7 @@ The build tree holds:
 |---|---|
 | `build/<preset>/bin/` | `praenora`, the test executables and `praenora_perf` (on Windows also the DLLs, below a configuration directory). |
 | `build/<preset>/lib/` | The runtime library. |
+| `build/<preset>/libexec/praenora/` | `praenora-module-host`, the module host (POSIX), where the build tree's runtime finds it ([specs/process-isolation.md](specs/process-isolation.md#the-module-host)). |
 | `build/<preset>/modules/<name>/` | The example modules: library, manifest and test vectors. |
 | `build/<preset>/test-modules/<name>/` | The fixture modules of the tests. |
 | `build/<preset>/test-providers/<name>/` | The fixture service providers of the tests. |
@@ -247,15 +248,22 @@ option removes the provider from it, as for roadrunner.
 
 ## Debugging modules
 
-Modules run inside the runtime's process, so a native debugger sees the runtime and every module
-together. A `Debug` build (the `dev` preset) builds the example and fixture modules with debug
-information. Points to know:
+Modules run inside the runtime's process, unless their step runs in a module host, so a native
+debugger sees the runtime and every module together. A `Debug` build (the `dev` preset) builds the
+example and fixture modules with debug information. Points to know:
 
 - **Module libraries load late.** A module's library is opened when a run starts (or by
   `validate --load`, `modules inspect --load` and `modules check`), so a breakpoint in module code
   stays pending until then. The entry point `praenora_module_get_api` is a good first breakpoint.
 - **Each instance has its own thread.** Every call into a step's instance runs on a worker thread
   named `praenora:<step>`; the thread that runs the ticks waits for it on a deadline.
+- **Steps in module hosts.** A step in isolation mode `process` runs its module in a module host,
+  a process of its own, which a debugger of the runtime does not see. Debug the module in the
+  runtime's process instead (`--isolation in-process`; the results are the same), or attach the
+  debugger to the module host, whose process id the event `module_host.started` gives
+  (`--log-level debug`). A module host whose call outlives its deadline and the cancellation grace
+  is killed, so disable the timeouts as below for it too
+  ([specs/process-isolation.md](specs/process-isolation.md)).
 - **Deadlines keep running.** While a module is stopped at a breakpoint, its call's deadline
   passes: the run then fails with `STEP_TIMEOUT`, or `MODULE_UNRESPONSIVE` when the call does not
   return within the cancellation grace. Debug with a copy of the configuration whose timeouts are

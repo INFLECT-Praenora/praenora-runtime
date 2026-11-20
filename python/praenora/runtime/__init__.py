@@ -161,7 +161,8 @@ def version():
 def validate(config, module_paths=None, catalog_paths=None, load=False, *, provider_paths=None):
     """Validates the workflow configuration `config`: everything a run checks before its first
     tick, without running anything; with `load`, the service providers of the workflow's services
-    are started, and the module libraries loaded and their identities checked, too.
+    are started, and the module libraries loaded and their identities checked, too (each where
+    its steps run: in this process, or in a module host for a step in process isolation).
     `provider_paths` are searched for service providers first.
 
     Returns the report, {"ok": True, "diagnostics": [...]}, whose diagnostics are warnings and
@@ -283,6 +284,12 @@ class Workflow:
             module looks up, are traced to <output_dir>/trace/messages.jsonl; None keeps the
             configuration's setting.
         status_file: keep a status file there (read_status() reads it).
+        isolation: where every step's module instance runs, in place of the configuration's
+            (run.isolation and steps.<id>.isolation): "in-process" (in the Python process) or
+            "process" (in a module host, a process of its own, so that a crash of the module ends
+            only its step). The run record lists it with the other overrides. A wheel installation
+            has no module host: a step in a module host then fails to load with
+            MODULE_HOST_UNAVAILABLE.
 
     The control calls (start, tick, run and close) are made one at a time. The queries (state,
     fingerprint, status, metrics, latest_outputs and run_record) and request_stop() may be called
@@ -291,7 +298,8 @@ class Workflow:
 
     def __init__(self, config, module_paths=None, output_dir=None, seed=None, log_level=None, *,
                  ticks=None, overwrite=False, trace_messages=None, status_file=None,
-                 log_format=None, log_file=None, catalog_paths=None, provider_paths=None):
+                 log_format=None, log_file=None, catalog_paths=None, provider_paths=None,
+                 isolation=None):
         options = {
             "module_paths": None if module_paths is None else _paths(module_paths),
             "provider_paths": None if provider_paths is None else _paths(provider_paths),
@@ -305,6 +313,7 @@ class Workflow:
             "log_level": log_level,
             "log_format": log_format,
             "log_file": None if log_file is None else _path(log_file),
+            "isolation": isolation,
         }
         # Only the options given; integers of other types (numpy's, say) as ints.
         options_json = json.dumps({key: value for key, value in options.items()

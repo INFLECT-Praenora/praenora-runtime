@@ -27,6 +27,11 @@ a manifest, that the runtime finds on module search paths and loads at run time.
 holds only the two example modules (`examples/modules/`) and the fixture modules of the tests
 (`tests/fixtures/modules/`).
 
+A step's module instance runs in the runtime's process, or, when the configuration asks for it
+(isolation mode `process`), in a module host: the executable `praenora-module-host`, which the
+runtime starts for that step alone and reaches over a private channel, so that a crash of the
+module ends only its step ([Module hosts](#module-hosts)).
+
 Service providers are the runtime's own: separately built libraries, shipped with the runtime, that
 bring heavy engines for runtime services, such as the simulation engine behind
 `praenora.simulation@0` and the conversion engine behind `praenora.model-conversion@0`
@@ -73,12 +78,13 @@ The runtime's internals live in `src/runtime/`, one directory per component, in 
 | `loader/` | Opening libraries (`platform/posix/`, `platform/windows/`), function-table checks, the identity check, library digests, and the process-wide gate of each loaded library, which orders the calls into it and refuses those behind an abandoned call. |
 | `provider/` | Service providers: provider manifests, the provider index and the resolution of services, the process-wide provider loader, and the internal provider interface `provider_abi.h`. |
 | `instance/` | One module instance: its worker thread, lifecycle state, host API, deadlines and cancellation; the services it sees and the registry of built-in services. |
+| `isolation/` | Process isolation: the channel to a module host and its frames, the runtime's side of a module host (which stands behind a loaded module's code), the child processes, the store of shared compiled models, the sandbox profiles with a module host's private temporary directory, and the module host's own server, compiled into `praenora-module-host` only. |
 | `graph/` | Validating a workflow definition's graph and computing its schedule. |
 | `engine/` | Running ticks: routing messages, building envelopes, checking results, failure handling. |
 | `io/` | Input sources (observation CSV replay, JSON documents), output files, the message trace, the run record. |
 | `observability/` | Logging, metrics, status snapshots, health, the status-file writer, and the path anchors that name a run's directories by placeholders in the error records of the run record and the status file. |
 | `api/` | The public `Runtime` and `Workflow`, the validation sequence, graph export and the contract checks. |
-| `platform/` | Operating-system calls: environment variables, the user's home directory, the runtime's own location, shared libraries. |
+| `platform/` | Operating-system calls: environment variables, the user's home directory, the runtime's own location, shared libraries, child processes (`posix_spawn`). |
 
 Outside the runtime:
 
@@ -88,6 +94,7 @@ Outside the runtime:
 | `include/praenora/sdk/` | The module SDK: `abi.h`, `status.h`, `simulation.h` (the simulation service), `model_conversion.h` (the model conversion service), `module.hpp`, `testing.hpp`. |
 | `src/sdk/` | The `Praenora::ModuleSDK` target and the generated `version.h`. |
 | `src/providers/` | Service providers built with the runtime: `roadrunner/`, only with `PRAENORA_WITH_ROADRUNNER`; `antimony/`, only with `PRAENORA_WITH_ANTIMONY`; `common/`, what providers share (header-only, never installed). |
+| `src/module_host/` | The module host `praenora-module-host` (its `main.cpp`; POSIX only), installed in `libexec/praenora/`. |
 | `src/frontend/` | What the CLI and the Python extension share (header-only, internal). |
 | `src/cli/` | The `praenora` tool. |
 | `src/python/`, `python/praenora/runtime/` | The SWIG facade and the pure-Python package. |
@@ -106,6 +113,9 @@ flowchart TB
     sdk["Praenora::ModuleSDK<br/>(INTERFACE)"] --> modules["module libraries<br/>(MODULE, built with praenora_add_module)"]
     shared -.->|"loads at run time, never links"| modules
     shared -.->|"loads on demand, never links"| providers["service providers<br/>(MODULE, built with praenora_add_provider)"]
+    objects --> modulehost["praenora-module-host<br/>(executable, POSIX)"]
+    shared -.->|"starts per step in process mode"| modulehost
+    modulehost -.->|"loads at run time, never links"| modules
 ```
 
 - The runtime compiles once, into an OBJECT library. The shared library exports only the public
@@ -132,10 +142,12 @@ flowchart TB
    declare to service providers (nothing is loaded), validates parameters and fills in their
    defaults, reads and checks the input data, and computes the run fingerprint. Every problem is
    collected in one report before anything runs.
-2. **Start.** First the providers of the run's services are loaded and started, each once per
-   process. Then the steps start one at a time, in schedule order: the step's module library is
-   loaded and checked (function table, `describe()` identity) unless an earlier step loaded it,
-   then an instance is created and initialized for the step.
+2. **Start.** First the providers of the services of the steps that run in the runtime's process
+   are loaded and started, each once per process. Then the steps start one at a time, in schedule
+   order: the step's module library is loaded and checked (function table, `describe()` identity)
+   unless an earlier step loaded it, or, for a step in process mode, a module host of its own is
+   started and loads the providers of the step's services and then the module there; then an
+   instance is created and initialized for the step.
 3. **Ticks.** In tick `t`, every workflow input first produces its message for the tick's
    logical-time window. Each step then runs once, in schedule order: it receives the messages of
    its delay-0 inputs from this tick and of its delay-1 inputs from the previous tick. The runtime
@@ -162,7 +174,7 @@ sequenceDiagram
     Runtime->>Runtime: validate, resolve services, compute the fingerprint
     Runtime-->>Caller: Workflow
     Caller->>Workflow: start()
-    opt the run uses provider services
+    opt steps in the runtime's process use provider services
         Workflow->>Provider: load and start each provider, once per process
     end
     loop each step, in schedule order
@@ -248,6 +260,8 @@ stateDiagram-v2
     state "busy (during every call)" as busy
     busy --> unresponsive: no return within the deadline and the cancellation grace
     unresponsive --> [*]
+    busy --> crashed: its module host ended (process mode)
+    crashed --> [*]
 ```
 
 Each arrow from `loaded` to `destroyed` is a call into the module. While a call runs, the instance
@@ -269,6 +283,11 @@ Each loaded library has one gate for the whole process, which also makes the cal
 runs into a `"module"` library take turns
 ([specs/threading-and-ownership.md](specs/threading-and-ownership.md#concurrency-across-instances)).
 
+In a module host, an unresponsive call is ended by killing the module host, so nothing is left
+running or loaded; and a module host that ends during a call (a crash) makes its instance
+`crashed`, for good: it is never called again, and the run fails with `MODULE_CRASHED`
+([specs/process-isolation.md](specs/process-isolation.md#crashes)).
+
 A `create` that does not succeed leaves no instance to destroy, except one that returned OK with an
 instance after its deadline: that instance is destroyed later. After a failed `initialize` the
 instance is destroyed without `finalize`. A stop between `create` and `initialize` destroys the
@@ -282,11 +301,49 @@ created instance, and a stop before `create` leaves the instance `loaded`.
 | `praenora:<step>` | One worker per module instance. Every call into that instance, from create to destroy, runs here, so module state is thread-affine. The caller waits for each call on a deadline. |
 | `praenora:status` | Rewrites the status file, when one is configured. |
 | The CLI's signal watcher | Turns SIGINT and SIGTERM (Ctrl+C on Windows) into `Workflow::request_stop()`. |
+| A module host's reader | For a step in process mode, takes the module host's frames (log records, lookups, sink writes, results) as they arrive, and answers its requests of the shared compiled models. In the module host, a reader takes the runtime's frames and one thread makes every call of the instance. |
 
 Status and metrics queries, and `request_stop()`, may come from any thread while a run is in
 progress; they read a copy of the state kept under a mutex and never wait for module code. Modules
 may call the host API (logging, cancellation, services) from any thread of their own while their
 instance exists ([specs/threading-and-ownership.md](specs/threading-and-ownership.md)).
+
+## Module hosts
+
+A step whose isolation mode is `process` ([configuration.md](configuration.md#isolation)) runs its
+module instance in a module host, a process of its own
+([specs/process-isolation.md](specs/process-isolation.md),
+[ADR-0037](adr/ADR-0037-process-isolation-of-module-instances.md)).
+
+- **The executable.** `praenora-module-host` links the runtime's own objects (the loader, the
+  documents and their checks) and is installed in `<prefix>/libexec/praenora/`; the runtime finds it
+  relative to its own library, in a build tree as in an installation, moved or not.
+- **One per step.** The engine starts one at the step's load, in schedule order, and never shares
+  it with another step. The module host loads and starts the providers of the step's services with
+  the provider loader, then loads the library with the loader's checks (validation's digests
+  included), and runs every call of the one instance on a thread made like the instance worker's;
+  the runtime keeps the instance's state machine, deadlines, logging and lookups, and forwards each
+  call, with its document, over the channel.
+- **Crashes and kills.** A module host that ends during a load or a call is a crash of its step
+  (`MODULE_CRASHED`); one whose call outlives the deadline and the grace is killed
+  (`MODULE_UNRESPONSIVE`, `details.terminated`); a stop during its load kills it too. The runtime
+  waits for every module host it started, and kills what a module host left in its process group.
+- **Shared compiled models.** Steps that set `share_compiled_models` hand the models their
+  providers compile to each other through a store in the runtime's process
+  (`src/runtime/isolation/compiled_model_store.hpp`): the reader of each such module host's channel
+  answers its providers' loads and saves, under the namespace of the provider (its name and
+  library SHA-256) that the runtime's own load request names
+  ([ADR-0038](adr/ADR-0038-shared-compiled-models-between-module-hosts.md)).
+- **The restricted profile** (macOS). A module host of a step with `sandbox: restricted` applies a
+  sandbox profile to itself (`src/runtime/isolation/sandbox.hpp`, `sandbox_init()`) at the start of
+  its load, before any provider or module library: its own process gets no network, no new
+  processes and no writes but in a temporary directory of its own, which the runtime makes and,
+  once the module host has ended, removes. It limits a module; it is no boundary against one meant
+  to do harm ([ADR-0039](adr/ADR-0039-restricted-sandbox-profile-for-module-hosts.md)).
+- **Same results.** The outputs, the message trace and the fingerprint do not depend on where a
+  module runs, on whether its module host shares compiled models, or on its sandbox profile; the
+  run record's `execution.isolation` says where each step ran, whether it shared, and its
+  profile.
 
 ## Service providers
 
@@ -305,10 +362,14 @@ manifest, that brings an engine for one or more runtime services
   (PMM 0.2) to the first usable provider that offers it; a required service that no provider serves
   fails validation with `SERVICE_UNAVAILABLE`.
 - **Loading and lifetime.** When a run starts, before any module library is loaded, the runtime
-  loads each provider of the run's services, checks its library's digest, its table and its
-  identity, and calls its `start()`. This happens once per process, whichever `Runtime` asks
-  first: a provider is never unloaded, so one engine, with its process-wide state, serves every run
-  of the process. `validate --load` and the contract checks load providers the same way.
+  loads each provider of the services of its steps that run in its own process, checks its
+  library's digest, its table and its identity, and calls its `start()`. This happens once per
+  process, whichever `Runtime` asks first: a provider is never unloaded, so one engine, with its
+  process-wide state, serves every run of the process. `validate --load` and the contract checks
+  load providers the same way. A step in process mode has its providers loaded and started in its
+  module host instead, with the same checks, so the engine lives with the module that calls it; the
+  runtime's process never loads a provider that only such steps use
+  ([specs/process-isolation.md](specs/process-isolation.md#service-providers)).
 - **From a module to the engine.** A module asks its instance's host API for a service with
   `get_service(name, major)`, usually in `create`. It gets the provider's table only when its
   manifest declares the service and the service resolved for the run. From then on the module calls
@@ -330,7 +391,8 @@ manifest, that brings an engine for one or more runtime services
   [specs/compatibility-policy.md](specs/compatibility-policy.md#changing-a-version)).
 - **The configuration binds.** A workflow configuration pins one definition, binds each step to a
   module (name and exact version) with parameters, binds each workflow input to a data source, and
-  sets run, output and logging options ([configuration.md](configuration.md)).
+  sets run, output and logging options and where each step's instance runs
+  ([configuration.md](configuration.md)).
 - **Modules implement capabilities.** Any module whose manifest declares a step's capability can be
   bound to the step: modules of the same capability are interchangeable.
 - **Runtime services** reach modules through the host API's `get_service(name, major)`, and a
@@ -348,7 +410,9 @@ manifest, that brings an engine for one or more runtime services
 
 - **Modules are trusted code.** A module runs inside the runtime's process with its privileges, and
   runs load only libraries named by manifests on the module search paths
-  ([specs/module-abi.md](specs/module-abi.md#trust)).
+  ([specs/module-abi.md](specs/module-abi.md#trust)). A module host keeps a module's crash from
+  ending the runtime, but runs the module with the same privileges: it contains failures, not a
+  hostile module.
 - **No network access.** The runtime opens no network connection: it reads and writes files only,
   and other processes follow a run through its status file
   ([ADR-0015](adr/ADR-0015-observability.md); a network endpoint is OQ-9). A module, being native

@@ -112,6 +112,9 @@ Every problem is reported with the file, line, column and JSON pointer, for exam
 | `timeouts.invoke` | duration | `300s` | The deadline of each `invoke` call. |
 | `timeouts.lifecycle` | duration | `60s` | The deadline of every other module call (create, initialize, finalize, destroy). |
 | `timeouts.cancel_grace` | duration | `5s` | How long a call may take to return once its deadline passed and it was asked to cancel. A call that returns within it fails with `STEP_TIMEOUT`; one that does not makes the instance unresponsive (`MODULE_UNRESPONSIVE`). |
+| `isolation.mode` | `in-process` or `process` | `in-process` | Where every step's module instance runs, unless the step sets its own ([Isolation](#isolation)). |
+| `isolation.share_compiled_models` | boolean | `false` | Whether every step's module host shares compiled models with the other sharing steps', unless the step sets its own ([Isolation](#isolation)). |
+| `isolation.sandbox` | `none` or `restricted` | `none` | The sandbox profile of every step's module host, unless the step sets its own ([Isolation](#isolation)). |
 
 ### `modules`
 
@@ -190,6 +193,105 @@ One entry per step of the definition, under the step's id: no more and no fewer
 | `parameters` | object | `{}` | The module's parameters, validated against the `parameters_schema` of its manifest, whose defaults are filled in (`PARAMETERS_INVALID`). The resolved parameters are part of the run fingerprint. |
 | `timeouts` | `invoke`, `lifecycle`, `cancel_grace` | the run's | The step's own deadlines, put over the run's field by field. |
 | `log_level` | log level | none | The level of the step's module logger, `module.<step>`, whatever the run's level. |
+| `isolation.mode` | `in-process` or `process` | the run's | Where the step's module instance runs ([Isolation](#isolation)). |
+| `isolation.share_compiled_models` | boolean | the run's | Whether the step's module host shares compiled models ([Isolation](#isolation)). |
+| `isolation.sandbox` | `none` or `restricted` | the run's | The sandbox profile of the step's module host ([Isolation](#isolation)). |
+
+### Isolation
+
+A step's module instance runs in the runtime's process (`in-process`, the default) or in a module
+host, a process of its own (`process`): a crash of the module (a segmentation fault, an `abort()`,
+an `exit()`) then fails the step with `MODULE_CRASHED` instead of ending the runtime, and a call
+that never returns is ended for good by killing the module host
+([specs/process-isolation.md](specs/process-isolation.md)). Modules do not change, and the results
+do not either: a run gives the same outputs, message trace and fingerprint in both modes.
+
+```yaml
+run:
+  isolation: { mode: process }     # every step in a module host of its own ...
+steps:
+  estimate:
+    module: { name: example-estimator, version: "0.1.0" }
+    isolation: { mode: in-process } # ... except this one
+```
+
+- `isolation` is an object at `run.isolation` (the default of every step) and at
+  `steps.<id>.isolation` (that step). Each field is resolved on its own: the step's, else the
+  run's, else the default. An unknown field or mode is `SCHEMA_VIOLATION`.
+- `--isolation` (`WorkflowOptions::isolation`, Python's `isolation=`) sets every step's mode for one
+  run, in place of the file's; `in-process` also turns every step's `share_compiled_models` off
+  and sets its `sandbox` to `none`.
+- Validation refuses a step in process mode (`UNSUPPORTED`, located at the `isolation.mode` field
+  that set it) on Windows, where process isolation is not available in this version.
+- A step in process mode has the service providers of its module's services loaded in its module
+  host; the runtime's process loads only those of the steps that run in it
+  ([specs/process-isolation.md](specs/process-isolation.md#service-providers)).
+- The run record's `execution.isolation` lists every step's resolved settings; they never enter
+  the run fingerprint.
+
+#### Shared compiled models
+
+Steps in process mode that set `share_compiled_models: true` share the models their providers
+compile: a provider in one step's module host keeps a model it compiled in a store in the
+runtime's process, and the same provider in another sharing step's module host loads it from there
+instead of compiling it again
+([specs/process-isolation.md](specs/process-isolation.md#shared-compiled-models)). The provider
+`roadrunner` keeps a compiled SBML model this way, so a run of many steps on one large model
+compiles it once. The results do not change.
+
+```yaml
+run:
+  isolation: { mode: process, share_compiled_models: true }
+```
+
+- It applies only to a step that runs in a module host: validation refuses it on a step in mode
+  `in-process` (`CONFIG_INVALID`, located at the field that set it).
+- The store is in memory only and lasts as long as the runtime's process: at most 128 MiB an
+  entry and 512 MiB in all, the least recently used entry out first. A step that does not share
+  never reads it, and its providers never see it.
+- **Trust.** A module host that shares can hand every other sharing step of the process a compiled
+  model of its choosing, and for `roadrunner` that is native code the other module host runs. The
+  providers check an entry before they use one (`roadrunner`'s envelope: its engine, length and
+  SHA-256), which finds an entry that is corrupt or cut short, never one made on purpose; one that
+  does not load is compiled again, with a warning. Share only between steps whose modules you trust
+  alike. It is off by default.
+
+#### The restricted sandbox profile
+
+On macOS, a step in process mode with `sandbox: restricted` has its module host apply a sandbox
+profile to itself before it loads any library: the module and its providers may not use the
+network, may not start processes (`fork`, `exec`, `posix_spawn`, nor through launchd,
+LaunchServices or Apple events), and may not write files anywhere but in the module host's own
+temporary directory (which `TMPDIR` names) and to `/dev/null`. They may read files, load
+libraries and generate code (the provider `roadrunner` compiles its models as usual), and their
+records and outputs reach the run as without the profile
+([specs/process-isolation.md](specs/process-isolation.md#the-restricted-profile)). The results do
+not change, for a module that does nothing the profile refuses.
+
+```yaml
+steps:
+  estimate:
+    module: { name: example-estimator, version: "0.1.0" }
+    isolation: { mode: process, sandbox: restricted }
+```
+
+- It applies only to a step that runs in a module host: validation refuses it on a step in mode
+  `in-process` (`CONFIG_INVALID`), and on Linux and Windows, which have no such profile in this
+  version (`UNSUPPORTED`), each located at the field that set it.
+- What the profile refuses fails with `EPERM` (`Operation not permitted`) in the module; a module
+  that needs it fails as it fails for any refused system call
+  ([module-developer-guide.md](module-developer-guide.md)).
+- A runtime that runs in a sandbox already (another program's) cannot give a module host the
+  profile, since macOS applies no second sandbox: the step's load fails with
+  `MODULE_HOST_UNAVAILABLE`, `details.reason` `sandbox`, "Operation not permitted".
+- The profile limits what the module host's own process does. It is not a boundary against a
+  module meant to do harm: the system services a module can still reach over Mach IPC may act for
+  it. Run only modules you trust as code in your own process, profile or not.
+- The temporary directory is removed when the module host ends; what a module made impossible to
+  remove there (an immutable file) is left, with a warning (`module_host.directory_left`). A
+  runtime that is killed leaves its module hosts' directories, until the system cleans its
+  temporary directory.
+- The run record's `execution.isolation.<step>.sandbox` says which profile each step had.
 
 ### `outputs`
 
@@ -239,6 +341,7 @@ A setting given by the caller wins over the file, which wins over the defaults:
 | Replace an earlier run | `--overwrite` | `overwrite` | |
 | Message trace | `--trace` | `trace_messages` | `outputs.trace_messages` |
 | Status file | `--status-file F` | `status_file` | `observability.status_file` |
+| Isolation of every step | `--isolation M` | `isolation` | `run.isolation`, `steps.<id>.isolation` |
 
 The logging settings (level, format and file) are resolved each on its own, the level and the
 format also from the environment; their sources and order are specified in
@@ -249,9 +352,9 @@ up instead of replacing each other: the caller's module paths (`--module-path`,
 (`RuntimeOptions::catalog_paths`) and `PRAENORA_CATALOG_PATH`. Service providers are found on the
 caller's provider paths (`--provider-path`, `RuntimeOptions::provider_paths`), then
 `PRAENORA_PROVIDER_PATH`, then the installation's provider directory
-([search order](specs/runtime-services.md#discovery)); a configuration names none. The seed and
-tick overrides are listed in the run record's `execution.overrides`. In Python the same overrides
-are the arguments of `Workflow` ([python.md](python.md)).
+([search order](specs/runtime-services.md#discovery)); a configuration names none. The seed, tick
+and isolation overrides are listed in the run record's `execution.overrides`. In Python the same
+overrides are the arguments of `Workflow` ([python.md](python.md)).
 
 ## Environment variables
 
@@ -277,8 +380,8 @@ uses, the seed, the tick count, the time base, the timeouts, each step's module 
 library digests), resolved parameters, seed and the runtime services it may use, the service
 providers that serve those services (each provider's identity, manifest and library digests and
 engine), and each input's source kind, column mapping and file digest. The `outputs` and
-`observability` sections, step log levels and every path are left out. The full list is in
-[specs/reproducibility.md](specs/reproducibility.md#run-fingerprint).
+`observability` sections, step log levels, the steps' isolation and every path are left out. The
+full list is in [specs/reproducibility.md](specs/reproducibility.md#run-fingerprint).
 
 ## Validation
 
@@ -293,11 +396,15 @@ collecting every problem; a later step is skipped only when it depends on one th
 3. Check the bindings of steps (`BINDING_INVALID`) and inputs (`INPUT_BINDING_INVALID`).
 4. Find and check each step's module from its manifest (`MODULE_NOT_FOUND`, `MANIFEST_INVALID`,
    `PLATFORM_MISMATCH`, `ABI_INCOMPATIBLE`, `PROTOCOL_INCOMPATIBLE`, `CAPABILITY_NOT_IMPLEMENTED`,
-   `LIBRARY_NOT_FOUND`, `LIBRARY_DIGEST_MISMATCH`), without loading it.
+   `LIBRARY_NOT_FOUND`, `LIBRARY_DIGEST_MISMATCH`), without loading it, and whether a step in
+   process mode can run in a module host (`UNSUPPORTED`).
 5. Validate the parameters and fill in their defaults (`PARAMETERS_INVALID`).
 6. Read and check the input data (`TARGET_DATA_UNAVAILABLE`, `TARGET_DATA_INVALID`).
 7. Compute the digests and the run fingerprint.
 
 With `--load` (and in every run), the module libraries are then loaded and checked
-(`LIBRARY_LOAD_FAILED`, `ENTRY_POINT_MISSING`, `API_TABLE_INVALID`, `MODULE_IDENTITY_MISMATCH`). The
+(`LIBRARY_LOAD_FAILED`, `ENTRY_POINT_MISSING`, `API_TABLE_INVALID`, `MODULE_IDENTITY_MISMATCH`),
+each where its steps run: in the runtime's process, or in a module host for a step in process mode
+(`MODULE_HOST_UNAVAILABLE` when none can be started, `MODULE_CRASHED` when it ends while it loads
+the library). The
 [error taxonomy](specs/error-taxonomy.md#triage) says where to look for each code.

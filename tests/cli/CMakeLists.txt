@@ -24,8 +24,8 @@ set(_praenora_fixture_paths
 #
 # Adds CTest test <name> (label cli) that runs the praenora tool with the CMD arguments, an empty
 # one included, through run_cli.cmake. The other keywords are the driver's variables (see there):
-# SETUP_CMD and AFTER_CMD are argument lists like CMD; EXPECT_JSON_PATH, EXPECT_JSON_VALUE and
-# COPY_FILES take several values.
+# SETUP_CMD and AFTER_CMD are argument lists like CMD; EXPECT_JSON_PATH, EXPECT_JSON_VALUE,
+# EXPECT_FILE_JSON_PATH, EXPECT_FILE_JSON_VALUE and COPY_FILES take several values.
 # ENVIRONMENT sets environment variables (name=value) for the test. With INTERRUPT (POSIX only),
 # a plain POSIX shell runs the CMD command in the foreground (exec, so it keeps SIGINT at its
 # default disposition) while a background waiter waits, for at most 120 s, until the status file
@@ -35,7 +35,8 @@ set(_praenora_fixture_paths
 # last signal, is killed. Such a test times out after 180 s.
 function(praenora_add_cli_test name)
     set(commands CMD SETUP_CMD AFTER_CMD)
-    set(lists EXPECT_JSON_PATH EXPECT_JSON_VALUE COPY_FILES)
+    set(lists EXPECT_JSON_PATH EXPECT_JSON_VALUE EXPECT_FILE_JSON_PATH EXPECT_FILE_JSON_VALUE
+        COPY_FILES)
     set(values EXPECT_EXIT EXPECT_STDOUT_REGEX EXPECT_STDERR_REGEX EXPECT_STDOUT_FILE
         EXPECT_JSON_LENGTH EXPECT_FILE CLEAN_DIR AFTER_EXPECT_EXIT INTERRUPT READY_FILE)
     cmake_parse_arguments(PARSE_ARGV 1 arg "" "${values}" "${commands};${lists};ENVIRONMENT")
@@ -187,6 +188,48 @@ if(NOT WIN32)
         EXPECT_EXIT 130
         EXPECT_STDOUT_REGEX "^$"
         EXPECT_FILE "${_praenora_cli_out}/hung/status.json.second-signal")
+endif()
+
+# Steps in module hosts (process isolation): --isolation process puts every step of the run in a
+# module host of its own, and the run completes as in the runtime's process, with a valid run record
+# that says so; a module host that crashes (the configuration's run.isolation) fails the run with
+# MODULE_CRASHED and how it ended (exit 1), and its status file can still be read; SIGINT during a
+# call in a module host stops the run (exit 130), never as a crash. Module hosts are built on POSIX
+# only.
+if(NOT WIN32)
+    set(_praenora_isolation_out "${_praenora_cli_out}/isolation")
+    praenora_add_cli_test(cli.run.isolation_process
+        CLEAN_DIR "${_praenora_isolation_out}/process"
+        CMD run "${_praenora_cli_configs}/isolation/workflow.yaml" ${_praenora_fixture_paths}
+            --isolation process --output-dir "${_praenora_isolation_out}/process" --json
+        EXPECT_JSON_PATH ok result.state result.ticks_completed
+        EXPECT_JSON_VALUE true completed 3
+        EXPECT_FILE "${_praenora_isolation_out}/process/run-record.json"
+        EXPECT_FILE_JSON_PATH execution.isolation.a.mode execution.isolation.b.mode
+            execution.overrides.isolation
+        EXPECT_FILE_JSON_VALUE process process process
+        AFTER_CMD validate --document "${_praenora_isolation_out}/process/run-record.json")
+    praenora_add_cli_test(cli.run.isolation_crash
+        CLEAN_DIR "${_praenora_isolation_out}/crash"
+        CMD run "${_praenora_cli_configs}/isolation-crash/workflow.yaml" ${_praenora_fixture_paths}
+            --status-file "${_praenora_isolation_out}/crash/status.json" --json
+        ENVIRONMENT "ASAN_OPTIONS=handle_segv=0:handle_abort=0:detect_leaks=0"
+            "TSAN_OPTIONS=handle_segv=0:handle_abort=0"
+        EXPECT_EXIT 1
+        EXPECT_JSON_PATH ok error.name error.details.step error.details.phase
+            error.details.signal_name
+        EXPECT_JSON_VALUE false MODULE_CRASHED a invoke SIGSEGV
+        AFTER_CMD status "${_praenora_isolation_out}/crash/status.json")
+    praenora_add_cli_test(cli.run.isolation_interrupted
+        CLEAN_DIR "${_praenora_isolation_out}/interrupted"
+        CMD run "${_praenora_cli_configs}/interrupted/workflow.yaml" ${_praenora_fixture_paths}
+            --isolation process
+            --status-file "${_praenora_isolation_out}/interrupted/status.json"
+        INTERRUPT 1
+        READY_FILE "${_praenora_isolation_out}/interrupted/status.json"
+        EXPECT_EXIT 130
+        EXPECT_STDOUT_REGEX "state +stopped"
+        EXPECT_STDERR_REGEX "error\\[RUN_STOPPED\\]")
 endif()
 
 # Configuration, module and output directories whose names hold spaces and non-ASCII characters,
@@ -449,6 +492,14 @@ praenora_add_cli_test(cli.graph.unknown_format
 praenora_add_cli_test(cli.run.help_lists_log_formats
     CMD run --help
     EXPECT_STDOUT_REGEX " \\[--log-format text\\|json\\]\n")
+praenora_add_cli_test(cli.run.help_lists_isolation_modes
+    CMD run --help
+    EXPECT_STDOUT_REGEX
+        "\\[--isolation in-process\\|process\\].*  --isolation M +in-process or process")
+praenora_add_cli_test(cli.run.isolation_unknown_mode
+    CMD run "${_praenora_cli_configs}/module-failure/workflow.yaml" --isolation thread
+    EXPECT_EXIT 2
+    EXPECT_STDERR_REGEX "--isolation 'thread' is not in-process or process\n")
 
 # --help with --json: the usage is the result of the usual success document.
 praenora_add_cli_test(cli.json.help

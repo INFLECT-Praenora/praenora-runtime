@@ -4,18 +4,26 @@
 // without overwrite), run-record.json is written (status running), and the output files and, when
 // tracing, trace/messages.jsonl are opened. Without an output directory nothing is written to
 // disk: the run record is kept in memory, and a message trace that was asked for is skipped with a
-// warning. Then, unless a stop was requested, the providers of the run's services are loaded
-// (load_provider(), each provider once, with every service the run gets from it, in the order of
-// the reproducibility section's `services` keys): LIBRARY_DIGEST_MISMATCH when a provider's
-// library changed after validation, and every other error of the provider loader, located in the
-// provider's manifest, fails the run before any module is loaded. Then for each step, in schedule
-// order: the step's module is loaded (once per manifest, shared by the steps that use it;
-// LIBRARY_DIGEST_MISMATCH when the library changed after validation), an instance is created with
-// the create document {pmp_version, step, capability {id, version}, module {name, version},
-// parameters} and initialized with the initialize document {pmp_version, run {fingerprint, seed
-// (the step's)}, time {unit, start, period}}. The instance is served the built-in services
-// (EngineSettings::services) and the provider services of its step (ResolvedStep::services), and
-// no other provider service.
+// warning. Then, unless a stop was requested, the providers of the services of the steps in this
+// process (isolation mode "in-process") are loaded (load_provider(), each provider once, with
+// every such service the run gets from it, in the order of the reproducibility section's
+// `services` keys): LIBRARY_DIGEST_MISMATCH when a provider's library changed after validation,
+// and every other error of the provider loader, located in the provider's manifest, fails the run
+// before any module is loaded. A provider that only steps in module hosts use is never loaded in
+// this process. Then for each step, in schedule order: the step's module is loaded (once per
+// manifest, shared by the steps that use it; LIBRARY_DIGEST_MISMATCH when the library changed
+// after validation), or, for a step whose isolation mode is "process", loaded in a module host of
+// the step's own, never shared (LoadedModule::load_in_child(): the providers of the step's
+// services loaded and started there first, then the module, with the same checks and the
+// providers' errors located in their manifests; the module host's events on the step's logger,
+// the providers' records on the run's provider.<name>; MODULE_HOST_UNAVAILABLE when no module host
+// can be started, MODULE_CRASHED when it ends while it loads, and the step is then `crashed`); an
+// instance is created with the create document {pmp_version, step, capability {id, version},
+// module {name, version}, parameters} and initialized with the initialize document {pmp_version,
+// run {fingerprint, seed (the step's)}, time {unit, start, period}}. The instance is served the
+// provider services of its step (ResolvedStep::services), by the providers in its own process, and
+// no other provider service; in this process also the built-in services (EngineSettings::services),
+// which a module host does not offer.
 //
 // run_tick(). Tick t covers the logical-time window [start + t*period, start + (t+1)*period),
 // computed by multiplication; its logical time is the window's end.
@@ -56,44 +64,49 @@
 // requested does not finish the run by itself: the next run_tick() (or shutdown()) winds it down.
 //
 // Failures. The first failure ends the run. A module call that does not return in time but within
-// the cancellation grace is STEP_TIMEOUT, one that does not return at all MODULE_UNRESPONSIVE, one
-// that fails STEP_FAILED (its message and cause are the module's error document); a library that
-// does not load keeps the loader's code. The error's details hold step, module, phase (load,
-// create, initialize or invoke), tick (during a tick), cause (the module's error document) and,
-// when the failing instance declares diagnostics and is not unresponsive, its diagnostics (asked
-// for before the teardown; over 64 KiB they become {"truncated": true, "bytes", "text": the first
-// 64 KiB}); a provider that does not load names no step, and its error keeps the loader's
-// details. The engine enters `stopping`, tears everything down, enters `failed`, writes the final
-// run record and throws the error. Other errors (writing files, input data, unexpected
-// exceptions, as INTERNAL) end the run the same way. Even an exception that breaks off the ending
-// itself (out of memory, most likely) leaves a failed run with an error, the first failure: the
-// one it was ending with, else an error met earlier in the ending (an output file), else an
-// INTERNAL one; the run records the very error that the control call that ended the run throws
-// (shutdown() and the destructor only record it), so a failed run always carries its error in the
-// summary, the run record and the status. Every error record the engine makes of an error keeps
-// its location and details (for a run failure, the details the error is thrown with).
+// the cancellation grace is STEP_TIMEOUT, one that does not return at all MODULE_UNRESPONSIVE (in a
+// module host, which is then killed, with details.terminated), one that fails STEP_FAILED (its
+// message and cause are the module's error document), one whose module host ends or breaks its
+// channel MODULE_CRASHED (with how it ended); a library that does not load keeps the loader's code.
+// The error's details hold step, module, phase (load, create, initialize or invoke), tick (during a
+// tick), cause (the module's error document) and, when the failing instance declares diagnostics
+// and is neither unresponsive nor crashed, its diagnostics (asked for before the teardown; over 64
+// KiB they become {"truncated": true, "bytes", "text": the first 64 KiB}); a provider in this
+// process that does not load names no step, and its error keeps the loader's details (one in a
+// module host fails its step's load, phase load). The engine enters `stopping`, tears
+// everything down, enters `failed`, writes the final run record and throws the error. Other errors
+// (writing files, input data, unexpected exceptions, as INTERNAL) end the run the same way. Even an
+// exception that breaks off the ending itself (out of memory, most likely) leaves a failed run with
+// an error, the first failure: the one it was ending with, else an error met earlier in the ending
+// (an output file), else an INTERNAL one; the run records the very error that the control call that
+// ended the run throws (shutdown() and the destructor only record it), so a failed run always
+// carries its error in the summary, the run record and the status. Every error record the engine
+// makes of an error keeps its location and details (for a run failure, the details the error is
+// thrown with).
 //
-// Stop. request_stop() raises the stop flag, which every instance sees as its calls start, and
-// asks the call in flight to cancel. The engine starts no module call while the flag is up: the
-// next step of start() or of a tick, or the next tick, ends the run as `stopped` instead, as does
-// a call that returns cancelled; a run stopped before start() loads no provider either. A tick
-// cut short does not count and records no outputs (the trace keeps what it has written). A stopped
-// run is not an error: start() and run_tick() return normally (run_tick() with finished set, no
-// outputs and the tick that did not complete), and the summary's error is RUN_STOPPED.
+// Stop. request_stop() raises the stop flag, which every instance sees as its calls start, and asks
+// the call in flight to cancel; a module host still loading its step's module is killed instead (no
+// load has a timeout of its own). The engine starts no module call while the flag is up: the next
+// step of start() or of a tick, or the next tick, ends the run as `stopped` instead, as does a call
+// that returns cancelled, or a load that the stop ended; a run stopped before start() loads no
+// provider either. A tick cut short does not count and records no outputs (the trace keeps what it
+// has written). A stopped run is not an error: start() and run_tick() return normally (run_tick()
+// with finished set, no outputs and the tick that did not complete), and the summary's error is
+// RUN_STOPPED.
 //
 // Teardown. Every ready instance is finalized, the last created first; then every created instance
 // is destroyed, again the last created first; then the libraries are released (unloaded unless
 // pinned). finalize and destroy run normally after a stop. Unresponsive instances are left alone:
-// never finalized or destroyed, their libraries pinned. Every call goes through its library's
-// gate (loader/library_gate.hpp), which refuses a call that would have to wait for an abandoned
-// call, of this run or another one in the process: with features.concurrency "module", any call
-// into a library while an abandoned call may still be running in it. An instance whose finalize
-// or destroy is refused is left alone too: from then on it is neither finalized nor destroyed,
-// never freed, and served no more runtime services (a warning, event teardown.skipped, names it,
-// what was left undone and the abandoned call). Instances already destroyed or never created
-// (still loaded) make no module call when released. This also applies when an instance becomes
-// unresponsive during the teardown itself; and once the abandoned call returns, the calls that
-// follow are made as usual.
+// never finalized or destroyed, their libraries pinned (in a module host, which was killed, nothing
+// is pinned); so are crashed ones. Every call goes through its library's gate
+// (loader/library_gate.hpp), which refuses a call that would have to wait for an abandoned call, of
+// this run or another one in the process: with features.concurrency "module", any call into a
+// library while an abandoned call may still be running in it. An instance whose finalize or destroy
+// is refused is left alone too: from then on it is neither finalized nor destroyed, never freed,
+// and served no more runtime services (a warning, event teardown.skipped, names it, what was left
+// undone and the abandoned call). Instances already destroyed or never created (still loaded) make
+// no module call when released. This also applies when an instance becomes unresponsive during the
+// teardown itself; and once the abandoned call returns, the calls that follow are made as usual.
 //
 // Calls into a library shared with other runs. A call waits for its turn at the library's gate
 // before its deadline starts (with concurrency "module", while another run's call into the
@@ -108,12 +121,13 @@
 // status-file writer built afterwards has them). The engine keeps the workflow state there
 // (created, starting, ready, running, completed; stopping only while a stop or failure tears down,
 // then stopped or failed), each step's state (busy during each call the engine makes into it;
-// failed, sticky, for a step whose call failed or whose finalize failed; unresponsive), every
-// invocation, every tick, and the last errors: a failure is the workflow's last error and the
+// failed, sticky, for a step whose call failed or whose finalize failed; unresponsive; crashed),
+// every invocation, every tick, and the last errors: a failure is the workflow's last error and the
 // failing step's (counted with its invocation, or set on its own for load, create, initialize,
-// finalize and an invoke that was refused); a failed finalize at the end is only the step's. An
-// invoke that a stop ended while it waited for its library is not counted. A stop sets no last
-// error.
+// finalize and an invoke that was refused); a failed finalize at the end, and a destroy whose
+// module host crashed, are only the step's (warnings teardown.finalize_failed and
+// teardown.destroy_failed). An invoke that a stop ended while it waited for its library is not
+// counted. A stop sets no last error.
 //
 // Threading. start(), run_tick() and shutdown() are control calls, made by one thread at a time;
 // the destructor too. All other methods are thread-safe and may be called at any time from any
@@ -158,8 +172,9 @@ struct EngineSettings {
     LogHub* logs = nullptr;
     // Required. Must outlive the engine.
     MetricsRegistry* metrics = nullptr;
-    // The built-in services, served to every module through the host API's get_service() after
-    // its step's provider services. Must outlive the engine.
+    // The built-in services, served to every module in this process through the host API's
+    // get_service() after its step's provider services (not in a module host). Must outlive the
+    // engine.
     const ServiceRegistry* services = nullptr;
     // "strict" validation: input data and module outputs against their message types, envelopes
     // against pmp-envelope. false ("off") is for performance measurements; the run record says so.
@@ -230,7 +245,7 @@ private:
     // is not over yet, and is rethrown as a praenora::Error.
     template <class Body> auto control(Body&& body) -> decltype(body());
     void start_run();
-    // Loads the providers of the run's services and keeps their tables.
+    // Loads the providers of the services of the steps in this process and keeps their tables.
     void load_providers();
     TickResult tick_once();
     void open_output(std::int64_t started_at);

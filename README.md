@@ -38,6 +38,15 @@ with libAntimony, is built only with `-DPRAENORA_WITH_ANTIMONY=ON` and libAntimo
 source ([docs/platforms.md](docs/platforms.md#the-antimony-provider)), and is verified on macOS
 arm64 with libAntimony 3.3.0.
 
+Then process isolation: a step's module instance can run in a module host
+(`praenora-module-host`), a process of its own with the service providers its module uses, so that
+a crash in the module fails only that step and a call that never returns is ended by killing the
+module host. Steps in module hosts can share compiled models through a store in the runtime's
+process, and on macOS a module host can apply a restricted sandbox profile to itself: no network,
+no new processes and no writes outside its own temporary directory
+([docs/specs/process-isolation.md](docs/specs/process-isolation.md)). Modules do not change, and
+neither do the results. It is verified on macOS arm64; Windows does not have it in this version.
+
 | Platform | Status |
 |---|---|
 | macOS arm64 (AppleClang) | verified |

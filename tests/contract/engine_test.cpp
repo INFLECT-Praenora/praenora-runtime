@@ -950,12 +950,24 @@ TEST(Engine, LibraryChangedAfterValidationIsRefused) {
     ASSERT_TRUE(validated.workflow) << validated.report.to_text();
     // As if the library file had been replaced between validation and loading.
     validated.workflow->steps.at(0).library_sha256 = std::string(64, 'a');
+    // The loader's own check with validation's digest, before the library opens: the one a
+    // module host makes too.
+    std::string expected;
+    try {
+        static_cast<void>(praenora::detail::LoadedModule::load(
+            *validated.workflow->steps.at(0).manifest, nullptr, std::string(64, 'a')));
+    } catch (const Error& refused) {
+        expected = refused.what();
+    }
+    ASSERT_FALSE(expected.empty());
     EngineSettings settings;
     settings.logs = &fixture.logs.hub();
     settings.metrics = &fixture.metrics;
     Engine engine(std::move(*validated.workflow), settings);
     const Error error = error_of([&] { engine.start(); });
     EXPECT_EQ(error.code(), ErrorCode::LIBRARY_DIGEST_MISMATCH) << error.to_json();
+    EXPECT_EQ(error.what(), expected);
+    EXPECT_NE(expected.find("changed after validation"), std::string::npos) << expected;
     EXPECT_EQ(error.location().pointer, "/library/path");
     EXPECT_EQ(details_of(error).at("phase"), "load");
     EXPECT_EQ(details_of(error).at("step"), "a");
@@ -1348,7 +1360,8 @@ TEST(Engine, InstanceConcurrencyTearsDownOtherInstances) {
 TEST(Engine, TeardownReleasesSiblingsAlreadyDestroyed) {
     // b is destroyed first (the last created goes first); then a's destroy hangs and a becomes
     // unresponsive. b needs no holding back: a destroyed instance is never called again. It is
-    // released as usual, and nothing is reported as skipped.
+    // released as usual, and nothing is reported as skipped. a's lifecycle timeout bounds its
+    // create, initialize and finalize too, which must return within it on a loaded machine.
     static TestGate gate; // static: the detached thread polls it after the engine is gone
     gate.close();
     ServiceRegistry services;
@@ -1358,7 +1371,7 @@ TEST(Engine, TeardownReleasesSiblingsAlreadyDestroyed) {
         fixture.open(config("test.chain", "run: { ticks: 1 }\n", kJsonSource,
                             "steps:\n" +
                                 step("a", "fx-hang", "{ hang: destroy }",
-                                     "    timeouts: { lifecycle: 50ms, cancel_grace: 50ms }\n") +
+                                     "    timeouts: { lifecycle: 500ms, cancel_grace: 50ms }\n") +
                                 step("b", "fx-hang", "{ hang: none }")),
                      {}, &services);
     engine.start();
@@ -1376,7 +1389,8 @@ TEST(Engine, TeardownReleasesSiblingsAlreadyDestroyed) {
 
 TEST(Engine, TeardownSkipWarningSaysWhatWasLeftUndone) {
     // b is finalized first; then a's finalize hangs and a becomes unresponsive. b, already
-    // finalized, is not destroyed, and the warning says so.
+    // finalized, is not destroyed, and the warning says so. a's lifecycle timeout bounds its create
+    // and initialize too, which must return within it on a loaded machine.
     static TestGate gate; // static: the detached thread polls it after the engine is gone
     gate.close();
     ServiceRegistry services;
@@ -1386,7 +1400,7 @@ TEST(Engine, TeardownSkipWarningSaysWhatWasLeftUndone) {
         fixture.open(config("test.chain", "run: { ticks: 1 }\n", kJsonSource,
                             "steps:\n" +
                                 step("a", "fx-hang", "{ hang: finalize }",
-                                     "    timeouts: { lifecycle: 50ms, cancel_grace: 50ms }\n") +
+                                     "    timeouts: { lifecycle: 500ms, cancel_grace: 50ms }\n") +
                                 step("b", "fx-hang", "{ hang: none }")),
                      {}, &services);
     engine.start();

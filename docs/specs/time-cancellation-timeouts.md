@@ -84,17 +84,21 @@ The outcome of a `create`, `initialize` or `invoke` call, and its effect on the 
 | returns `PRAENORA_STATUS_CANCELLED` before its deadline, after a stop was requested during it | cancelled | The run ends as stopped (`RUN_STOPPED`). |
 | returns any other status before its deadline | failed | The run fails with `STEP_FAILED` (`OUTPUT_INVALID` for an unacceptable result). |
 | returns after its deadline but within the cancellation grace, whatever its status | timed out | The run fails with `STEP_TIMEOUT`. |
-| does not return within its deadline plus the cancellation grace | unresponsive | The run fails with `MODULE_UNRESPONSIVE`; the instance is abandoned ([threading-and-ownership.md](threading-and-ownership.md#unresponsive-instances)). |
+| does not return within its deadline plus the cancellation grace | unresponsive | The run fails with `MODULE_UNRESPONSIVE`; the instance is abandoned ([threading-and-ownership.md](threading-and-ownership.md#unresponsive-instances)), or, in a module host, the module host is killed (`details.terminated: true`) and nothing is abandoned. |
+| ends its module host (a signal, an exit) or breaks its channel, in process mode | crashed | The run fails with `MODULE_CRASHED` ([process-isolation.md](process-isolation.md#crashes)). |
 | is not made: it would have to wait for an abandoned call that may still be running in its library | refused | The run fails with `MODULE_UNRESPONSIVE`, naming the abandoned call ([threading-and-ownership.md](threading-and-ownership.md#concurrency-across-instances)). |
 | is not made: a stop was requested while it waited for its library | cancelled | The run ends as stopped (`RUN_STOPPED`). |
 
 - A `finalize` or `destroy` call of the teardown, and a `diagnostics` call made while a failure is
   reported, never change how the run ends, whatever their outcome: a run that completed, stopped or
   failed keeps that ending and its error. A `finalize` that fails or times out is logged as a
-  warning (event `teardown.finalize_failed`) and becomes its step's last error; a `diagnostics` call
-  that does not succeed only leaves the diagnostics out of the error's details; any of them that
-  does not return within its deadline plus the cancellation grace still makes its instance
-  unresponsive and abandoned, and a refused `finalize` or `destroy` leaves its instance as it is
+  warning (event `teardown.finalize_failed`) and becomes its step's last error; so does a `destroy`
+  whose module host crashes (event `teardown.destroy_failed`; a step in process mode,
+  [process-isolation.md](process-isolation.md#runs-and-validation)), while a `destroy` that times
+  out or never returns leaves only its instance's state; a `diagnostics` call that does not succeed
+  only leaves the diagnostics out of the error's details; any of them that does not return within
+  its deadline plus the cancellation grace still makes its instance unresponsive and abandoned, and
+  a refused `finalize` or `destroy` leaves its instance as it is
   ([threading-and-ownership.md](threading-and-ownership.md#unresponsive-instances)).
 - An invocation that fails, times out or is cancelled leaves its instance `ready`, so it is still
   finalized. A `create`, `initialize` or `finalize` that does not succeed leaves it `failed`.
@@ -107,7 +111,9 @@ The outcome of a `create`, `initialize` or `invoke` call, and its effect on the 
 
 - Cancellation is cooperative: the runtime never terminates a thread. A module SHOULD poll
   `cancel_requested()` in long computations and, once it is nonzero, return
-  `PRAENORA_STATUS_CANCELLED` as soon as it can.
+  `PRAENORA_STATUS_CANCELLED` as soon as it can. Only a step in process mode is ended against its
+  will: when a call outlives its deadline and the grace, its module host is killed
+  ([process-isolation.md](process-isolation.md#unresponsive-calls)).
 - Cancellation is per call. `cancel_requested()` is nonzero only while the call in flight has passed
   its own deadline or had a stop requested while it ran. Every call starts with it zero, so the calls
   that follow a stop (`finalize` and `destroy` at the teardown, `diagnostics`) run normally, bounded
@@ -124,7 +130,11 @@ so it MAY be called from any thread and from a signal handler.
 
 - It raises the run's stop flag and requests cancellation of the module call in flight, if any. From
   then on the runtime starts no module call: a `create`, `initialize` or `invoke` that starts after
-  the flag was raised sees `cancel_requested()` nonzero from its start.
+  the flag was raised sees `cancel_requested()` nonzero from its start. A call in a module host gets
+  the cancellation over its channel within a few milliseconds.
+- A load has no deadline, in the runtime's process as in a module host. A module host that is still
+  loading its step's module when the stop comes (a static initializer that blocks, say) is killed,
+  and the run ends as stopped, not as a crash.
 - The step or tick in progress then ends the run as `stopped`. A tick cut short does not count and
   records no outputs; the trace lines it wrote stay. A stop requested between ticks takes effect at
   the next tick, which calls no module.
@@ -135,7 +145,8 @@ so it MAY be called from any thread and from a signal handler.
 - `praenora run` turns SIGINT and SIGTERM (on Windows also Ctrl+C, Ctrl+Break and closing the
   console) into `request_stop()` and exits with 130 once the run has stopped. A second signal ends
   the process at once with exit code 130. On POSIX systems a signal that the process inherited as
-  ignored stays ignored.
+  ignored stays ignored. A terminal's Ctrl+C never reaches a module host, which has a process group
+  of its own: the runtime stops its call.
 - In Python, `request_stop()` from another thread stops a blocking `run()`; interrupt handling is an
   open question (OQ-25).
 

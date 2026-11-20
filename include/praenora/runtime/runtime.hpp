@@ -101,7 +101,8 @@ public:
     // anything, every problem reported (never thrown) with its location. With `load`, it also
     // loads and starts the service providers of the workflow's services, as a run does (they stay
     // loaded for the rest of the process, and their records go to this runtime's logging), then
-    // loads each module library once and checks its identity, and releases the libraries.
+    // loads each module library once where its steps run, in this process or in a module host
+    // (then ended), checks its identity, and releases the libraries.
     ValidationReport validate(const std::string& config_path,
                               const ValidateOptions& options = {}) const;
 

@@ -6,12 +6,13 @@
 # (tests/contract/simulation_service_checks.hpp) run against it. test-conversion is the reference
 # provider of the model conversion service praenora.model-conversion@0.0
 # (include/praenora/sdk/model_conversion.h) for the toy formats "test-decay" and "test-decay-text";
-# its service checks (tests/contract/model_conversion_service_checks.hpp) run against it. The others
-# are built from variants/variant_provider.c: those with a FIXTURE_* definition, all but
-# test-reordered and test-negative-zero, break one rule of the provider interface on purpose;
-# test-conflict, test-retry and test-order have none and are correct. test-simulation and
-# test-conversion are C++17 (with nlohmann/json); the others are C99. All are compiled with the
-# project's warnings.
+# its service checks (tests/contract/model_conversion_service_checks.hpp) run against it. test-store
+# offers test.echo@0.0 and drives the shared compiled models of its provider host
+# (test-store/test_store_provider.cpp). The others are built from variants/variant_provider.c:
+# those with a FIXTURE_* definition, all but test-reordered and test-negative-zero, break one rule
+# of the provider interface on purpose; test-conflict, test-retry and test-order have none and are
+# correct. test-simulation, test-conversion and test-store are C++17 (with nlohmann/json); the
+# others are C99. All are compiled with the project's warnings.
 
 # praenora_add_fixture_provider(<name> SOURCES <source>... [SERVICES <service>@<major>.<minor>...]
 #                               [DEFINITIONS <definition>...] [LINK_LIBRARIES <library>...])
@@ -77,6 +78,18 @@ praenora_add_fixture_provider(test-identity-mismatch
 praenora_add_fixture_provider(test-describe-not-json
     SOURCES ${variant} DEFINITIONS FIXTURE_DESCRIBE_NOT_JSON)
 praenora_add_fixture_provider(test-start-fails SOURCES ${variant} DEFINITIONS FIXTURE_START_FAILS)
+# Loaded only in module hosts: their start() or echo() ends the process that loads them.
+praenora_add_fixture_provider(test-start-crashes
+    SOURCES ${variant} DEFINITIONS FIXTURE_START_CRASHES)
+find_package(Threads REQUIRED)
+praenora_add_fixture_provider(test-echo-crashes
+    SOURCES ${variant} DEFINITIONS FIXTURE_ECHO_CRASHES LINK_LIBRARIES Threads::Threads)
+# For the isolation tests of the shared compiled models.
+praenora_add_fixture_provider(test-store
+    SOURCES test-store/test_store_provider.cpp
+    LINK_LIBRARIES nlohmann_json::nlohmann_json Threads::Threads)
+# Says what log_enabled() reports, for the levels of a provider's records in a module host.
+praenora_add_fixture_provider(test-log-levels SOURCES ${variant} DEFINITIONS FIXTURE_LOG_LEVELS)
 praenora_add_fixture_provider(test-missing-service
     SOURCES ${variant} DEFINITIONS FIXTURE_MISSING_SERVICE
     SERVICES test.echo@0.0 test.absent@0.0)

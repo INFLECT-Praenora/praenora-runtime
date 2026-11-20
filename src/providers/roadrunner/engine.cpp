@@ -38,6 +38,7 @@
 #include <mutex>
 #include <ostream>
 #include <set>
+#include <sstream>
 #include <streambuf>
 #include <utility>
 
@@ -60,6 +61,13 @@ constexpr std::chrono::milliseconds kPollInterval(20);
 
 // The compiled models the cache keeps, least recently used first out.
 constexpr std::size_t kCacheCapacity = 16;
+
+// The first bytes of an entry of the shared compiled models that this provider made.
+constexpr char kStateMagic[] = "praenora-roadrunner-state\n";
+constexpr std::size_t kStateMagicSize = sizeof kStateMagic - 1;
+
+// The provider's host, from start(): its store callbacks reach the shared compiled models.
+const praenora_provider_host* g_provider_host = nullptr;
 
 int reset_everything() { return static_cast<int>(rr::SelectionRecord::ALL); }
 
@@ -439,32 +447,107 @@ std::set<std::string> as_set(const std::list<std::string>& ids) {
     return std::set<std::string>(ids.begin(), ids.end());
 }
 
-// Compiles the text (checked_text()) into a template, under the engine lock.
-std::shared_ptr<const CompiledModel> compile(const std::string& text,
-                                             const praenora_host_api* host) {
-    RunnerPtr runner;
-    SbmlFacts facts;
-    {
-        const EngineLock lock(host);
-        facts = check_document(text);
-        rr::LoadSBMLOptions options;
-        // MCJit, no LLVM optimization passes, no conserved-moiety analysis (so that the state
-        // vector holds every floating species that no rule defines), settable initial values.
-        options.modelGeneratorOpt = rr::LoadSBMLOptions::MUTABLE_INITIAL_CONDITIONS |
-                                    rr::LoadSBMLOptions::LLVM_SYMBOL_CACHE |
-                                    rr::LoadSBMLOptions::MCJIT | rr::LoadSBMLOptions::NONE;
-        options.loadFlags = 0;
-        try {
-            runner.reset(new rr::RoadRunner(text, &options));
-        } catch (const std::bad_alloc&) {
-            throw;
-        } catch (const std::exception& error) {
-            fail(PRAENORA_STATUS_DATA_INVALID,
-                 std::string("praenora.simulation: libRoadRunner cannot compile the model: ") +
-                     error.what(),
-                 {{"reason", "model"}, {"engine_error", engine_error(error)}});
-        }
+// ---------------------------------------------------------------------------------------------
+// The shared compiled models of the provider host (docs/specs/process-isolation.md): an entry is
+// an envelope around a state that saveStateS('b') wrote, which loadStateS() reads back.
+
+bool store_offered() noexcept {
+    const praenora_provider_host* host = g_provider_host;
+    return host != nullptr &&
+           host->struct_size >= offsetof(praenora_provider_host, save_compiled) +
+                                    sizeof(praenora_provider_host::save_compiled) &&
+           host->load_compiled != nullptr && host->save_compiled != nullptr;
+}
+
+praenora_status PRAENORA_CALL append_to(void* context, const char* data,
+                                        std::size_t size) noexcept {
+    try {
+        static_cast<std::string*>(context)->append(data == nullptr ? "" : data, size);
+        return PRAENORA_STATUS_OK;
+    } catch (...) {
+        return PRAENORA_STATUS_RESOURCE_EXHAUSTED;
     }
+}
+
+void put_u64(std::string& out, std::uint64_t value) {
+    for (int i = 0; i < 8; ++i) {
+        out.push_back(static_cast<char>((value >> (8 * i)) & 0xFF));
+    }
+}
+
+std::uint64_t get_u64(std::string_view in) {
+    std::uint64_t value = 0;
+    for (int i = 0; i < 8; ++i) {
+        value |= static_cast<std::uint64_t>(static_cast<unsigned char>(in[i])) << (8 * i);
+    }
+    return value;
+}
+
+// The SHA-256 of `bytes`, its 32 bytes.
+std::string sha256_bytes(std::string_view bytes) {
+    Poco::SHA2Engine digest(Poco::SHA2Engine::SHA_256);
+    digest.update(bytes.data(), bytes.size());
+    const Poco::DigestEngine::Digest& value = digest.digest();
+    return std::string(value.begin(), value.end());
+}
+
+// The saved state of `runner`, in its envelope. The caller holds the engine lock.
+std::string envelope_of(rr::RoadRunner& runner) {
+    const std::unique_ptr<std::stringstream> state(runner.saveStateS('b'));
+    return state_envelope(state->str());
+}
+
+// A libRoadRunner object loaded from `entry`, an envelope this build made, without compiling; or
+// nullptr, with why in `why`, when it does not load: the envelope's checks fail, or loadStateS()
+// throws. The caller holds the engine lock.
+std::unique_ptr<rr::RoadRunner> load_runner(std::string_view entry, std::string& why) {
+    const std::optional<std::string_view> payload = envelope_payload(entry, why);
+    if (!payload) {
+        return nullptr;
+    }
+    try {
+        auto runner = std::make_unique<rr::RoadRunner>();
+        auto state = std::make_unique<std::stringstream>(
+            std::string(*payload), std::ios::in | std::ios::out | std::ios::binary);
+        runner->loadStateS(state.release()); // takes the stream over, also when it throws
+        if (runner->getModel() == nullptr) {
+            why = "libRoadRunner loaded no model from it";
+            return nullptr;
+        }
+        return runner;
+    } catch (const std::exception& error) {
+        why = std::string("libRoadRunner could not load it: ") + error.what();
+    } catch (...) {
+        why = "libRoadRunner could not load it";
+    }
+    return nullptr;
+}
+
+// A libRoadRunner object compiled from the text (checked_text()). The caller holds the engine
+// lock.
+std::unique_ptr<rr::RoadRunner> compile_runner(const std::string& text) {
+    rr::LoadSBMLOptions options;
+    // MCJit, no LLVM optimization passes, no conserved-moiety analysis (so that the state vector
+    // holds every floating species that no rule defines), settable initial values.
+    options.modelGeneratorOpt = rr::LoadSBMLOptions::MUTABLE_INITIAL_CONDITIONS |
+                                rr::LoadSBMLOptions::LLVM_SYMBOL_CACHE |
+                                rr::LoadSBMLOptions::MCJIT | rr::LoadSBMLOptions::NONE;
+    options.loadFlags = 0;
+    try {
+        return std::make_unique<rr::RoadRunner>(text, &options);
+    } catch (const std::bad_alloc&) {
+        throw;
+    } catch (const std::exception& error) {
+        fail(PRAENORA_STATUS_DATA_INVALID,
+             std::string("praenora.simulation: libRoadRunner cannot compile the model: ") +
+                 error.what(),
+             {{"reason", "model"}, {"engine_error", engine_error(error)}});
+    }
+}
+
+// What describe_model reports of a compiled libRoadRunner object, and how to read each quantity:
+// the same for an object compiled from the text and one loaded from its saved state.
+std::shared_ptr<const CompiledModel> describe_compiled(RunnerPtr runner, const SbmlFacts& facts) {
     rr::ExecutableModel* model = runner->getModel();
     if (model == nullptr) {
         fail(PRAENORA_STATUS_DATA_INVALID, "praenora.simulation: libRoadRunner made no model",
@@ -529,6 +612,73 @@ std::shared_ptr<const CompiledModel> compile(const std::string& text,
                                                  std::move(quantities), events);
 }
 
+// What decides a compiled model besides its text: the engine (the provider manifest's engine
+// object) and the load options (none but the format). Part of the cache key, and of every entry
+// of the shared compiled models.
+std::string engine_identity() {
+    return std::string(PRAENORA_PROVIDER_ENGINE) + "\n{\"format\":\"" + kFormat + "\"}\n";
+}
+
+// The compiled model of the text (checked_text()) whose cache key is `key`: loaded from the shared
+// compiled models when the provider host offers them and they hold it, otherwise compiled now and
+// then kept there, when there are any. An entry that does not load is a warning, and the model is
+// compiled. Under the engine lock: the text's checks, the store's load and loadStateS() or the
+// compile, saveStateS() and the store's save.
+std::shared_ptr<const CompiledModel> obtain(const std::string& key, const std::string& text,
+                                            const praenora_host_api* host) {
+    RunnerPtr runner; // declared before the lock: destroying it takes the lock
+    SbmlFacts facts;
+    bool loaded = false;
+    {
+        const EngineLock lock(host);
+        facts = check_document(text);
+        const bool store = store_offered();
+        if (store) {
+            std::string entry;
+            praenora_sink sink{&entry, &append_to};
+            if (g_provider_host->load_compiled(g_provider_host->context, key.data(), key.size(),
+                                               &sink) == 1) {
+                std::string why;
+                if (std::unique_ptr<rr::RoadRunner> from_store = load_runner(entry, why)) {
+                    runner.reset(from_store.release());
+                    loaded = true;
+                } else {
+                    log_to(host, PRAENORA_LOG_WARN,
+                           "roadrunner: the compiled model in the shared store does not load (" +
+                               why + "); compiling it");
+                }
+            }
+        }
+        if (!loaded) {
+            runner.reset(compile_runner(text).release());
+            if (store) {
+                // A state that cannot be saved is not kept, and the compile stands: a warning.
+                std::string entry;
+                std::string why;
+                try {
+                    entry = envelope_of(*runner);
+                } catch (const std::exception& error) {
+                    why = std::string("libRoadRunner could not save its state: ") + error.what();
+                } catch (...) {
+                    why = "libRoadRunner could not save its state";
+                }
+                if (why.empty()) {
+                    g_provider_host->save_compiled(g_provider_host->context, key.data(), key.size(),
+                                                   entry.data(), entry.size());
+                } else {
+                    log_to(host, PRAENORA_LOG_WARN,
+                           "roadrunner: the compiled model is not kept in the shared store: " +
+                               why);
+                }
+            }
+        }
+    }
+    log_to(host, PRAENORA_LOG_DEBUG,
+           loaded ? "roadrunner: loaded the compiled model from the shared store"
+                  : "roadrunner: compiled the model");
+    return describe_compiled(std::move(runner), facts);
+}
+
 // ---------------------------------------------------------------------------------------------
 // The cache of compiled models.
 
@@ -560,14 +710,13 @@ public:
 
         std::shared_ptr<const CompiledModel> model;
         try {
-            model = compile(text, host);
+            model = obtain(key, text, host);
         } catch (...) {
             lock.lock();
             entries_.erase(key);
             changed_.notify_all();
             throw;
         }
-        log_to(host, PRAENORA_LOG_DEBUG, "roadrunner: compiled the model");
 
         std::vector<std::shared_ptr<const CompiledModel>> evicted;
         lock.lock();
@@ -812,6 +961,8 @@ void RunnerDeleter::operator()(rr::RoadRunner* runner) const noexcept {
 }
 
 void start_engine(const praenora_provider_host* host) {
+    // Its store callbacks, if any, for the shared compiled models.
+    g_provider_host = host;
     // Logging first, so that what libRoadRunner logs from now on goes to the provider's logger.
     // The forwarder and its stream are used by libRoadRunner's logger until the process ends.
     static auto* const forwarder = new LogForwarder(host);
@@ -844,13 +995,93 @@ RunnerPtr CompiledModel::copy(const praenora_host_api* host) const {
     return RunnerPtr(new rr::RoadRunner(*runner_));
 }
 
+std::string CompiledModel::saved_state(const praenora_host_api* host) const {
+    const EngineLock lock(host);
+    return envelope_of(*runner_);
+}
+
+std::string state_envelope(std::string_view payload) {
+    const std::string identity = engine_identity();
+    std::string entry(kStateMagic, kStateMagicSize);
+    put_u64(entry, identity.size());
+    entry += identity;
+    put_u64(entry, payload.size());
+    entry += sha256_bytes(payload);
+    entry.append(payload.data(), payload.size());
+    return entry;
+}
+
+std::optional<std::string_view> envelope_payload(std::string_view entry, std::string& why) {
+    if (entry.size() < kStateMagicSize + 8 ||
+        entry.substr(0, kStateMagicSize) != std::string_view(kStateMagic, kStateMagicSize)) {
+        why = "it is not a saved state of this provider";
+        return std::nullopt;
+    }
+    entry.remove_prefix(kStateMagicSize);
+    const std::string identity = engine_identity();
+    const std::uint64_t identity_size = get_u64(entry);
+    entry.remove_prefix(8);
+    if (identity_size != identity.size() || entry.size() < identity_size + 8 + 32 ||
+        entry.substr(0, identity.size()) != identity) {
+        why = "it was saved by another engine";
+        return std::nullopt;
+    }
+    entry.remove_prefix(identity.size());
+    const std::uint64_t size = get_u64(entry);
+    entry.remove_prefix(8);
+    const std::string_view digest = entry.substr(0, 32);
+    entry.remove_prefix(32);
+    if (size != entry.size()) {
+        why = "its state has " + std::to_string(entry.size()) + " bytes, not the " +
+              std::to_string(size) + " it says";
+        return std::nullopt;
+    }
+    if (digest != sha256_bytes(entry)) {
+        why = "its state does not have the SHA-256 it says";
+        return std::nullopt;
+    }
+    return entry;
+}
+
+std::shared_ptr<const CompiledModel> compile_model(std::string_view text,
+                                                   const praenora_host_api* host) {
+    const std::string document = checked_text(text);
+    RunnerPtr runner;
+    SbmlFacts facts;
+    {
+        const EngineLock lock(host);
+        facts = check_document(document);
+        runner.reset(compile_runner(document).release());
+    }
+    return describe_compiled(std::move(runner), facts);
+}
+
+std::shared_ptr<const CompiledModel> load_compiled_model(std::string_view text,
+                                                         std::string_view entry,
+                                                         const praenora_host_api* host,
+                                                         std::string& why) {
+    const std::string document = checked_text(text);
+    RunnerPtr runner;
+    SbmlFacts facts;
+    {
+        const EngineLock lock(host);
+        facts = check_document(document);
+        std::unique_ptr<rr::RoadRunner> loaded = load_runner(entry, why);
+        if (!loaded) {
+            return nullptr;
+        }
+        runner.reset(loaded.release());
+    }
+    return describe_compiled(std::move(runner), facts);
+}
+
 std::shared_ptr<const CompiledModel> compiled_model(std::string_view text,
                                                     const praenora_host_api* host) {
     const std::string document = checked_text(text);
     // The key: the model bytes, the load options (none but the format) and the engine identity.
+    // It is the key of the shared compiled models too: nothing in it belongs to the process.
     Poco::SHA2Engine digest(Poco::SHA2Engine::SHA_256);
-    const std::string identity = std::string(PRAENORA_PROVIDER_ENGINE) + "\n{\"format\":\"" +
-                                 kFormat + "\"}\n";
+    const std::string identity = engine_identity();
     digest.update(identity.data(), identity.size());
     digest.update(text.data(), text.size());
     const std::string key = Poco::DigestEngine::digestToHex(digest.digest());

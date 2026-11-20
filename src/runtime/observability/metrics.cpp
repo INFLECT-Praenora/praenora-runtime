@@ -75,6 +75,7 @@ void MetricsRegistry::record_invocation(const std::string& step, CallOutcome out
         break;
     case CallOutcome::failed:
     case CallOutcome::refused: // not called: its library has an abandoned call
+    case CallOutcome::crashed: // its module host ended during the call
         ++status.failed;
         break;
     case CallOutcome::timed_out:
@@ -153,7 +154,8 @@ StatusSnapshot MetricsRegistry::snapshot() const {
 Health compute_health(const StatusSnapshot& snapshot) {
     const bool broken_instance =
         std::any_of(snapshot.steps.begin(), snapshot.steps.end(), [](const StepStatus& step) {
-            return step.state == StepState::failed || step.state == StepState::unresponsive;
+            return step.state == StepState::failed || step.state == StepState::unresponsive ||
+                   step.state == StepState::crashed;
         });
     if (snapshot.state == WorkflowState::failed || broken_instance) {
         return Health::unhealthy;

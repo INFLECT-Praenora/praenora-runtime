@@ -61,3 +61,6 @@ Some ADRs have a split status, for example "Accepted (shape) / Proposed (details
 | [ADR-0034](ADR-0034-error-records-in-files-name-directories-by-placeholders.md) | Error records in the files of a run name known directories by placeholders | Proposed | 2026-11-17 |
 | [ADR-0035](ADR-0035-model-conversion-service-v0.md) | Model conversion service v0 and the libAntimony provider | Proposed | 2026-11-17 |
 | [ADR-0036](ADR-0036-describe-and-manifest-agree-on-every-field-they-share.md) | describe() and the manifest agree on every field they share | Proposed | 2026-11-18 |
+| [ADR-0037](ADR-0037-process-isolation-of-module-instances.md) | Process isolation of module instances | Proposed | 2026-11-19 |
+| [ADR-0038](ADR-0038-shared-compiled-models-between-module-hosts.md) | Shared compiled models between module hosts | Proposed | 2026-11-20 |
+| [ADR-0039](ADR-0039-restricted-sandbox-profile-for-module-hosts.md) | A restricted sandbox profile for module hosts | Proposed | 2026-11-20 |

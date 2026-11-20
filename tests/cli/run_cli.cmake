@@ -13,6 +13,10 @@
 #                                  values; * for any value)
 #   EXPECT_JSON_LENGTH=<n>         the array or object at the first path has n items
 #   EXPECT_FILE=<file>             the file exists afterwards
+#   EXPECT_FILE_JSON_PATH=<paths>  the file is one JSON object with a value at each path, written
+#                                  as for EXPECT_JSON_PATH
+#   EXPECT_FILE_JSON_VALUE=<values>
+#                                  the value at each of those paths, as for EXPECT_JSON_VALUE
 #   CLEAN_DIR=<dir>                removed before anything runs
 #   COPY_FILES=<source;destination;...>
 #                                  files copied (their directories created) before the commands
@@ -81,25 +85,29 @@ if(DEFINED EXPECT_STDOUT_FILE)
     endif()
 endif()
 
-if(DEFINED EXPECT_JSON_PATH)
-    string(JSON root_type ERROR_VARIABLE json_error TYPE "${RUN_OUT}")
+# Checks that `document` (named `what` in messages: stdout or a file) is one JSON object with a
+# value at each of the paths in the list variable `paths_var`, equal to the value at the same
+# index of the list variable `values_var` when that is defined (* for any value); with
+# `length_var` defined, the array or object at the first path has that many items.
+function(_check_json what document paths_var values_var length_var)
+    string(JSON root_type ERROR_VARIABLE json_error TYPE "${document}")
     if(json_error OR NOT root_type STREQUAL "OBJECT")
-        _fail("stdout is not one JSON object (${json_error})")
+        _fail("${what} is not one JSON object (${json_error})")
     endif()
-    list(LENGTH EXPECT_JSON_PATH path_count)
+    list(LENGTH ${paths_var} path_count)
     math(EXPR last "${path_count} - 1")
     foreach(index RANGE ${last})
-        list(GET EXPECT_JSON_PATH ${index} path)
+        list(GET ${paths_var} ${index} path)
         string(REPLACE "." ";" keys "${path}")
-        string(JSON type ERROR_VARIABLE json_error TYPE "${RUN_OUT}" ${keys})
+        string(JSON type ERROR_VARIABLE json_error TYPE "${document}" ${keys})
         if(json_error)
-            _fail("stdout has no value at ${path} (${json_error})")
+            _fail("${what} has no value at ${path} (${json_error})")
         endif()
-        if(DEFINED EXPECT_JSON_VALUE)
-            list(GET EXPECT_JSON_VALUE ${index} expected)
+        if(DEFINED ${values_var})
+            list(GET ${values_var} ${index} expected)
             if(NOT expected STREQUAL "*")
                 if(type STREQUAL "BOOLEAN")
-                    string(JSON value GET "${RUN_OUT}" ${keys})
+                    string(JSON value GET "${document}" ${keys})
                     if(value)
                         set(value true)
                     else()
@@ -108,24 +116,37 @@ if(DEFINED EXPECT_JSON_PATH)
                 elseif(type STREQUAL "NULL")
                     set(value null)
                 else()
-                    string(JSON value GET "${RUN_OUT}" ${keys})
+                    string(JSON value GET "${document}" ${keys})
                 endif()
                 if(NOT value STREQUAL expected)
-                    _fail("the value at ${path} is '${value}', expected '${expected}'")
+                    _fail("the value at ${path} of ${what} is '${value}', expected '${expected}'")
                 endif()
             endif()
         endif()
-        if(index EQUAL 0 AND DEFINED EXPECT_JSON_LENGTH)
-            string(JSON length LENGTH "${RUN_OUT}" ${keys})
-            if(NOT length EQUAL EXPECT_JSON_LENGTH)
-                _fail("${path} has ${length} items, expected ${EXPECT_JSON_LENGTH}")
+        if(index EQUAL 0 AND DEFINED ${length_var})
+            string(JSON length LENGTH "${document}" ${keys})
+            if(NOT length EQUAL ${length_var})
+                _fail("${path} of ${what} has ${length} items, expected ${${length_var}}")
             endif()
         endif()
     endforeach()
+endfunction()
+
+if(DEFINED EXPECT_JSON_PATH)
+    _check_json(stdout "${RUN_OUT}" EXPECT_JSON_PATH EXPECT_JSON_VALUE EXPECT_JSON_LENGTH)
 endif()
 
 if(DEFINED EXPECT_FILE AND NOT EXISTS "${EXPECT_FILE}")
     _fail("${EXPECT_FILE} does not exist")
+endif()
+if(DEFINED EXPECT_FILE_JSON_PATH)
+    if(NOT DEFINED EXPECT_FILE)
+        message(FATAL_ERROR "run_cli.cmake: EXPECT_FILE_JSON_PATH needs EXPECT_FILE")
+    endif()
+    file(READ "${EXPECT_FILE}" file_document)
+    # No length check for a file: _no_length is never defined.
+    _check_json("${EXPECT_FILE}" "${file_document}" EXPECT_FILE_JSON_PATH EXPECT_FILE_JSON_VALUE
+        _no_length)
 endif()
 
 if(DEFINED AFTER_CMD)

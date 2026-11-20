@@ -22,11 +22,14 @@ namespace {
 
 using nlohmann::json;
 
-// The names of the log formats come from the table that the tool shares with the Python extension
-// (src/frontend).
+// The names of the log formats and of the isolation modes come from the tables that the tool
+// shares with the Python extension (src/frontend).
 const std::string kUsage =
     "usage: praenora run <config.yaml> [--ticks N] [--seed S] [--output-dir D] [--overwrite]\n"
-    "                    [--trace] [--status-file F] [--log-level L] [--log-format " +
+    "                    [--trace] [--status-file F] [--isolation " +
+    frontend::names_of(frontend::kIsolationModes, "|", "|") +
+    "]\n"
+    "                    [--log-level L] [--log-format " +
     frontend::names_of(frontend::kLogFormats, "|", "|") +
     "]\n"
     "                    [--log-file F]\n"
@@ -46,12 +49,18 @@ const std::string kUsage =
     "  --trace                trace every message and service lookup to\n"
     "                         <output-dir>/trace/messages.jsonl\n"
     "  --status-file F        keep a status file at F\n"
+    "  --isolation M          " +
+    frontend::names_of(frontend::kIsolationModes) +
+    ": where every step's module instance\n"
+    "                         runs, in place of the configuration's: in this process, or in\n"
+    "                         a module host, a process of its own\n"
     "  --log-level, --log-format, --log-file\n"
     "                         the run's logging; they win over PRAENORA_LOG_LEVEL,\n"
     "                         PRAENORA_LOG_FORMAT and the configuration\n";
 
-const std::vector<Flag> kFlags = {{"--ticks", true}, {"--seed", true}, {"--output-dir", true},
-                                  {"--overwrite"},   {"--trace"},      {"--status-file", true}};
+const std::vector<Flag> kFlags = {{"--ticks", true},    {"--seed", true}, {"--output-dir", true},
+                                  {"--overwrite"},      {"--trace"},      {"--status-file", true},
+                                  {"--isolation", true}};
 
 // The run's summary lines, and the same as JSON.
 std::string summary_text(const Workflow& workflow, const RunSummary& summary) {
@@ -104,6 +113,13 @@ int command_run(const std::vector<std::string>& args) {
                 options.trace_messages = true;
             }
             options.status_file = arguments.value("--status-file");
+            if (const auto mode = arguments.value("--isolation")) {
+                options.isolation = frontend::isolation_mode(*mode);
+                if (!options.isolation) {
+                    throw UsageError("--isolation '" + *mode + "' is not " +
+                                     frontend::names_of(frontend::kIsolationModes));
+                }
+            }
             options.log_level = globals.log_level;
             options.log_format = globals.log_format;
             options.log_file = globals.log_file;

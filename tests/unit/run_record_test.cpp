@@ -168,7 +168,7 @@ TEST(RunRecord, ValidatesAgainstSchema) {
     RunOverrides overrides;
     overrides.seed = 7;
     RunRecordWriter writer(out, workflow.reproducibility, workflow.fingerprint,
-                           workflow.manifest_locations, overrides, true);
+                           workflow.manifest_locations, workflow.isolation, overrides, true);
 
     // Started: written at once, status running.
     writer.write_started(kStartedAt);
@@ -230,7 +230,7 @@ TEST(RunRecord, ValidatesAgainstSchema) {
     // A failed run records its error, with its location, its details and the module's error
     // document as the cause; a cause that is not a JSON object is kept as text.
     RunRecordWriter failed(dir.path() / "failed", workflow.reproducibility, workflow.fingerprint,
-                           workflow.manifest_locations, {}, false);
+                           workflow.manifest_locations, workflow.isolation, {}, false);
     failed.write_started(kStartedAt);
     RunSummary failure;
     failure.final_state = WorkflowState::failed;
@@ -275,17 +275,73 @@ TEST(RunRecord, ValidatesAgainstSchema) {
 
     // Without an output directory the record is kept in memory only.
     RunRecordWriter memory({}, workflow.reproducibility, workflow.fingerprint,
-                           workflow.manifest_locations);
+                           workflow.manifest_locations, workflow.isolation);
     memory.write_started(kStartedAt);
     EXPECT_EQ(issues_of(memory.current()), "");
     EXPECT_EQ(memory.current().at("execution").at("status"), "running");
+}
+
+TEST(RunRecord, ListsEveryStepsIsolation) {
+    ScratchDir dir;
+    write_text_file(dir.path() / "source.json", "{\"value\": 1}");
+    const auto yaml = [](const std::string& b_isolation) {
+        return "kind: workflow-config\n"
+               "format_version: \"0.1.0\"\n"
+               "workflow: { name: test.chain, version: \"0.1.0\" }\n"
+               "run: { ticks: 1 }\n"
+               "inputs:\n"
+               "  source: { source: json-document, path: source.json }\n"
+               "steps:\n"
+               "  a: { module: { name: fx-echo, version: \"0.1.0\" } }\n"
+               "  b:\n"
+               "    module: { name: fx-echo, version: \"0.1.0\" }\n" +
+               b_isolation;
+    };
+    // Every step, with all of its fields, whether the configuration sets them or not.
+    auto validated = praenora::test::validate_text(
+        dir.path(), yaml("    isolation: { mode: process, share_compiled_models: true }\n"));
+    ASSERT_TRUE(validated.workflow.has_value()) << validated.report.to_text();
+    const ValidatedWorkflow& workflow = *validated.workflow;
+    const json expected = json::parse(R"({"a":{"mode":"in-process","share_compiled_models":false,)"
+                                      R"("sandbox":"none"},)"
+                                      R"("b":{"mode":"process","share_compiled_models":true,)"
+                                      R"("sandbox":"none"}})");
+    EXPECT_EQ(workflow.isolation, expected);
+    RunRecordWriter writer({}, workflow.reproducibility, workflow.fingerprint,
+                           workflow.manifest_locations, workflow.isolation);
+    writer.write_started(kStartedAt);
+    EXPECT_EQ(issues_of(writer.current()), "");
+    EXPECT_EQ(writer.current().at("execution").at("isolation"), expected);
+    EXPECT_EQ(writer.current().at("execution").at("overrides"), json::object());
+    // Nothing of it is in the hashed section.
+    EXPECT_EQ(writer.current().at("reproducibility").dump().find("isolation"), std::string::npos);
+
+    // A caller's override is listed with the other overrides.
+    praenora::WorkflowOptions options;
+    options.isolation = praenora::IsolationMode::process;
+    auto overridden = praenora::test::validate_text(dir.path(), yaml(""), options);
+    ASSERT_TRUE(overridden.workflow.has_value()) << overridden.report.to_text();
+    EXPECT_EQ(overridden.workflow->isolation,
+              json::parse(R"({"a":{"mode":"process","share_compiled_models":false,)"
+                          R"("sandbox":"none"},)"
+                          R"("b":{"mode":"process","share_compiled_models":false,)"
+                          R"("sandbox":"none"}})"));
+    RunRecordWriter override_writer(
+        {}, overridden.workflow->reproducibility, overridden.workflow->fingerprint,
+        overridden.workflow->manifest_locations, overridden.workflow->isolation,
+        overridden.workflow->config.overrides);
+    override_writer.write_started(kStartedAt);
+    EXPECT_EQ(issues_of(override_writer.current()), "");
+    EXPECT_EQ(override_writer.current().at("execution").at("overrides"),
+              json({{"isolation", "process"}}));
+    EXPECT_EQ(overridden.workflow->fingerprint, workflow.fingerprint);
 }
 
 TEST(RunRecord, FingerprintMatchesReproducibilitySection) {
     ScratchDir dir;
     const ValidatedWorkflow workflow = validated_single(dir.path());
     RunRecordWriter writer(dir.path() / "out", workflow.reproducibility, workflow.fingerprint,
-                           workflow.manifest_locations);
+                           workflow.manifest_locations, workflow.isolation);
     writer.write_started(kStartedAt);
     const json record = json::parse(read_file(dir.path() / "out" / "run-record.json"));
     // The reproducibility section is the validated one, verbatim, and the fingerprint is its hash.
@@ -300,7 +356,8 @@ TEST(RunRecord, FingerprintMatchesReproducibilitySection) {
     // A fingerprint that is not the section's hash is refused.
     EXPECT_EQ(error_of([&] {
                   RunRecordWriter(dir.path() / "other", workflow.reproducibility,
-                                  std::string(64, '0'), workflow.manifest_locations);
+                                  std::string(64, '0'), workflow.manifest_locations,
+                                  workflow.isolation);
               }).code(),
               ErrorCode::INVALID_ARGUMENT);
 }
@@ -485,7 +542,7 @@ TEST(RunRecord, SaysWhereEachManifestWasFoundWithoutAnAbsolutePath) {
     const ValidatedWorkflow workflow = validated_single(dir.path());
     const fs::path out = dir.path() / "out";
     RunRecordWriter writer(out, workflow.reproducibility, workflow.fingerprint,
-                           workflow.manifest_locations);
+                           workflow.manifest_locations, workflow.isolation);
     writer.write_started(kStartedAt);
     EXPECT_EQ(writer.current().at("execution").at("manifests"), json::parse(R"({
         "steps": {"a": {"search_path": {"origin": "caller", "index": 0},
@@ -592,7 +649,7 @@ TEST(RunRecord, ErrorRecordsNameKnownDirectoriesByPlaceholders) {
     const OutputRecorder::FileInfo trace = file_info("", "trace/messages.jsonl", "trace", 0);
 
     RunRecordWriter writer(out, workflow.reproducibility, workflow.fingerprint,
-                           workflow.manifest_locations, {}, true, anchors);
+                           workflow.manifest_locations, workflow.isolation, {}, true, anchors);
     writer.write_started(kStartedAt);
     writer.write_final(failure, kStartedAt + 1, files, status, trace);
     const json record = json::parse(read_file(out / "run-record.json"));
@@ -622,7 +679,7 @@ TEST(RunRecord, ErrorRecordsNameKnownDirectoriesByPlaceholders) {
 
     // A writer without anchors writes the same record with the absolute paths.
     RunRecordWriter plain(dir.path() / "plain", workflow.reproducibility, workflow.fingerprint,
-                          workflow.manifest_locations, {}, true);
+                          workflow.manifest_locations, workflow.isolation, {}, true);
     plain.write_started(kStartedAt);
     plain.write_final(failure, kStartedAt + 1, files, status, trace);
     const json& plain_error = plain.current().at("execution").at("error");

@@ -28,7 +28,11 @@
 extern "C" {
 #endif
 
-/* What the runtime offers a provider. Valid from start() for the rest of the process. */
+/* What the runtime offers a provider. Valid from start() for the rest of the process.
+ *
+ * Fields are only ever appended, after the last one, without a new interface version. A provider
+ * reads a field only when struct_size covers it (struct_size >= offsetof(field) + sizeof(field)):
+ * a runtime built against an older header passes a shorter struct. */
 typedef struct praenora_provider_host {
     uint32_t struct_size; /* sizeof as compiled into the runtime */
     uint32_t reserved;    /* 0 */
@@ -38,6 +42,21 @@ typedef struct praenora_provider_host {
     void (PRAENORA_CALL *log)(void* context, int32_t level, const char* msg, size_t size);
     /* Nonzero if messages at this level are recorded, so a provider can skip formatting. */
     int32_t (PRAENORA_CALL *log_enabled)(void* context, int32_t level);
+    /* The shared compiled models (docs/specs/process-isolation.md#shared-compiled-models): a store
+       that the module hosts of steps sharing compiled models hand them to each other through. Both
+       are NULL where the process offers no store: always in the runtime's own process, and in a
+       module host whose step does not share. A provider keys an entry with what decides the
+       compiled model (its text, its options, the engine), at most 256 bytes; an entry takes at
+       most 128 MiB, and a larger one, or one with a longer key, is not kept. The store's entries
+       come from other processes: a provider checks an entry before it uses one, and compiles
+       instead when it does not load. Thread-safe; they may block while the runtime answers.
+       load_compiled: 1, with the entry's bytes written to `out`, when the store holds `key`; 0
+       otherwise, or when `out` refuses them. */
+    int32_t (PRAENORA_CALL *load_compiled)(void* context, const char* key, size_t key_size,
+                                           praenora_sink* out);
+    /* Keeps `data` under `key` for other processes; the bytes are copied before it returns. */
+    void (PRAENORA_CALL *save_compiled)(void* context, const char* key, size_t key_size,
+                                        const char* data, size_t size);
     /* clang-format on */
 } praenora_provider_host;
 

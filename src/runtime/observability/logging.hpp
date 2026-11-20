@@ -70,6 +70,16 @@ struct LogAttribute {
 void log_event(spdlog::logger& logger, LogLevel level, std::string_view message,
                const std::vector<LogAttribute>& attrs = {});
 
+// An event that log_event() logged, taken apart again from what a sink receives (the payload of
+// spdlog's message): its attributes, in the order they were given, and its message. A payload that
+// log_event() did not make (a direct spdlog call) is a message without attributes. A module host
+// passes its providers' events on to the runtime this way.
+struct LoggedEvent {
+    std::vector<LogAttribute> attributes;
+    std::string message;
+};
+LoggedEvent decode_logged_event(std::string_view payload);
+
 // Sets the level of one logger, for example a step's `log_level`.
 void set_log_level(spdlog::logger& logger, LogLevel level);
 

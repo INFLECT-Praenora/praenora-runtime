@@ -20,7 +20,7 @@ void praenora_provider_c99_layout(std::size_t* out);
 
 namespace {
 
-constexpr std::size_t kLayoutCount = 8;
+constexpr std::size_t kLayoutCount = 10;
 constexpr std::size_t kFn = sizeof(void (*)(void));
 
 void cpp_layout(std::size_t* out) {
@@ -32,6 +32,8 @@ void cpp_layout(std::size_t* out) {
     out[5] = offsetof(praenora_provider_api_v0, describe);
     out[6] = offsetof(praenora_provider_api_v0, start);
     out[7] = offsetof(praenora_provider_api_v0, get_service);
+    out[8] = offsetof(praenora_provider_host, load_compiled);
+    out[9] = offsetof(praenora_provider_host, save_compiled);
 }
 
 } // namespace
@@ -43,13 +45,16 @@ TEST(ProviderAbi, VersionAndEntryPoint) {
 }
 
 TEST(ProviderAbi, FieldsFollowTheDeclaredOrder) {
-    // The host: two uint32_t fields, the context pointer, then two callbacks.
+    // The host: two uint32_t fields, the context pointer, then two log callbacks and, appended
+    // after them, the two callbacks of the shared compiled models.
     EXPECT_EQ(offsetof(praenora_provider_host, struct_size), 0u);
     EXPECT_EQ(offsetof(praenora_provider_host, reserved), 4u);
     EXPECT_EQ(offsetof(praenora_provider_host, context), 8u);
     EXPECT_EQ(offsetof(praenora_provider_host, log), 8u + sizeof(void*));
     EXPECT_EQ(offsetof(praenora_provider_host, log_enabled), 8u + sizeof(void*) + kFn);
-    EXPECT_EQ(sizeof(praenora_provider_host), 8u + sizeof(void*) + 2 * kFn);
+    EXPECT_EQ(offsetof(praenora_provider_host, load_compiled), 8u + sizeof(void*) + 2 * kFn);
+    EXPECT_EQ(offsetof(praenora_provider_host, save_compiled), 8u + sizeof(void*) + 3 * kFn);
+    EXPECT_EQ(sizeof(praenora_provider_host), 8u + sizeof(void*) + 4 * kFn);
 
     // The table: the common header, then three function pointers without padding.
     EXPECT_EQ(offsetof(praenora_provider_api_v0, header), 0u);

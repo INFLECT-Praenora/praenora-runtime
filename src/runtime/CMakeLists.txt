@@ -43,6 +43,10 @@ add_library(praenora_runtime_objects OBJECT
     instance/module_instance.cpp
     instance/services.cpp
     instance/worker.cpp
+    isolation/channel.cpp
+    isolation/child_module.cpp
+    isolation/compiled_model_store.cpp
+    isolation/sandbox.cpp
     io/csv.cpp
     io/input_source.cpp
     io/json_document_source.cpp
@@ -77,10 +81,12 @@ add_library(praenora_runtime_objects OBJECT
 # Operating-system specific code: platform/windows on Windows, platform/posix elsewhere.
 if(WIN32)
     target_sources(praenora_runtime_objects PRIVATE
+        platform/windows/child_process_windows.cpp
         platform/windows/platform_windows.cpp
         platform/windows/shared_library_windows.cpp)
 else()
     target_sources(praenora_runtime_objects PRIVATE
+        platform/posix/child_process_posix.cpp
         platform/posix/platform_posix.cpp
         platform/posix/shared_library_posix.cpp)
 endif()

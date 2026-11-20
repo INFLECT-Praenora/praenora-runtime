@@ -31,7 +31,9 @@
 #      module unless INSTALL_EXAMPLES. With example modules built, cmake --install ...
 #      --component Examples then installs them, with their manifests. The installation's
 #      provider directory holds each of PROVIDERS, its manifest and library side by side, and
-#      nothing else (no directory at all without PROVIDERS).
+#      nothing else (no directory at all without PROVIDERS). On POSIX hosts the module host,
+#      <prefix>/libexec/praenora/praenora-module-host (beside <LIBDIR>: <LIBDIR>/praenora/../..),
+#      is installed and executable.
 #   2. consumer-module and consumer-app are configured, with uninitialized variables reported
 #      (one read in the installed PraenoraConfig.cmake or PraenoraModule.cmake fails; each
 #      configuration's output is kept in <WORK_DIR>/<consumer>-configure.log), and built, each
@@ -49,7 +51,11 @@
 #      BUILD_DIR.
 #   5. <prefix>/<BINDIR>/praenora version --json: exit 0 and a successful JSON document; with
 #      PROVIDERS, praenora providers list --json, without --provider-path, lists each of them,
-#      usable, from the installation's provider directory.
+#      usable, from the installation's provider directory. On POSIX hosts the installed tool runs
+#      the test catalog's test.single with consumer-echo (step 2's) in a module host
+#      (--isolation process): the run completes, the installation's module host started (its
+#      module_host.started record, at --log-level debug), and the run record says the step ran
+#      in process mode.
 #   6. With example modules: <prefix>/<BINDIR>/praenora modules list --json, without
 #      --module-path, lists them from the installation's module directory, and
 #      praenora modules check passes for each installed manifest (the module loads from the
@@ -133,6 +139,31 @@ function(_check_tool root step)
             "document:\n${VERSION_OUT}")
     endif()
     message(STATUS "${step}: ${tool} version --json:\n${VERSION_OUT}")
+
+    # A step in a module host, the installation's own, which the runtime finds beside its library.
+    if(NOT CMAKE_HOST_WIN32)
+        set(isolation_out "${WORK_DIR}/isolation/out")
+        file(REMOVE_RECURSE "${isolation_out}")
+        _run(ISOLATION "${step}: praenora run --isolation process" "${tool}" run
+            "${isolation_config}" --module-path "${module_dir}" --catalog-path "${CATALOG_DIR}"
+            --isolation process --output-dir "${isolation_out}" --log-level debug --json)
+        string(JSON state ERROR_VARIABLE json_error GET "${ISOLATION_OUT}" result state)
+        if(json_error OR NOT state STREQUAL "completed")
+            message(FATAL_ERROR "${step}: the run with --isolation process did not complete:\n"
+                "${ISOLATION_OUT}\n${ISOLATION_ERR}")
+        endif()
+        if(NOT ISOLATION_ERR MATCHES "module host started for module consumer-echo@0\\.1\\.0")
+            message(FATAL_ERROR "${step}: the run with --isolation process logged no start of a "
+                "module host:\n${ISOLATION_ERR}")
+        endif()
+        file(READ "${isolation_out}/run-record.json" record)
+        string(JSON mode ERROR_VARIABLE json_error GET "${record}" execution isolation a mode)
+        if(json_error OR NOT mode STREQUAL "process")
+            message(FATAL_ERROR "${step}: the run record does not say that step a ran in a module "
+                "host: ${json_error}${mode}")
+        endif()
+        message(STATUS "${step}: the installed tool ran a step in its module host")
+    endif()
 
     # The providers of the installation, found in its provider directory.
     if(PROVIDERS)
@@ -230,6 +261,18 @@ endif()
 # 1. The installation.
 _run(INSTALL "step 1: cmake --install"
     "${CMAKE_COMMAND}" --install "${BUILD_DIR}" --prefix "${prefix}" ${config_args})
+if(NOT CMAKE_HOST_WIN32)
+    cmake_path(SET module_host NORMALIZE
+        "${prefix}/${LIBDIR}/praenora/../../libexec/praenora/praenora-module-host")
+    if(NOT EXISTS "${module_host}" OR IS_DIRECTORY "${module_host}")
+        message(FATAL_ERROR "step 1: the module host was not installed at ${module_host}")
+    endif()
+    execute_process(COMMAND test -x "${module_host}" RESULT_VARIABLE executable)
+    if(NOT executable EQUAL 0)
+        message(FATAL_ERROR "step 1: the installed module host ${module_host} is not executable")
+    endif()
+    message(STATUS "step 1: the module host is installed at ${module_host}")
+endif()
 file(GLOB_RECURSE expected_headers LIST_DIRECTORIES false RELATIVE "${SOURCE_DIR}/include"
     "${SOURCE_DIR}/include/*.h" "${SOURCE_DIR}/include/*.hpp")
 list(APPEND expected_headers praenora/runtime/export.h praenora/sdk/version.h)
@@ -522,11 +565,22 @@ list(LENGTH manifests manifest_count)
 message(STATUS "step 4: ${scanned_count} files scanned (${manifest_count} manifests); none names "
     "the build or the source tree")
 
-# 5 and 6. The installed tool.
+# 5 and 6. The installed tool. Its run in a module host uses this configuration of the test
+# catalog's test.single, bound to consumer-echo.
 if(NOT WITH_CLI)
     message(STATUS "steps 5 to 7: skipped (the build has no praenora tool)")
     return()
 endif()
+set(isolation_config "${WORK_DIR}/isolation/workflow.yaml")
+file(WRITE "${WORK_DIR}/isolation/source.json" "{\"value\": 42}\n")
+file(WRITE "${isolation_config}" "kind: workflow-config\n"
+    "format_version: \"0.1.0\"\n"
+    "workflow: { name: test.single, version: \"0.1.0\" }\n"
+    "run: { ticks: 2 }\n"
+    "inputs:\n"
+    "  source: { source: json-document, path: source.json }\n"
+    "steps:\n"
+    "  a: { module: { name: consumer-echo, version: \"0.1.0\" } }\n")
 _check_tool("${prefix}" "steps 5 and 6")
 
 # 7. The installation, moved.

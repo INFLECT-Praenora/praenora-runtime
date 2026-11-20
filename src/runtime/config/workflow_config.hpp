@@ -7,6 +7,7 @@
 
 #include "core/semver.hpp"
 #include "document/yaml_loader.hpp"
+#include "isolation/sandbox.hpp"
 
 #include <praenora/runtime/error.hpp>
 #include <praenora/runtime/options.hpp>
@@ -19,6 +20,7 @@
 #include <map>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace praenora::detail {
@@ -49,20 +51,47 @@ struct InputBinding {
     std::map<std::string, std::string> columns;
 };
 
+// The names of the isolation modes in the configuration and the run record: "in-process" and
+// "process".
+std::string_view isolation_mode_name(IsolationMode mode);
+// The mode that `name` names, exactly as written; nullopt for anything else.
+std::optional<IsolationMode> isolation_mode_from_name(std::string_view name);
+
+// Where a step's module instance runs (docs/specs/process-isolation.md), and where that was set:
+// `mode_pointer` is the JSON pointer of the field of the configuration that set the mode
+// (/steps/<id>/isolation/mode or /run/isolation/mode), empty when the mode is the default or the
+// caller's override (`mode_overridden`), which no field of the file sets. Whether its module host
+// shares compiled models with the other sharing steps' (share_compiled_models), and the sandbox
+// profile its module host applies (sandbox), each with the pointer of the field that set it (empty
+// for the default: false, none).
+struct Isolation {
+    IsolationMode mode = IsolationMode::in_process;
+    std::string mode_pointer;
+    bool mode_overridden = false;
+    bool share_compiled_models = false;
+    std::string share_pointer;
+    SandboxProfile sandbox = SandboxProfile::none;
+    std::string sandbox_pointer;
+};
+
 // A step bound to a module. `parameters` is the object written in the file ({} when absent);
-// `timeouts` are the run's timeouts with the step's own fields put over them.
+// `timeouts` are the run's timeouts with the step's own fields put over them; `isolation` is
+// resolved field by field: the step's field, else the run's, else the default, unless the caller
+// overrides it.
 struct StepBinding {
     std::string step, module_name;
     SemVer module_version;
     nlohmann::json parameters;
     Timeouts timeouts;
     std::optional<LogLevel> log_level;
+    Isolation isolation;
 };
 
 // The run settings a caller overrode (CLI flags or API options), as applied; the run record's
 // execution section lists them.
 struct RunOverrides {
     std::optional<std::uint64_t> seed, ticks;
+    std::optional<IsolationMode> isolation;
 };
 
 struct WorkflowConfig {
@@ -74,6 +103,7 @@ struct WorkflowConfig {
     RunOverrides overrides; // which of seed and ticks came from the caller
     TimeBase time;
     Timeouts timeouts;
+    Isolation isolation; // run.isolation: the steps' default (with any override applied)
     std::vector<std::filesystem::path> module_search_paths; // absolute, in the order written
     std::map<std::string, InputBinding> inputs;
     std::map<std::string, StepBinding> steps;
@@ -106,15 +136,18 @@ struct WorkflowConfig {
 // if step 3 reported errors.
 //
 // Defaults: seed 0; time unit "1", start 0, period 1; timeouts invoke 300 s, lifecycle 60 s,
-// cancel_grace 5 s; logging at level info in text format to standard error; status_interval 1 s.
-// Relative paths (input paths, modules.search_paths, outputs.directory, log_file, status_file)
-// resolve against the file's directory.
+// cancel_grace 5 s; isolation mode in-process, sharing no compiled models, sandbox profile none;
+// logging at level info in text format to standard error; status_interval 1 s. Relative paths
+// (input paths, modules.search_paths, outputs.directory, log_file, status_file) resolve against
+// the file's directory.
 //
 // `overrides` are the caller's settings (CLI flags or API options), which take precedence over
 // the file: seed and ticks (each at most 2^53 - 1, else INVALID_ARGUMENT; the ones applied are
 // noted in WorkflowConfig::overrides), output_dir, trace_messages and status_file (relative paths
-// resolve against the current directory). The logging overrides are not applied here, because
-// environment variables rank between them and the file; the caller resolves logging.
+// resolve against the current directory), and isolation, which sets every step's mode (noted in
+// WorkflowConfig::overrides too; in-process also turns every step's share_compiled_models off and
+// sets its sandbox to none). The logging overrides are not applied here, because environment
+// variables rank between them and the file; the caller resolves logging.
 std::optional<WorkflowConfig> read_workflow_config(const std::filesystem::path& file,
                                                    ValidationReport& report,
                                                    const WorkflowOptions& overrides = {});

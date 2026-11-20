@@ -51,6 +51,9 @@
         },
         "timeouts": {
           "$ref": "#/definitions/timeouts"
+        },
+        "isolation": {
+          "$ref": "#/definitions/isolation"
         }
       }
     },
@@ -118,6 +121,9 @@
             },
             "timeouts": {
               "$ref": "#/definitions/timeouts"
+            },
+            "isolation": {
+              "$ref": "#/definitions/isolation"
             },
             "log_level": {
               "enum": [
@@ -222,6 +228,34 @@
       "minimum": 0,
       "maximum": 0,
       "description": "<number><unit> with unit ns|us|ms|s|m|h; 0 or none disables."
+    },
+    "isolation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "enum": [
+            "in-process",
+            "process"
+          ],
+          "default": "in-process",
+          "description": "Where the step's module instance runs: in the runtime's process, or in a module host, a process of its own."
+        },
+        "share_compiled_models": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether the step's module host shares compiled models with the module hosts of the other steps that share them, through a store in the runtime's process. Only for a step whose mode is process."
+        },
+        "sandbox": {
+          "enum": [
+            "none",
+            "restricted"
+          ],
+          "default": "none",
+          "description": "The sandbox profile the step's module host applies to itself before it loads any library: none, or restricted, which keeps the module host's own process from the network, from starting processes and from writing files outside its own temporary directory (macOS only; not a boundary against a module meant to do harm). Only for a step whose mode is process."
+        }
+      },
+      "description": "How a step's module instance is isolated. At run.isolation, the default of every step; at steps.<id>.isolation, that step's. Resolved field by field: the step's field, else the run's, else the default."
     },
     "module_name": {
       "type": "string",

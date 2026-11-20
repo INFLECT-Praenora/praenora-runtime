@@ -22,10 +22,10 @@ engine: they reach it only through `get_service`, so a module may still be built
 
 This document specifies services, provider manifests, the provider interface, how the runtime finds
 providers and resolves a service to one of them, which services a module sees, how runs, validation
-and the contract checks load providers, how the run fingerprint records them, and how the runtime
-loads a provider. Modules declare the services they require or can use in their manifests
-(`requires.services`, module manifest format 0.2; [manifest.md](manifest.md#fields)); a manifest of
-format 0.1 declares none.
+and the contract checks load providers, in the runtime's process or in a step's module host, how
+the run fingerprint records them, and how the runtime loads a provider. Modules declare the
+services they require or can use in their manifests (`requires.services`, module manifest format
+0.2; [manifest.md](manifest.md#fields)); a manifest of format 0.1 declares none.
 
 ## Services
 
@@ -129,6 +129,11 @@ typedef struct praenora_provider_host {
     void* context;
     void (PRAENORA_CALL *log)(void* context, int32_t level, const char* msg, size_t size);
     int32_t (PRAENORA_CALL *log_enabled)(void* context, int32_t level);
+    /* Appended: the shared compiled models, or NULL. */
+    int32_t (PRAENORA_CALL *load_compiled)(void* context, const char* key, size_t key_size,
+                                           praenora_sink* out);
+    void (PRAENORA_CALL *save_compiled)(void* context, const char* key, size_t key_size,
+                                        const char* data, size_t size);
 } praenora_provider_host;
 
 typedef struct praenora_provider_api_v0 {
@@ -160,8 +165,20 @@ praenora_provider_get_api(void);
 - **Host.** `host->log` writes a message at a `PRAENORA_LOG_*` level to the provider's own logger,
   `provider.<name>` ([Loading](#loading)); levels below 0 count as trace and above 5 as critical.
   `host->log_enabled` is nonzero when a message at that level would be recorded. Both are
-  thread-safe, callable from any thread at any time, and never throw. A provider MUST check that
-  `struct_size` covers a field before it uses it.
+  thread-safe, callable from any thread at any time, and never throw. Fields of the host are only
+  ever appended, without a new interface version: a provider MUST check that `struct_size` covers a
+  field before it uses it.
+- **Shared compiled models.** `host->load_compiled` and `host->save_compiled` reach the store of
+  compiled models that the module hosts of steps sharing them use
+  ([process-isolation.md](process-isolation.md#shared-compiled-models)): `load_compiled` writes the
+  entry under `key` to `out` and returns 1, or returns 0 when there is none (or `out` refuses it);
+  `save_compiled` keeps `data` under `key`, copying it before it returns. A key takes at most 256
+  bytes and an entry at most 128 MiB; a larger one is not kept. Both are NULL where the process
+  offers no store: always in the runtime's own process, and in a module host whose step does not
+  share compiled models. They are thread-safe and may block while the runtime answers. A provider
+  keys an entry with what decides the compiled model (its text, its options, its engine), looks in
+  its own cache first, checks an entry before it uses it, and compiles the model when the entry
+  does not load.
 - **Lifetime.** A provider is never stopped and never unloaded. Its threads MAY outlive every
   `Runtime` object of the process.
 
@@ -242,7 +259,9 @@ A module instance's `get_service` ([module-abi.md](module-abi.md#host-api)) retu
 1. the table of a provider service when the module's manifest declares that name and major and it
    resolved for the run (required or optional);
 2. otherwise the table of a runtime built-in service of that name and major (in this version only
-   test services that tests register, such as `test.gate`), whatever the manifest declares;
+   test services that tests register, such as `test.gate`), whatever the manifest declares; not to
+   an instance in a module host, which is offered no built-in service
+   ([process-isolation.md](process-isolation.md#calls-and-the-host-api));
 3. otherwise NULL, logged as every lookup is (event `service.lookup`, debug) and, in a traced run,
    traced as every lookup made during a call is
    ([observability.md](observability.md#message-trace)).
@@ -257,18 +276,28 @@ away), gets NULL for every service from then on, provider services included.
 ## Runs and checks
 
 - **Runs.** When a `Workflow` starts, after its output directory and run record are prepared and
-  before any module library is loaded or any instance created, the runtime loads and starts every
-  provider of the run's services, each once, with every service the run gets from it, in the order
-  of the keys of the reproducibility section's `services` (a provider comes where its first service
-  does). The library's SHA-256 must still be the one validation computed. Any error of
-  [Loading](#loading) fails the run before tick 0, with the loader's code and details, located in
-  the provider's manifest; its details name no step. The provider's records go to the run's logs.
-  A run stopped before it starts (a stop requested before `Workflow::start()`) ends as `stopped`
-  without loading any provider.
-- **`validate --load`** (`ValidateOptions::load`) also loads and starts the providers of the run's
-  services, as a run does, before it loads the modules. Each problem is reported in the validation
-  report for the first step, in schedule order, that uses the provider. Providers loaded this way
-  stay in the process.
+  before any module library is loaded or any instance created, the runtime loads and starts, in its
+  own process, every provider of the services of the steps that run there (isolation mode
+  `in-process`, [process-isolation.md](process-isolation.md#configuration)), each once, with every
+  such service the run gets from it, in the order of the keys of the reproducibility section's
+  `services` (a provider comes where its first service does). The library's SHA-256 must still be
+  the one validation computed. Any error of [Loading](#loading) fails the run before tick 0, with
+  the loader's code and details, located in the provider's manifest; its details name no step. The
+  provider's records go to the run's logs. A run stopped before it starts (a stop requested before
+  `Workflow::start()`) ends as `stopped` without loading any provider.
+- **Steps in module hosts.** A step in isolation mode `process` has the providers of its module's
+  services loaded and started in its module host, in the same order and with the same checks, when
+  the step loads and before its module's library
+  ([process-isolation.md](process-isolation.md#service-providers)). An error there fails the
+  step's load with the loader's code, message and details, located in the provider's manifest, and
+  names the step. The runtime's process never loads a provider that only such steps use; a module
+  host starts its own instance of each of its providers, and the provider's records reach the
+  run's logger `provider.<name>` as they do from the runtime's process.
+- **`validate --load`** (`ValidateOptions::load`) also loads and starts providers, as a run does,
+  before it loads the modules: in the runtime's process those of the steps in mode `in-process`,
+  and in the module host it starts for a step in mode `process` those of that step. Each problem is
+  reported in the validation report for the first step, in schedule order, that uses the provider
+  in that place. Providers loaded in the runtime's process stay there.
 - **Contract checks** (`praenora modules check`, `Runtime::check_module`) resolve the services the
   module's manifest declares on the runtime's provider search paths and load and start their
   providers as part of the check `library.load`, before the module library loads: a required service
@@ -289,7 +318,9 @@ The reproducibility section of the run record (format 0.2.0;
 - `steps.<step>.services`: the sorted keys of the services that the step's module may use.
 
 The fingerprint therefore changes when a run's provider, its manifest, its library or its engine
-changes, and when a step's module declares other services. Where each provider's manifest was
+changes, and when a step's module declares other services. It does not depend on where a provider
+runs, in the runtime's process or in a step's module host: it is made at validation, before any
+provider is loaded. Where each provider's manifest was
 found is in the run record's execution section (`execution.manifests.services`), relative to its
 search path ([reproducibility.md](reproducibility.md#where-a-manifest-was-found)), so it does not
 change the fingerprint.
@@ -298,12 +329,15 @@ change the fingerprint.
 
 The runtime loads a provider when something needs one of its services, and only then. Loading is
 process-wide: each provider is loaded and started at most once per process, whichever `Runtime`
-object asks first, and its library is never unloaded. The process holds at most one library of a
-provider name: once a library of that name has opened, it stays in the process whatever its later
-checks or its `start()` do, and every other library of that name is refused. A library opened under
-a name keeps that name for the process, even when its identity turns out to be another provider's
-(a manifest that names the wrong library): correcting the manifest to another file takes a new
-process. The state is guarded by a mutex: concurrent loads of one provider load and start it once.
+object asks first, and its library is never unloaded. A module host is a process of its own, which
+loads and starts the providers of its step once, with the same checks
+([process-isolation.md](process-isolation.md#service-providers)). The process holds at most one
+library of a provider name: once a library of that name has opened, it stays in the process
+whatever its later checks or its `start()` do, and every other library of that name is refused. A
+library opened under a name keeps that name for the process, even when its identity turns out to be
+another provider's (a manifest that names the wrong library): correcting the manifest to another
+file takes a new process. The state is guarded by a mutex: concurrent loads of one provider load
+and start it once.
 
 Each load names the services it needs from the provider, which its manifest offers. Every error is
 located in the provider's manifest; `LIBRARY_LOAD_FAILED` carries the reason in `details.reason`.
@@ -334,14 +368,20 @@ another `Runtime` or run of the process, takes the provider's records to its log
 provider writes to go (the `Runtime` or the run that owned them is destroyed), the provider lets go
 of them, sinks and log file included, and its records go nowhere until a later load gives it logs
 again. The first time a provider is loaded and started in the process, the runtime logs the event
-`provider.loaded` (info) on that logger, with the attributes `provider` and `library_sha256`.
+`provider.loaded` (info) on that logger, with the attributes `provider` and `library_sha256`. The
+records of a provider in a module host, `provider.loaded` included, go to the run's logger
+`provider.<name>` (the `Runtime`'s for `validate --load`) with the same levels, attributes and
+messages.
 
 ## Trust
 
-A provider is native code in the runtime's process, with the trust of a module
+A provider is native code in the runtime's process, or in a module host, with the trust of a module
 ([module-abi.md](module-abi.md#trust)): whoever can write to a provider search path can run code in
 every process that loads a provider found there. Discovery reads manifests without running provider
-code, and a digest pinned in the manifest is the only integrity check.
+code, and a digest pinned in the manifest is the only integrity check. The shared compiled models
+hand entries from one module host to another: a step that shares them trusts the modules of every
+other sharing step of the process
+([process-isolation.md](process-isolation.md#shared-compiled-models)).
 
 ## Building a provider
 

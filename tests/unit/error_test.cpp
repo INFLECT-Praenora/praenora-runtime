@@ -47,9 +47,9 @@ Diagnostic diagnostic(Severity severity, ErrorCode code, std::string message, So
 
 TEST(ErrorTaxonomy, EveryCodeHasUniqueNameAndInfo) {
     const auto& codes = all_error_codes();
-    // Every code of the taxonomy table plus 406 CATALOG_ENTRY_DUPLICATE and 407
-    // SERVICE_UNAVAILABLE.
-    EXPECT_EQ(codes.size(), 51u);
+    // Every code of the taxonomy table plus 406 CATALOG_ENTRY_DUPLICATE, 407 SERVICE_UNAVAILABLE,
+    // 503 MODULE_HOST_UNAVAILABLE and 706 MODULE_CRASHED.
+    EXPECT_EQ(codes.size(), 53u);
     std::set<std::string> names;
     std::set<std::int32_t> values;
     std::int32_t previous = -1;
@@ -151,6 +151,28 @@ TEST(ErrorTaxonomy, ServiceUnavailableIs407) {
     EXPECT_EQ(info.exit_code, 3);
     EXPECT_FALSE(info.retryable);
     EXPECT_EQ(error_code_from_name("SERVICE_UNAVAILABLE"), ErrorCode::SERVICE_UNAVAILABLE);
+}
+
+TEST(ErrorTaxonomy, ModuleHostUnavailableIs503) {
+    EXPECT_EQ(static_cast<int>(ErrorCode::MODULE_HOST_UNAVAILABLE), 503);
+    const auto& info = error_code_info(ErrorCode::MODULE_HOST_UNAVAILABLE);
+    EXPECT_EQ(info.name, "MODULE_HOST_UNAVAILABLE");
+    EXPECT_EQ(info.category, ErrorCategory::load);
+    EXPECT_EQ(info.exit_code, 4);
+    EXPECT_EQ(info.owner, "environment");
+    EXPECT_FALSE(info.retryable);
+    EXPECT_EQ(error_code_from_name("MODULE_HOST_UNAVAILABLE"), ErrorCode::MODULE_HOST_UNAVAILABLE);
+}
+
+TEST(ErrorTaxonomy, ModuleCrashedIs706) {
+    EXPECT_EQ(static_cast<int>(ErrorCode::MODULE_CRASHED), 706);
+    const auto& info = error_code_info(ErrorCode::MODULE_CRASHED);
+    EXPECT_EQ(info.name, "MODULE_CRASHED");
+    EXPECT_EQ(info.category, ErrorCategory::execution);
+    EXPECT_EQ(info.exit_code, 1);
+    EXPECT_EQ(info.owner, "module");
+    EXPECT_FALSE(info.retryable);
+    EXPECT_EQ(error_code_from_name("MODULE_CRASHED"), ErrorCode::MODULE_CRASHED);
 }
 
 TEST(ErrorTaxonomy, SpotChecksAgainstTheTable) {
@@ -385,6 +407,7 @@ TEST(StatusNames, EveryStateHasItsName) {
     EXPECT_EQ(to_string(StepState::destroyed), "destroyed");
     EXPECT_EQ(to_string(StepState::failed), "failed");
     EXPECT_EQ(to_string(StepState::unresponsive), "unresponsive");
+    EXPECT_EQ(to_string(StepState::crashed), "crashed");
     EXPECT_EQ(to_string(Health::unknown), "unknown");
     EXPECT_EQ(to_string(Health::healthy), "healthy");
     EXPECT_EQ(to_string(Health::degraded), "degraded");

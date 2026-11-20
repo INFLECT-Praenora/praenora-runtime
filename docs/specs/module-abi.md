@@ -82,8 +82,11 @@ functions ([Versioning and evolution](#versioning-and-evolution)). `praenora mod
 ## Trust
 
 A module is native code that runs inside the host's process, with the host's privileges: nothing
-contains a module that misbehaves, and a crash in a module ends the process (out-of-process
-isolation is OQ-5, [ADR-0006](../adr/ADR-0006-threading-model.md)). In a run, and with
+contains a module that misbehaves, and a crash in a module ends the process it runs in. That is the
+runtime's own process, unless the instance runs in a module host, a process of its own, whose crash
+fails only its step ([process-isolation.md](process-isolation.md),
+[ADR-0037](../adr/ADR-0037-process-isolation-of-module-instances.md)); a module host has the
+runtime's privileges too. In a run, and with
 `validate --load` or `modules inspect --load`, the runtime loads only libraries named by manifests
 found on its module search paths ([manifest.md](manifest.md#discovery)); the contract checks load
 the library of the manifest they are given. Discovery and validation read manifests without running
@@ -246,7 +249,7 @@ order:
    format 0.2; [manifest.md](manifest.md#fields)) and that resolved for the run, required or
    optional;
 2. a service built into the runtime, whatever the manifest declares; this version has no
-   production one, and tests register test-only services;
+   production one, and tests register test-only services, which a module host does not offer;
 3. NULL for everything else, including a provider service that the manifest does not declare, even
    when the run loaded its provider for another step, and every provider service when the manifest
    has format 0.1.
@@ -262,7 +265,9 @@ does with it, follow the service's own specification (for `praenora.simulation@0
 [model-conversion-service.md](model-conversion-service.md), with the table in
 [`model_conversion.h`](../../include/praenora/sdk/model_conversion.h)); provider tables live until
 the process ends ([ADR-0021](../adr/ADR-0021-runtime-services-through-host-api.md),
-[ADR-0026](../adr/ADR-0026-runtime-service-providers.md)).
+[ADR-0026](../adr/ADR-0026-runtime-service-providers.md)). An instance in a module host is served
+its services by providers loaded in that process, with the same results
+([process-isolation.md](process-isolation.md#service-providers)).
 
 ## Sinks
 

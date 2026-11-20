@@ -476,6 +476,20 @@ faster than the source: a chain of 500 reactions took about 0.3 s, of 700 about 
 about 0.8 s on the machine where this was checked. How long one translation may hold the lock is an
 open question ([open-questions.md](../open-questions.md), OQ-30).
 
+**In a module host.** A step in isolation mode `process` has the provider loaded and started in its
+module host, with a libAntimony and a lock of its own
+([process-isolation.md](process-isolation.md#service-providers)). There a translation that
+outlives its call's deadline and the cancellation grace is stopped for good: the module host is
+killed with the translation in it (`MODULE_UNRESPONSIVE`, `details.terminated`), so no lock is left
+held, and the conversions of other steps, each in a module host of its own, never wait for it. A
+6000-reaction chain, which takes libAntimony about 19 s, is ended within the 200 ms of its
+deadline and grace, and the next step's conversion runs at once. For a step in a module host, this
+answers OQ-30: one translation holds the lock no longer than its call's deadline and grace, when
+the call has both; a call without a deadline, or with a grace of zero, is waited for without limit
+([time-cancellation-timeouts.md](time-cancellation-timeouts.md#deadlines)), and only its own step
+waits for it. In the runtime's process the lock stays held until the translation ends, and
+conversions there wait for it, as above.
+
 **Layouts.** An Antimony source can ask for a drawing of its network: `model.layout = on`, a
 `model.layout.*` or `model.autolayout.*` setting, an element's position, size, color, font, shape or
 lines (`S1.x = 28`, `S1.position = {40, 30}`, `S1.color = "red"`), or the default style of the

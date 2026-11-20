@@ -139,6 +139,16 @@ LogFormat log_format_option(const json& value) {
                          " is not a log format: " + frontend::names_of(frontend::kLogFormats));
 }
 
+IsolationMode isolation_option(const json& value) {
+    if (value.is_string()) {
+        if (const auto mode = frontend::isolation_mode(value.get<std::string>())) {
+            return *mode;
+        }
+    }
+    throw argument_error("isolation " + shown(value) + " is not an isolation mode: " +
+                         frontend::names_of(frontend::kIsolationModes));
+}
+
 struct HandleOptions {
     RuntimeOptions runtime;
     WorkflowOptions workflow;
@@ -185,10 +195,12 @@ HandleOptions handle_options(const std::string& options_json) {
             workflow.log_format = log_format_option(value);
         } else if (key == "log_file") {
             workflow.log_file = text_option(key, value);
+        } else if (key == "isolation") {
+            workflow.isolation = isolation_option(value);
         } else {
             throw argument_error("unknown workflow option '" + key +
-                                 "'; the options are catalog_paths, log_file, log_format, "
-                                 "log_level, module_paths, output_dir, overwrite, "
+                                 "'; the options are catalog_paths, isolation, log_file, "
+                                 "log_format, log_level, module_paths, output_dir, overwrite, "
                                  "provider_paths, seed, status_file, ticks and trace_messages");
         }
     }

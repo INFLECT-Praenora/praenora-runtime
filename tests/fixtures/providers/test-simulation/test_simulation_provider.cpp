@@ -21,6 +21,15 @@
 // refuse a model that has them (UNSUPPORTED, reason "events"), a property of the toy format; like
 // every provider of the service, open_kernel refuses it too, and describe_model reports them.
 //
+// Shared compiled models (docs/specs/process-isolation.md#shared-compiled-models). The provider's
+// "compiled" form of a model is the canonical parsed model (its JSON document as nlohmann dumps
+// it). Where its provider host offers the store (load_compiled and save_compiled), open_session
+// looks for the model there first, under the key "test-decay:" and the FNV-1a hash of the model's
+// text, and keeps it there after it compiled it; an entry holds the text too, and one that is not
+// that model's, or does not parse, is not used (a warning, and the model is compiled). It logs at
+// debug through the calling instance's host "test-simulation: compiled the model" or
+// "test-simulation: loaded the model from the shared store".
+//
 // C++17 with nlohmann/json. No exception leaves a function of the provider.
 #include "provider_fixture.h"
 
@@ -202,9 +211,8 @@ bool finite_number_value(const json& value) {
     return value.is_number() && std::isfinite(value.get<double>());
 }
 
-std::shared_ptr<const Model> read_model(praenora_bytes text) {
-    const std::string_view model_text = view(text);
-    const json document = json::parse(model_text.begin(), model_text.end(), nullptr, false);
+// The model of a document parsed from a model text.
+std::shared_ptr<const Model> read_model_document(const json& document) {
     const json::json_pointer root;
     if (document.is_discarded() || !document.is_object()) {
         model_invalid("its text is not a JSON object", root);
@@ -296,6 +304,99 @@ std::shared_ptr<const Model> read_model(praenora_bytes text) {
     }
     model->quantities = model->states;
     model->quantities.emplace_back(kTotal);
+    return model;
+}
+
+json parse_model_text(std::string_view text) {
+    return json::parse(text.begin(), text.end(), nullptr, false);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Compiled models: parsed now, or loaded from the shared store of the provider host.
+
+const praenora_provider_host* g_provider_host = nullptr; // set by start(), before any session
+
+bool store_offered() noexcept {
+    const praenora_provider_host* host = g_provider_host;
+    return host != nullptr &&
+           host->struct_size >= offsetof(praenora_provider_host, save_compiled) +
+                                    sizeof(praenora_provider_host::save_compiled) &&
+           host->load_compiled != nullptr && host->save_compiled != nullptr;
+}
+
+// The store's key of a model text.
+std::string store_key(std::string_view text) {
+    std::uint64_t hash = 14695981039346656037ULL; // FNV-1a, 64 bits
+    for (const char byte : text) {
+        hash = (hash ^ static_cast<unsigned char>(byte)) * 1099511628211ULL;
+    }
+    static const char digits[] = "0123456789abcdef";
+    std::string key = std::string(kFormat) + ":";
+    for (int shift = 60; shift >= 0; shift -= 4) {
+        key.push_back(digits[(hash >> shift) & 0xF]);
+    }
+    return key;
+}
+
+praenora_status PRAENORA_CALL append_to(void* context, const char* data,
+                                        std::size_t size) noexcept {
+    try {
+        static_cast<std::string*>(context)->append(data == nullptr ? "" : data, size);
+        return PRAENORA_STATUS_OK;
+    } catch (...) {
+        return PRAENORA_STATUS_RESOURCE_EXHAUSTED;
+    }
+}
+
+// The model of `text`, from the shared store when it holds it, or compiled (parsed) now and kept
+// there when there is a store.
+std::shared_ptr<const Model> compiled_model(praenora_bytes text, const praenora_host_api* host) {
+    const std::string_view model_text = view(text);
+    const bool store = store_offered();
+    const std::string key = store ? store_key(model_text) : std::string();
+    if (store) {
+        std::string entry;
+        praenora_sink sink{&entry, &append_to};
+        if (g_provider_host->load_compiled(g_provider_host->context, key.data(), key.size(),
+                                           &sink) == 1) {
+            const json stored = json::parse(entry, nullptr, false);
+            std::string why = "it is not an entry of this provider";
+            if (stored.is_object() && stored.contains("text") && stored.at("text").is_string() &&
+                stored.contains("model") && stored.at("model").is_string()) {
+                why = "it is the entry of another model text";
+                if (stored.at("text").get_ref<const std::string&>() == model_text) {
+                    try {
+                        auto model = read_model_document(
+                            parse_model_text(stored.at("model").get_ref<const std::string&>()));
+                        log_to(host, PRAENORA_LOG_DEBUG,
+                               "test-simulation: loaded the model from the shared store");
+                        return model;
+                    } catch (const Failure& failure) {
+                        why = "its model does not read: " + failure.message;
+                    }
+                }
+            }
+            log_to(host, PRAENORA_LOG_WARN,
+                   "test-simulation: the model in the shared store does not load (" + why +
+                       "); compiling it");
+        }
+    }
+    const json document = parse_model_text(model_text);
+    auto model = read_model_document(document);
+    log_to(host, PRAENORA_LOG_DEBUG, "test-simulation: compiled the model");
+    if (store) {
+        try {
+            const std::string entry =
+                json{{"text", std::string(model_text)}, {"model", document.dump()}}.dump();
+            g_provider_host->save_compiled(g_provider_host->context, key.data(), key.size(),
+                                           entry.data(), entry.size());
+        } catch (const std::exception& error) {
+            // Not kept; the model is compiled all the same.
+            log_to(host, PRAENORA_LOG_WARN,
+                   std::string("test-simulation: the model is not kept in the shared store: ") +
+                       error.what());
+        }
+    }
     return model;
 }
 
@@ -822,7 +923,7 @@ praenora_status PRAENORA_CALL open_session(void*, const praenora_host_api* host,
             }
         }
         auto session = std::make_unique<praenora_simulation_session>();
-        session->model = read_model(model);
+        session->model = compiled_model(model, host);
         log_to(host, PRAENORA_LOG_DEBUG,
             "test-simulation: opened a test-decay model of " +
                 std::to_string(session->model->states.size()) + " states");
@@ -1212,6 +1313,7 @@ const praenora_simulation_v0 simulation_table = {
 // The provider.
 
 praenora_status PRAENORA_CALL start(const praenora_provider_host* host, praenora_sink*) noexcept {
+    g_provider_host = host;
     provider_fixture_log(host, PRAENORA_LOG_INFO, "test-simulation started");
     return PRAENORA_STATUS_OK;
 }

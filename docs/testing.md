@@ -48,35 +48,139 @@ path ([below](#the-official-asyncapi-schema)).
 
 | Label | What it covers | Tests |
 |---|---|---|
-| `unit` | Runtime internals, white-box: documents and YAML, canonical JSON, SHA-256, versions, durations, seeds, CSV and other input sources, configuration, logging, metrics, health, status files, run records, the error table against `status.h`, the SDK's headers, adapter and test kit, and the antimony provider's rules that read a source's text alone. | `praenora_unit_tests` |
+| `unit` | Runtime internals, white-box: documents and YAML, canonical JSON, SHA-256, versions, durations, seeds, CSV and other input sources, configuration, logging, metrics, health, status files, run records, the store of shared compiled models (its limits and its least-recently-used order), the sandbox profiles (their names, the restricted profile's text, a module host's private temporary directory), the error table against `status.h`, the SDK's headers, adapter and test kit, and the antimony provider's rules that read a source's text alone. | `praenora_unit_tests` |
 | `protocol` | Every schema and catalog entry, valid and invalid documents per kind, graph validation and schedules, graph export, and the committed AsyncAPI documents, also against the official AsyncAPI 3.0.0 schema when the build names a copy of it ([below](#the-official-asyncapi-schema)), and through the official AsyncAPI parser when the build names an installation of it ([below](#the-official-asyncapi-parser)). | `praenora_protocol_tests`, `praenora_asyncapi_official_schema_tests`, `asyncapi.parser.accepts_committed_documents`, `asyncapi.parser.refuses_broken_copies` |
 | `contract` | Manifests and discovery, the loader, module instances, the engine and the contract checks, through the real loader and the fixture modules; service providers and runs that use their services, with the fixture providers; the service checks of the simulation and model conversion services; provider libraries as files: their exported symbols, and the same results in two processes, and how the driver of the latter shows two outputs that differ and a run that fails. | `praenora_contract_tests`, `providers.<provider>.exports`, `providers.<provider>.processes`, `providers.run_twice.shows_first_difference` |
 | `negative` | What must be refused: bad manifests, configurations and graphs, incompatible modules, failing validations, services no provider serves, providers that do not load in a run, each with its code and location. | `praenora_negative_tests` |
 | `lifecycle` | Call order and cleanup, timeouts, unresponsive modules, cancellation and stop requests, calls into one library from instances of several loads of it (they take turns, and are refused behind an abandoned call), and the runtime services an instance is served. | `praenora_lifecycle_tests` |
-| `integration` | The public API through the shared library only, and the example workflow end to end: golden outputs, determinism, the fingerprint, files on disk, status queries during a run. | `praenora_integration_tests` |
+| `isolation` | Process isolation, white-box: child processes and their process groups, module instances in a module host (calls with the results of the runtime's process, logs, lookups, cancellation and deadlines, a call that never returns killed, crashes in every call and at load, garbage on the channel, sink limits, load errors, a missing or foreign module host, a stop during the start, a runtime that dies), and the service providers of a module in its module host (their services, their log records, their load errors, and that the runtime's process loads only the providers of its own steps), and the compiled models that module hosts share (through the store, during the load and between calls, under each provider's namespace, none for a step that does not share, nor for a host too short for the store's callbacks, entries and keys over their limits refused, store requests that break the protocol, a stored model that does not load compiled instead), writes to a module host that stops reading or reads slowly (none waits for good, and a stop during one leaves no failed teardown), and the sandbox profiles of a module host (what the restricted profile refuses and allows, its temporary directory, a sandboxed runtime that cannot apply it, module hosts that share compiled models under it) ([below](#module-hosts)). | `praenora_isolation_tests` |
+| `integration` | The public API through the shared library only, and the example workflow end to end: golden outputs, determinism, the fingerprint, files on disk, status queries during a run; and steps in module hosts: the same outputs, trace and fingerprint as in the runtime's process, crashes, a killed call, stops, Ctrl+C, `validate --load`, and service providers loaded in module hosts (the same outputs, trace and provider records; a changed provider library, a provider that fails to start or crashes; with the engines' providers, roadrunner and antimony, and a long antimony translation ended with its module host), and steps that share compiled models (the second loads what the first compiled, a step that does not share never reads the store, and the outputs and fingerprint are those of steps that do not share and of the runtime's process; with test-simulation, and with roadrunner), and steps under the restricted sandbox profile (a run and `validate --load` give the module host its profile, and the results are those of the runtime's process; with test-simulation, and with roadrunner). | `praenora_integration_tests` |
 | `cli` | The `praenora` tool: every command, exit code, `--json` shape and diagnostics format (`cli.<command>.<case>`, driven by `tests/cli/run_cli.cmake`), that driver passing each argument of a command to its program, an empty one included (`cli.driver.passes_empty_arguments`), and showing a command that fails (`cli.driver.shows_failing_command`), and the unit tests of its helpers (`CliTable.*`) and of what it shares with the Python extension (`Frontend.*`, `src/frontend`). | `praenora_cli_tests`, the CLI driver and `tests/cli/check_driver.cmake` |
 | `python` | The Python package: CLI parity, errors, the context manager, calls from a second thread. One CTest test, `python.unittest`, runs the `unittest` suite of `tests/python`. | `python.unittest` |
-| `install` | An installation into a scratch prefix: its layout (service providers included), a module and an application built against it, the installed tool, a moved installation, no build or source paths in installed files. | `install.consumer` |
-| `perf` | The performance probe `praenora_perf`: 2000 ticks of a four-step chain of no-op modules, with and without payload validation. It prints a JSON report and fails only when the probe fails, never on timings. | `perf.validation_strict`, `perf.validation_off` |
+| `install` | An installation into a scratch prefix: its layout (service providers and the module host included), a module and an application built against it, the installed tool, a step run in the installation's module host, a moved installation, no build or source paths in installed files. | `install.consumer` |
+| `perf` | The performance probe `praenora_perf`: 2000 ticks of a four-step chain of no-op modules, with and without payload validation, and, on POSIX, with every step in a module host. It prints a JSON report and fails only when the probe fails, never on timings. | `perf.validation_strict`, `perf.validation_off`, `perf.process_isolation` |
 | `docs` | The documentation against the source tree: every error code in the error taxonomy, every schema file in the protocol specification, every ADR in its index, every relative link resolving, the open-questions register complete. | `docs.consistency` |
 
 The suites of the GoogleTest labels name the components they test:
 
 | Label | Suites |
 |---|---|
-| `unit` | `Adapter`, `AntimonyImportCheck`, `AntimonyTextCheck`, `Config`, `Csv`, `Duration`, `Error`, `ErrorTaxonomy`, `Fingerprint`, `Health`, `Json`, `JsonDocument`, `JsonNear`, `Locale`, `Logging`, `Metrics`, `MetricsJson`, `ModelConversionAbi`, `ObservationCsv`, `OutputDir`, `OutputRecorder`, `PathAnchors`, `Paths`, `Platform`, `ProviderAbi`, `Resources`, `RunRecord`, `RuntimeContext`, `SbmlTextCheck`, `Schema`, `SchemaRegistry`, `SdkAbi`, `Seed`, `SemVer`, `Sha256`, `SimulationAbi`, `StatusFile`, `StatusJson`, `StatusNames`, `TestKit`, `Time`, `TraceWriter`, `ValidationReport`, `Version`, `Yaml` |
+| `unit` | `Adapter`, `AntimonyImportCheck`, `AntimonyTextCheck`, `Channel`, `CompiledModelStore`, `Config`, `Csv`, `Duration`, `Error`, `ErrorTaxonomy`, `Fingerprint`, `Health`, `InputSource`, `Json`, `JsonDocument`, `JsonNear`, `LibraryGate`, `Locale`, `Logging`, `Metrics`, `MetricsJson`, `ModelConversionAbi`, `NestingScan`, `ObservationCsv`, `OutputDir`, `OutputRecorder`, `OutputSink`, `PathAnchors`, `Paths`, `Platform`, `ProviderAbi`, `Resources`, `RunRecord`, `RuntimeContext`, `Sandbox`, `SbmlTextCheck`, `Schema`, `SchemaRegistry`, `SdkAbi`, `Seed`, `SemVer`, `Sha256`, `SimulationAbi`, `StatusFile`, `StatusJson`, `StatusNames`, `TestKit`, `Time`, `TraceWriter`, `ValidationReport`, `Version`, `Yaml` |
 | `protocol` | `Catalog`, `Graph`, `GraphExport`, `Schemas` |
-| `contract` | `Discovery`, `Engine`, `Envelope`, `Instance`, `Loader`, `Manifest`, `ModuleCheck`, `ProviderDiscovery`, `ProviderIndex`, `ProviderLoader`, `ProviderManifest`, `ServiceRun`, `Services`, `TestConversionProvider`, the parameterized `SimulationService` and `ModelConversionService` (the service checks: `<Provider>/SimulationService.<Check>/<ParameterSet>` and `<Provider>/ModelConversionService.<Check>/<ParameterSet>`), and `RoadrunnerProvider` with the roadrunner provider and `AntimonyProvider` with the antimony provider |
-| `negative` | `Compat`, `Config`, `ConfigBadFixtures`, `Graph`, `Manifest`, `ProviderLoadFailure`, `ProviderManifest`, `ServiceValidation`, `Validation` |
+| `contract` | `Discovery`, `Engine`, `Envelope`, `Instance`, `Loader`, `Manifest`, `ModuleCheck`, `ProviderDiscovery`, `ProviderIndex`, `ProviderLoader`, `ProviderManifest`, `Runtime`, `ServiceRun`, `Services`, `TestConversionProvider`, the parameterized `SimulationService` and `ModelConversionService` (the service checks: `<Provider>/SimulationService.<Check>/<ParameterSet>` and `<Provider>/ModelConversionService.<Check>/<ParameterSet>`), and `RoadrunnerProvider` and `RoadrunnerEngine` with the roadrunner provider and `AntimonyProvider` with the antimony provider |
+| `negative` | `Compat`, `Config`, `ConfigBadFixtures`, `Graph`, `IsolationValidation`, `Manifest`, `ProviderLoadFailure`, `ProviderManifest`, `ServiceValidation`, `Validation` |
 | `lifecycle` | `Cancel`, `Lifecycle`, `ServiceLookups`, `ServiceVisibility`, `Timeout` |
-| `integration` | `Api`, `Example` |
+| `isolation` | `ChildProcess`, `Isolation` |
+| `integration` | `Api`, `Example`, `IsolationExample`, `IsolationRun`, `IsolationValidation`, and the parameterized `IsolationRunCrash` (a crash in each call of a run: `EveryCall/IsolationRunCrash.EndsOnlyItsStep/<Call><How>`) and `IsolationRunProviders` (a module that uses the fixture providers, in a module host and in the runtime's process: `Fixtures/IsolationRunProviders.GiveTheResultsOfTheRuntimesProcess/<Module>`) |
 | `cli` | `CliTable`, `Frontend` (beside the `cli.<command>.<case>` driver tests, which are not GoogleTest) |
 
 Builds without the examples, the CLI, the Python bindings or the install rules have no tests that
 need them: `PRAENORA_BUILD_EXAMPLES=OFF` drops the `Example.*` tests, the CLI tests of the example
 workflow and the contract checks of the example modules (and the Python tests that need the example
 modules are skipped), `PRAENORA_BUILD_CLI=OFF` drops the `cli` label, `PRAENORA_BUILD_PYTHON=OFF`
-drops `python.unittest`, and `PRAENORA_INSTALL=OFF` drops `install.consumer`.
+drops `python.unittest`, and `PRAENORA_INSTALL=OFF` drops `install.consumer`. On Windows, where no
+module host is built, the `isolation` label holds only `Isolation.IsNotAvailableOnWindows`, and the
+tests of steps in module hosts (`IsolationRun.*`, `IsolationRunCrash`, `IsolationRunProviders`,
+`IsolationExample.*`, `cli.run.isolation_*`, `perf.process_isolation`, the Python
+`IsolationWorkflowTest`) are left out or check the refusal.
+
+### Module hosts
+
+The tests of process isolation start module hosts (`praenora-module-host`) from the build tree's
+`libexec/praenora/`, which every test target that needs it depends on, and check after each test
+that none is left running.
+
+- Some fixture modules end their module host on purpose: `fx-crash` (in the call and in the way
+  its parameters say), `fx-crash-at-load` (a static initializer); `fx-scribble` writes garbage onto
+  the channel, and `fx-hang-at-load` never finishes loading. So do the fixture providers
+  `test-start-crashes` (in its `start()`) and `test-echo-crashes` (in its `echo()`, at once or from
+  a thread of its own after the call, once the file that `PRAENORA_TEST_ECHO_CRASH_AFTER` names
+  exists: the test makes it after the call returned, and waits for the record of the crash before
+  its next call, so the crash is between calls on a machine of any speed). No test loads them in
+  its own process. `fx-crash` also writes its parameter `print` to its standard output's buffer in
+  each invoke, without flushing it, for the test that a module host asked to exit flushes it (with
+  `timeouts.lifecycle: none` too).
+- `fx-deep-stack-at-load` uses 2 MiB of stack in a static initializer: it loads on the test's main
+  thread and in a module host, whose load thread has a main thread's stack, and would crash on a
+  thread's default stack (512 KiB on macOS).
+- The fixture provider `test-store` (`tests/fixtures/providers/test-store/`) offers `test.echo`
+  and does with the shared compiled models of its provider host what its input says (probe, save,
+  load, or save and load later from a thread of its own, once the file that
+  `PRAENORA_TEST_STORE_LATER` names exists; and save and load in `start()`, as
+  `PRAENORA_TEST_STORE_AT_START` asks). The store belongs to the test's process, so the tests of
+  shared compiled models use keys, and model texts, that no earlier test of the process used (a
+  counter and the process id; for a test-decay model, spaces after its JSON object; for an SBML
+  model, an XML comment): they pass in one process and repeated.
+- The helper `praenora_fake_module_host` stands where the runtime looks for its module host (a
+  test hook) and answers as no module host of this build does, in the mode its environment says:
+  among them, modes that break the rules of the shared compiled models (one announces a save of
+  128 MiB from the module host of a step that does not share and sends none of it, which the
+  runtime refuses at the frame's header, without waiting for its payload), and three that answer the
+  load as a module host does (they load the module with the loader in their own process) and then
+  stop reading their channel, one of them after it has answered a create and an initialize, for
+  the tests that no write of the runtime waits for good on such a module host
+  (`tests/isolation/deaf_module_host_test.cpp`: a call larger than the channel's buffers, a stop
+  during it, in a run too, and the end of a module host that does not take a store answer). The
+  bounds of a write against a peer that keeps taking a few bytes are tested on a socket pair
+  (`Channel.ABoundedWriteKeepsItsBoundAgainstAPeerThatReadsSlowly`).
+- `Isolation.AProviderHostTooShortForTheStoreOffersNone` starts the fixture provider `test-store`
+  with a host whose `struct_size` ends before the store's callbacks in a helper process of its own
+  (`praenora_isolation_short_host_probe`), since a provider is started once in a process, and
+  earlier tests start `test-store` in the test's process through the provider loader.
+- The sandbox profiles are tested with the fixture module `fx-sandbox-probe`, which tries to
+  connect (to a TCP listener of the test on `127.0.0.1`), fork, spawn, write outside and inside its
+  temporary directory, read, link to a file outside (a hard link, and a symbolic link written
+  through), open `/dev/stderr` by its path, and leave an immutable file behind, as its library
+  loads and in an invoke, and reports what each try got (with the environment variable
+  `PRAENORA_TEST_SANDBOX_PROBE_EXIT_AT_LOAD` set, a refused try as its library loads ends its
+  process instead, as a library whose static initializer fails hard would, for the test that
+  `validate --load` loads a module under each step's profile), and whether its standard error is
+  `/dev/null` (under the profile it must be the runtime's, which the module host points at
+  `/dev/null` only while it applies the profile). It writes to its standard error only when a test
+  asks it to, and that test gives the module host a scratch file as its standard error (it points
+  its own descriptor 2 at the file while the module host starts): under the profile the line lands
+  there, although the profile refuses making a file in that directory. One test applies the
+  profile with a double quote, a backslash and a character beyond ASCII in the path of the module
+  host's directory (it sets `TMPDIR` for the module host's runtime), and another checks the warning
+  for a directory that cannot be removed (below a `TMPDIR` of its own, which it removes with the
+  immutable file however it ends). macOS applies no second sandbox, so a test process that runs in
+  a sandbox already (a developer tool's or a CI service's own) cannot test the restricted profile:
+  there its tests skip, saying "nested sandbox: this process runs in a sandbox already, ...",
+  which CTest shows as skipped: the `SKIP_REGULAR_EXPRESSION` of the two executables that have
+  such tests (`praenora_add_gtest(... SANDBOX_SKIP)`) names that start of the message, beside
+  GoogleTest's own skips. Whether the process runs in a sandbox is asked of `/usr/bin/sandbox-exec`
+  (`tests/support/sandbox_support.hpp`), not of the runtime. A few tests run in both places and
+  check the other side there: in a sandbox, that a restricted load fails with
+  `MODULE_HOST_UNAVAILABLE`, reason `sandbox`:
+  `Isolation.ARestrictedModuleHostOfASandboxedRuntimeCannotStart` (which outside a sandbox runs a
+  helper, `praenora_isolation_restricted_probe`, in a sandbox of its own),
+  `IsolationRun.ARestrictedStepRunsUnderItsProfile` and
+  `IsolationValidation.LoadGivesAModuleHostItsProfile`. To run the sandbox tests, run CTest from a
+  shell outside any sandbox, for example `ctest --preset dev -L 'isolation|integration'`; with the
+  roadrunner provider, `ctest --preset dev-roadrunner -L 'isolation|integration'`. Under the
+  profile a module host cannot start a sanitizer's symbolizer (`atos` needs a fork and an exec), so
+  a sanitizer's report from a restricted module host comes without symbols.
+- The tests of service providers in module hosts compare a run in the runtime's process with the
+  same run in module hosts. A provider starts, and logs its start, once in a process, so the
+  comparison leaves out each provider's records of its start (up to its `provider.loaded` event),
+  which the runtime's process has only when no earlier test started the provider, and the tests
+  check them in the module host's log. Like the other provider tests, they pass when one process
+  runs them all, and repeated (`--gtest_repeat`): a test that checks what a load opens in the
+  runtime's process compares `opened_providers_for_testing()` before and after it, and
+  `Isolation.TheRuntimesProcessLoadsOnlyTheProvidersOfItsSteps`, which needs `test-simulation` and
+  `test-conversion` not open yet, is skipped, saying so, when an earlier test opened them.
+- On macOS every crash of a module host on purpose leaves a crash report in
+  `~/Library/Logs/DiagnosticReports`, and the system's crash reporter makes each crash take a moment
+  (up to a few seconds); each run of the `isolation`, `integration`, `cli` or `python` label adds a
+  few reports, which can be deleted.
+- Under sanitizers, the tests whose module hosts crash on purpose append
+  `handle_segv=0:handle_abort=0` to `ASAN_OPTIONS` (with `detect_leaks=0`) and to `TSAN_OPTIONS` for
+  those module hosts (`OwnSignals`, `tests/support/scoped_environment.hpp`; the CLI test
+  `cli.run.isolation_crash` sets them for its command): the module host then ends by the signal of
+  the crash, which the tests check, instead of by the sanitizer's report.
+- `IsolationRun.ACtrlCReachesTheRuntimeOnly` makes the test process lead a process group of its
+  own and sends SIGINT to that group, as a terminal's Ctrl+C would; it is skipped, visibly, where
+  the process may not change its group.
 
 ### The roadrunner provider
 
@@ -97,10 +201,27 @@ most in the `contract` label:
   a `stoichiometryMath` sets, events, delayed events across runs and at the start, simultaneous
   events, solver settings, the step limit, solver steps (also at the row limit) and cancellation
   within a run;
+- `RoadrunnerEngine.*` (`tests/contract/roadrunner_engine_test.cpp`, its own executable
+  `praenora_roadrunner_engine_tests`, which compiles the provider's engine code with the provider's
+  definitions): a model loaded from its saved state is the model compiled from its text, field by
+  field (ids, the engine's index of each parameter, how each quantity is read, events), saves the
+  same state again (but for libRoadRunner's number of the object in its process), and simulates the
+  same doubles, bit for bit, events included, in two runs; a host too short for the store's
+  callbacks offers no store; and an
+  entry of the shared compiled models that does not load says why (garbage, cut short, a changed
+  byte under its SHA-256, another engine, bytes that are no saved state);
+- `Isolation.ARoadrunnerStateThatDoesNotLoadIsCompiledInstead` (label `isolation`): garbage, a
+  changed byte and a state cut short under a model's key, each compiled instead with a warning and
+  the outputs of a compile; and
+  `IsolationRun.RoadrunnerStepsThatShareCompiledModelsGiveTheResultsOfStepsThatDoNot` (label
+  `integration`);
 - `providers.roadrunner.exports` and `providers.roadrunner.processes`
   ([Adding tests](#adding-tests), provider files);
-- `Api.TheBuildTreeRuntimeFindsTheRoadrunnerProvider` (label `integration`); and `install.consumer`
-  checks that the installation holds the provider and that the installed tool lists it, usable.
+- `Api.TheBuildTreeRuntimeFindsTheRoadrunnerProvider` (label `integration`), and
+  `IsolationRun.RoadrunnerGivesTheResultsOfTheRuntimesProcess` (label `integration`), which runs an
+  SBML model through a plan and a kernel in a module host and in the runtime's process and finds the
+  same output bytes, trace and provider records; and `install.consumer` checks that the
+  installation holds the provider and that the installed tool lists it, usable.
 
 In such a build the build tree's runtime finds the provider without a provider path, so a test that
 expects no provider of `praenora.simulation@0` there (`cli.providers.list_empty`, part of
@@ -137,7 +258,16 @@ most in the `contract` label:
   roadrunner provider too, `Api.AntimonyModelSimulatesThroughRoadrunner`, which converts an
   Antimony model with `antimony` and simulates the SBML with `roadrunner` in one process, to a
   relative 1e-9 of the exact solution; and `install.consumer` checks that the installation holds the
-  provider and that the installed tool lists it, usable.
+  provider and that the installed tool lists it, usable;
+- in module hosts (label `integration`): `IsolationRun.AntimonyGivesTheResultsOfTheRuntimesProcess`
+  (the same SBML bytes, trace and provider records as in the runtime's process),
+  `IsolationRun.ALongAntimonyTranslationIsKilledAndTheNextConvertsAtOnce` (a generated chain of
+  6000 reactions, which takes libAntimony about 19 s, ended with its module host 200 ms into the
+  call, and the next step's conversion done at once; `converting-module` translates in its first
+  invoke there, with parameter `convert_in`, so that only the invoke deadline is short and create
+  and initialize keep the default lifecycle timeout under a sanitizer too), and, with the
+  roadrunner provider too, `IsolationRun.AntimonyAndRoadrunnerGiveTheResultsOfTheRuntimesProcess`
+  (both engines in one module host).
 
 The unit tests of the rules that read a source's text alone (`AntimonyImportCheck.*`,
 `AntimonyTextCheck.*` and `SbmlTextCheck.*`, in `tests/unit/antimony_source_checks_test.cpp`) need
@@ -336,6 +466,8 @@ ctest --preset dev-tsan
   and such a library trips a false report there; every other test keeps the check. With
   `PRAENORA_FETCH_JSON_SCHEMA_VALIDATOR=ON` they keep it too
   ([The official AsyncAPI schema](#the-official-asyncapi-schema)).
+- The module hosts that tests make crash on purpose run with the sanitizers' own signal handling
+  off, so they end by the crash's signal ([Module hosts](#module-hosts)).
 - `python.unittest` is registered but disabled: an instrumented extension cannot be loaded into an
   interpreter that is not instrumented. A run of the label alone therefore matches no test that
   runs, and the presets' "no tests" rule makes it fail with exit code 8:
@@ -394,6 +526,7 @@ Start from the label:
 | `contract` | The loader, discovery, instance or engine code, or a fixture module that changed. For `providers.run_twice.*`, the driver `tests/providers/run_twice.cmake` or the drivers' shared `tests/support/run_command.cmake`, or, after an intended change of its report, the expected texts in `tests/providers/check_run_twice.cmake`. | runtime |
 | `negative` | Validation: a bad input was accepted, or refused with another code or location. | runtime |
 | `lifecycle` | `src/runtime/instance` and `src/runtime/engine`: call order, deadlines, cancellation, teardown. | runtime |
+| `isolation` | `src/runtime/isolation` (the channel, the runtime's side of a module host, the store of shared compiled models, the sandbox profiles, the module host's server), `src/module_host`, and the platform's child processes (`src/runtime/platform/posix/child_process_posix.cpp`). | runtime |
 | `integration` | The public API (`src/runtime/api`), or the example modules when their outputs changed (golden files). | runtime, or the example modules |
 | `cli` | `src/cli`, or the API behind the command; the test's name says which command. For `cli.driver.*`, the drivers' shared `tests/support/run_command.cmake`. | runtime |
 | `python` | `src/python` and `python/praenora/runtime`; or the interpreter, when the import fails. | runtime, or environment |
@@ -410,8 +543,9 @@ When a run or a validation fails, its error code points further. By code range:
 | 300-304 (`MANIFEST_INVALID`, `MODULE_NOT_FOUND`, `LIBRARY_DIGEST_MISMATCH`, ...) | `discovery` and `loader`: the manifest, the module search paths | module, or environment |
 | 400-407 (`ABI_INCOMPATIBLE`, `PLATFORM_MISMATCH`, `CATALOG_ENTRY_NOT_FOUND`, ...) | `compat` and `catalog`; `graph` for `MESSAGE_TYPE_INCOMPATIBLE`; validation and the contract checks for `SERVICE_UNAVAILABLE` | module, environment or protocol |
 | 500-502 (`LIBRARY_LOAD_FAILED`, `ENTRY_POINT_MISSING`, `API_TABLE_INVALID`) | `loader`: the module's library | module, or environment |
+| 503 (`MODULE_HOST_UNAVAILABLE`) | `isolation`: the module host executable and its start | environment |
 | 600-604 (`GRAPH_INVALID`, `GRAPH_CYCLE`, `PORT_*`) | `graph`: the workflow definition | protocol |
-| 700-705 (`STEP_FAILED`, `OUTPUT_INVALID`, `STEP_TIMEOUT`, `MODULE_UNRESPONSIVE`, ...) | `engine` and `instance`: the step named in the details | module, or the configuration's timeouts; `INPUT_MISSING` is the runtime's |
+| 700-706 (`STEP_FAILED`, `OUTPUT_INVALID`, `STEP_TIMEOUT`, `MODULE_UNRESPONSIVE`, `MODULE_CRASHED`, ...) | `engine` and `instance`: the step named in the details | module, or the configuration's timeouts; `INPUT_MISSING` is the runtime's |
 | 800-801 (`TARGET_DATA_INVALID`, `TARGET_DATA_UNAVAILABLE`) | `io` and validation: the data file and line, or the input's `path` | user data, or environment |
 | 1-12 (`INVALID_ARGUMENT`, `IO_ERROR`, `INTERNAL`, ...) | Wherever the message says | caller, environment, or the runtime for `INTERNAL` and `UNKNOWN` |
 
@@ -439,24 +573,28 @@ gate in every build that has them: the contract tests run the checks on them.
 
 - **GoogleTest.** Add the source to an executable in
   [`tests/CMakeLists.txt`](../tests/CMakeLists.txt), or a new executable with
-  `praenora_add_gtest(<name> LABEL <label> [WHITEBOX] SOURCES ...)`. With `WHITEBOX` it links the
-  runtime's object library and may include internal headers (`praenora::detail`); without it, only
-  the shared library and the public API. `NO_TESTS` in place of `LABEL` builds the executable but
-  registers none of its tests, for tests that need what a build may lack. The caller then
-  registers them with `gtest_discover_tests()` when they can run, as for
-  [the official AsyncAPI schema](#the-official-asyncapi-schema): with the build's own test
+  `praenora_add_gtest(<name> LABEL <label> [WHITEBOX] [SANDBOX_SKIP] SOURCES ...)`. With
+  `WHITEBOX` it links the runtime's object library and may include internal headers
+  (`praenora::detail`); without it, only the shared library and the public API. `NO_TESTS` in
+  place of `LABEL` builds the executable but registers none of its tests, for tests that need what
+  a build may lack. The caller then registers them with `gtest_discover_tests()` when they can run,
+  as for [the official AsyncAPI schema](#the-official-asyncapi-schema): with the build's own test
   environment if they load module libraries, and with one value per property
-  (`tests/CMakeLists.txt` says why). Name tests `Suite.Case` in PascalCase, the suite naming the
-  component (`Loader.LoadsModuleFromUnicodePath`); the case may end in `_WhenCondition`. Assertions
-  should print the error code's name, the JSON pointer or `file:line`, and the step and tick where
-  they matter.
+  (`tests/CMakeLists.txt` says why). `SANDBOX_SKIP` is for an executable with tests of the
+  restricted sandbox profile: CTest then also shows a test as skipped by the start of
+  `kNestedSandboxSkip` ([Module hosts](#module-hosts)). Name tests `Suite.Case` in PascalCase, the
+  suite naming the component (`Loader.LoadsModuleFromUnicodePath`); the case may end in
+  `_WhenCondition`. Assertions should print the error code's name, the JSON pointer or
+  `file:line`, and the step and tick where they matter.
 - **Helpers.** `tests/support/` holds what tests share: scratch directories, JSON comparison with a
   tolerance, log capture, fixture paths. A test that takes a file's or a directory's permissions
   away gives them back through a `RestorePermissions` guard (`temp_dir.hpp`), declared after its
-  `ScratchDir`. Tests get the locations of the source tree, the fixtures,
-  the test catalog and the fixture and example modules as compile definitions
-  (`PRAENORA_TEST_SOURCE_DIR`, `PRAENORA_TEST_FIXTURES_DIR`, `PRAENORA_TEST_CATALOG_DIR`,
-  `PRAENORA_TEST_MODULES_DIR`, `PRAENORA_EXAMPLE_MODULES_DIR`).
+  `ScratchDir`; one in which a file is made immutable (macOS) removes it, and its directory,
+  through a `RemoveAllEvenImmutable` guard (`sandbox_support.hpp`) declared before the file is
+  made. Tests get the locations of the source tree, the fixtures, the test catalog and the fixture
+  and example modules as compile definitions (`PRAENORA_TEST_SOURCE_DIR`,
+  `PRAENORA_TEST_FIXTURES_DIR`, `PRAENORA_TEST_CATALOG_DIR`, `PRAENORA_TEST_MODULES_DIR`,
+  `PRAENORA_EXAMPLE_MODULES_DIR`).
 - **Fixture modules.** Add one with `praenora_add_fixture_module()` in
   [`tests/fixtures/modules/CMakeLists.txt`](../tests/fixtures/modules/CMakeLists.txt)
   ([developer-guide.md](developer-guide.md#adding-a-module-locally)); test capabilities and message

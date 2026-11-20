@@ -76,9 +76,12 @@ same library take turns as the next section says.
   ([reproducibility.md](reproducibility.md#determinism)).
 - A module SHOULD poll `cancel_requested()` in long computations. A module that blocks without
   polling cannot be stopped and ends up unresponsive.
-- Modules run in the runtime's process: a crash inside a module (a segmentation fault, an abort)
-  ends the host process. Isolating modules in their own processes is an open question
-  ([open-questions.md](../open-questions.md), OQ-5).
+- A module instance in the runtime's process shares its fate: a crash inside the module (a
+  segmentation fault, an abort) ends the runtime's process. One that runs in a module host, a
+  process of its own ([process-isolation.md](process-isolation.md)), ends only that process: the
+  step fails with `MODULE_CRASHED`, and a call that never returns is ended by killing the module
+  host. In a module host, every call of the instance runs on one thread of that process, one at a
+  time, as on the instance's worker thread here.
 
 ## Concurrency across instances
 
@@ -122,8 +125,10 @@ such a library one after another, or in separate processes, when their results m
 
 ## Unresponsive instances
 
-When a call does not return within its deadline plus the cancellation grace, the instance is
-abandoned for the rest of the process:
+When a call into an instance in the runtime's process does not return within its deadline plus the
+cancellation grace, the instance is abandoned for the rest of the process (an instance in a module
+host is not: its module host is killed and waited for, and nothing of the call is left,
+[process-isolation.md](process-isolation.md#unresponsive-calls)):
 
 - its state becomes `unresponsive`; when the call was a `create`, `initialize` or `invoke`, the run
   fails with `MODULE_UNRESPONSIVE`, while a `finalize` or `destroy` of the teardown, or a
@@ -153,9 +158,11 @@ when its `finalize` or `destroy` is refused (event `instance.kept`). The rationa
 
 | Thread | Name | Work |
 |---|---|---|
-| The caller's thread | the caller's | Validation, loading (including `describe()`), and the ticks of `Workflow::start()`, `tick()` and `run()`. `Workflow::start()` (and `validate --load` and the contract checks) loads and starts the providers of the services on that thread, before any module instance is created. |
+| The caller's thread | the caller's | Validation, loading (including `describe()`), and the ticks of `Workflow::start()`, `tick()` and `run()`. `Workflow::start()` (and `validate --load` and the contract checks) loads and starts the providers of the services on that thread, before any module instance is created; those of a step in a module host are loaded there instead ([process-isolation.md](process-isolation.md#service-providers)). |
 | A service provider's own threads, if it starts any | the provider's | Whatever the provider does in the background. A provider is never stopped or unloaded: its threads MAY outlive every `Runtime` of the process ([runtime-services.md](runtime-services.md#provider-interface)). |
-| One worker per module instance | `praenora:<step>` | Every call into that instance. |
+| One worker per module instance | `praenora:<step>` | Every call into that instance. For an instance in a module host, the worker passes each call to the module host and waits for its result; there one thread, `praenora:module`, makes every call, and the load runs on a thread of its own, `praenora:load`, with a main thread's stack ([process-isolation.md](process-isolation.md#loading)). |
+| A reader per module host (a step in process mode) | none | Takes the module host's frames as they arrive (log records, lookups, sink writes, call results) and answers its requests of the shared compiled models ([process-isolation.md](process-isolation.md#the-channel)). |
+| The starter of module hosts (Linux), once one is started | none | Starts every module host of the process with `posix_spawn()`, and lasts as long as the process: Linux sends a child its parent-death signal when the thread that started it ends. Elsewhere (macOS) there is no such thread: `posix_spawn()` runs on the thread that loads the step's module. |
 | The status-file writer, when a status file is configured | `praenora:status` | Rewrites the status file ([observability.md](observability.md#status-file)). |
 | The CLI's signal watcher (`praenora run` only) | none | Turns SIGINT, SIGTERM or a Windows console event into `request_stop()`. |
 

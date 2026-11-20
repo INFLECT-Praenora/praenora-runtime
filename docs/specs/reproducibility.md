@@ -49,8 +49,10 @@ What changes the fingerprint, and what does not:
   provider, or its manifest, library file or engine), an input file's bytes (re-encoding a file
   counts), a catalog entry the workflow uses, and the runtime, ABI or PMP version.
 - It does not change with paths (of the configuration, the input files, the manifests and the
-  libraries), with the `outputs` and `observability` settings, with step log levels, or with the
-  wall-clock time: the same configuration and data at other paths give the same fingerprint.
+  libraries), with the `outputs` and `observability` settings, with step log levels, with where
+  the steps' module instances run (their isolation: in the runtime's process or in module hosts,
+  which give the same results, [process-isolation.md](process-isolation.md#determinism)), or with
+  the wall-clock time: the same configuration and data at other paths give the same fingerprint.
 - Parameters are hashed after the defaults of the module's parameter schema are filled in, so an
   omitted parameter and an explicit default give the same fingerprint. Numbers keep their JSON type:
   `100` and `100.0` hash differently ([open-questions.md](../open-questions.md), OQ-20).
@@ -102,9 +104,10 @@ format 0.1.x, which have no `services` and whose error records have no `location
 | `ticks_completed` | The ticks completed. |
 | `error` | The failure of a failed run, a `RUN_STOPPED` record for a stopped one, null otherwise: an error record of the status snapshot ([observability.md](observability.md#status-snapshot)), so a failure keeps its location and details, with the run's directories named by placeholders ([observability.md](observability.md#known-directories-in-the-files-of-a-run)). |
 | `platform` | `{os, arch, compiler, build_type}` of the runtime build. |
-| `overrides` | The run settings the caller overrode (`seed`, `ticks`); `{}` when none. |
+| `overrides` | The run settings the caller overrode (`seed`, `ticks`, and `isolation`, the mode set for every step); `{}` when none. |
 | `validation` | `strict`, or `off` for a performance measurement. |
 | `manifests` | Where each manifest of the run was found ([below](#where-a-manifest-was-found)): `{steps {<step>: location}, services {"<name>@<major>": location}}`, for the module manifest of every step and the provider manifest of every service in the reproducibility section. |
+| `isolation` | Where each step's module instance ran, whether its module host shared compiled models, and its sandbox profile: `{<step>: {"mode": "in-process" \| "process", "share_compiled_models": <boolean>, "sandbox": "none" \| "restricted"}}` for every step, with every field resolved ([process-isolation.md](process-isolation.md#configuration)). Outside the hashed section: sharing compiled models and the sandbox profile change no result. |
 | `outputs` | `{<output>: {file, sha256, messages}}` for every recorded output, written at the end. |
 | `trace` | `{file, sha256, messages}` of the message trace, written at the end when tracing is on; `messages` counts its envelopes ([observability.md](observability.md#message-trace)). |
 | `final_status` | The final status snapshot ([observability.md](observability.md#status-snapshot)), written at the end, its error records naming the run's directories by placeholders. |

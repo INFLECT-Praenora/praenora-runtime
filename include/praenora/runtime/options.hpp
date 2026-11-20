@@ -36,6 +36,10 @@ struct RuntimeOptions {
     LogOptions logging;
 };
 
+// Where a step's module instance runs: in the runtime's process ("in-process", the default), or in
+// a module host, a process of its own ("process"; docs/specs/process-isolation.md).
+enum class IsolationMode { in_process, process };
+
 // Per-run overrides of the workflow configuration; unset values keep the configuration's. Relative
 // paths are relative to the current directory.
 struct WorkflowOptions {
@@ -49,11 +53,15 @@ struct WorkflowOptions {
     std::optional<LogLevel> log_level;
     std::optional<LogFormat> log_format;
     std::optional<std::string> log_file;
+    // Every step's isolation mode, in place of the configuration's (run.isolation and
+    // steps.<id>.isolation). Like the other overrides, the run record lists it.
+    std::optional<IsolationMode> isolation;
 };
 
 struct ValidateOptions {
     // Also load and start the service providers of the workflow's services (they stay loaded for
-    // the rest of the process), and load the module libraries and check their identity.
+    // the rest of the process), and load the module libraries and check their identity: in this
+    // process, or in a module host for a step that runs in one.
     bool load = false;
 };
 

@@ -48,9 +48,12 @@ void prepare_output_dir(const std::filesystem::path& dir, bool overwrite);
 //    "execution": {"status": "running"|"completed"|"stopped"|"failed", "started_at",
 //                  "finished_at" (null until the end), "ticks_completed", "error" (null or an
 //                  error record), "platform": {"os", "arch", "compiler", "build_type"},
-//                  "overrides": {"seed"?, "ticks"?}, "validation": "strict"|"off",
-//                  "manifests": {"steps", "services"} (where each manifest was found), and at
-//                  the end "final_status" (the final status snapshot), "outputs" and "trace"}}.
+//                  "overrides": {"seed"?, "ticks"?, "isolation"?}, "validation": "strict"|"off",
+//                  "manifests": {"steps", "services"} (where each manifest was found),
+//                  "isolation": {<step>: {"mode", "share_compiled_models"}} (how each step's
+//                  instance was isolated), and
+//                  at the end "final_status" (the final status snapshot), "outputs" and
+//                  "trace"}}.
 // Wall-clock instants are RFC 3339 UTC with nine fractional digits. Nothing names the machine or
 // its user. In the error records (execution.error and the last errors of final_status), every
 // directory of the writer's anchors is named by its placeholder (PathAnchors), in the record kept
@@ -60,15 +63,16 @@ void prepare_output_dir(const std::filesystem::path& dir, bool overwrite);
 class RunRecordWriter {
 public:
     // `output_dir` holds run-record.json; when it is empty, the record is kept in memory only.
-    // `manifests` is execution.manifests (ValidatedWorkflow::manifest_locations). `overrides` are
+    // `manifests` is execution.manifests (ValidatedWorkflow::manifest_locations), `isolation`
+    // execution.isolation (ValidatedWorkflow::isolation). `overrides` are
     // the run settings the caller overrode; `strict_validation` tells whether payloads are
     // validated against their message types ("strict") or not ("off"). `anchors` are the
     // directories of the run (PathAnchors) that its error records name by placeholders; without
     // them the error records keep their absolute paths. Throws praenora::Error(INVALID_ARGUMENT)
     // unless `fingerprint` is the SHA-256 of canonical_json(reproducibility).
     RunRecordWriter(std::filesystem::path output_dir, nlohmann::json reproducibility,
-                    std::string fingerprint, nlohmann::json manifests, RunOverrides overrides = {},
-                    bool strict_validation = true,
+                    std::string fingerprint, nlohmann::json manifests, nlohmann::json isolation,
+                    RunOverrides overrides = {}, bool strict_validation = true,
                     std::shared_ptr<const PathAnchors> anchors = nullptr);
 
     // The record of a run that has just started (status running). Throws

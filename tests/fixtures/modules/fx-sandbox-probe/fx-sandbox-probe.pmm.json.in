@@ -1,0 +1,28 @@
+{
+  "kind": "module-manifest",
+  "format_version": "@PRAENORA_MODULE_MANIFEST_FORMAT_VERSION@",
+  "module": {
+    "name": "@PRAENORA_MODULE_NAME@",
+    "version": "@PRAENORA_MODULE_VERSION@",
+    "summary": "Test fixture: tries what a sandbox profile may refuse, and reports what it got."
+  },
+  "abi": { "major": @PRAENORA_ABI_MAJOR@, "minor": @PRAENORA_ABI_MINOR@ },
+  "pmp_version": "@PRAENORA_PMP_VERSION@",
+  "sdk_version": "@PRAENORA_SDK_VERSION@",
+  "library": { "path": "@PRAENORA_MODULE_LIBRARY_FILE@" },
+  "platform": { "os": "@PRAENORA_MODULE_OS@", "arch": "@PRAENORA_MODULE_ARCH@" },
+  "capabilities": @PRAENORA_MODULE_CAPABILITIES_JSON@,
+  "parameters_schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "properties": {
+      "outside": { "type": "string", "minLength": 1 },
+      "read": { "type": "string", "minLength": 1 },
+      "connect_port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+      "keep": { "type": "boolean", "default": false },
+      "write_stderr": { "type": "boolean", "default": false }
+    },
+    "required": ["outside", "read", "connect_port"],
+    "additionalProperties": false
+  }
+}

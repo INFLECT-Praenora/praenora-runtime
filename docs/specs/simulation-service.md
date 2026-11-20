@@ -657,6 +657,43 @@ and the first `simulate` of a session, `prepare` and `open_kernel` may wait for 
 compilation of any model. A call that waits polls `cancel_requested()`, while `close_*` wait
 without polling. Runs and kernel functions of distinct objects run concurrently.
 
+**In a module host.** A step in isolation mode `process` has the provider loaded and started in its
+module host ([process-isolation.md](process-isolation.md#service-providers)): its libRoadRunner,
+LLVM and compiled models are that process's, so its kernels' functions are called in the process
+that holds them. Each module host compiles the models its step opens, with a cache of its own; it
+starts the provider, and so sets the configuration below, once, as the runtime's process does. A
+model compiled there gives the results it gives in the runtime's process (checked with a plan and
+a kernel of an SBML model, byte for byte), an LLVM error that ends the process ends only the module
+host (`MODULE_CRASHED`), and a run that outlives its deadline and grace is ended by killing the
+module host.
+
+**Shared compiled models.** In the module host of a step that shares compiled models
+([process-isolation.md](process-isolation.md#shared-compiled-models)) the provider host offers the
+store, and the provider uses it behind its own cache, under the cache's key (which holds nothing of
+the process): a model its cache does not hold is looked for in the store first, and loaded from the
+libRoadRunner state saved there (`loadStateS()`) instead of compiled; one that is not there is
+compiled, and its state (`saveStateS('b')`) is then kept there. Both happen under the engine lock,
+as compiling does. The state is kept in an envelope: the bytes `praenora-roadrunner-state` and a
+new line, the engine's identity (the manifest's engine object and the load options), the state's
+length and its SHA-256. The provider checks all of it before libRoadRunner reads the state; an
+entry that fails a check, or that libRoadRunner cannot load, does not load: the provider logs a
+warning through the calling instance's host ("the compiled model in the shared store does not
+load", with why) and compiles the model. The checks find an entry that is corrupt or cut short, not
+one made on purpose: the store's trust is that of every sharing step's modules. A model loaded from
+a state is the model compiled from its text (its ids, the engine's index of each parameter, how each
+quantity is read, its events; checked field by field) and gives the same results, byte for byte. Its
+checks of the model text run as for a compile. A state larger than the store's entry limit, 128 MiB,
+is not kept. The debug record of the call says "roadrunner: compiled the model", "roadrunner: loaded
+the compiled model from the shared store" or, from the provider's own cache, "roadrunner: the model
+was compiled before".
+
+**Under the restricted sandbox profile.** In a module host under the restricted profile
+([process-isolation.md](process-isolation.md#the-restricted-profile)) the provider works as without
+it: libRoadRunner and LLVM load after the profile is applied, MCJit generates a model's code in
+memory (written, then made executable), and a saved state of the shared compiled models arrives on
+the channel; nothing is written to a file, also not to libRoadRunner's temporary directory
+(`TEMP_DIR_PATH`, `.`), which it does not use for MCJit. The results are those without the profile.
+
 **Process-wide configuration.** At `start()` the provider sets every key of libRoadRunner's
 configuration (`rr::Config`) to libRoadRunner 2.11.0's built-in default, except the random seed
 (0): libRoadRunner reads a configuration file of the user's (`ROADRUNNER_CONFIG`, `roadrunner.conf`
@@ -672,7 +709,7 @@ lower than libRoadRunner's: its errors as warnings, its critical and fatal messa
 libRoadRunner logs an error for each CVODE failure, also for a run that the service reports as
 failed, which is data. The engine's records are context: the service's results and error documents
 are what count. Calls log at debug level through the calling instance's host: a session opened
-(compiled, or found compiled) and the rows simulated.
+(compiled, found compiled, or loaded from the shared compiled models) and the rows simulated.
 
 ## The test provider `test-simulation`
 
@@ -702,8 +739,15 @@ service checks and modules using the service run in every build.
 - **Method `analytic`**, which maps no solver setting and has no `solver_steps` output.
 - A value that is not finite (a negative `k` large enough to overflow, for example) fails the run
   with reason `nonfinite`, and the failure names the first such column and time.
-- It logs a debug message through the calling instance's host when it opens a session and when it
-  simulates, and `test-simulation started` to its own logger when it starts.
+- It logs a debug message through the calling instance's host when it opens a session (and
+  `test-simulation: compiled the model`, or `test-simulation: loaded the model from the shared
+  store`) and when it simulates, and `test-simulation started` to its own logger when it starts.
+- **Shared compiled models.** Where its provider host offers the store
+  ([process-isolation.md](process-isolation.md#shared-compiled-models)), its "compiled" form of a
+  model, the canonical parsed model (the model's JSON document as nlohmann/json writes it), is
+  kept there under `test-decay:` and the FNV-1a hash of the model's text, with the text; a session
+  looks for it there first, and an entry that is not that text's or does not read is a warning and
+  a compile. It has no cache of its own.
 
 ## Service checks
 

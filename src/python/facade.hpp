@@ -98,14 +98,14 @@ std::string read_status_json(const std::string& path);
 // One run of a workflow configuration: praenora::Workflow. Not copyable.
 class WorkflowHandle {
 public:
-    // Validates the configuration and prepares its run (Runtime::open()). `options_json` is a
-    // JSON object with any of the keys module_paths, provider_paths and catalog_paths (arrays of
-    // paths), seed and ticks (whole numbers from 0 to 2^53 - 1), output_dir, status_file and
-    // log_file (paths; an empty log_file means none), overwrite and trace_messages (booleans),
-    // log_level (trace, debug, info, warn, error, critical or off) and log_format (text or json),
-    // level and format names in any case; null stands for a key that is not given. The logging
-    // settings apply to the runtime that opens the run too, as the praenora tool's --log-* flags
-    // do. An unknown key or a bad value is INVALID_ARGUMENT.
+    // Validates the configuration and prepares its run (Runtime::open()). `options_json` is a JSON
+    // object with any of the keys module_paths, provider_paths and catalog_paths (arrays of paths),
+    // seed and ticks (whole numbers from 0 to 2^53 - 1), output_dir, status_file and log_file
+    // (paths; an empty log_file means none), overwrite and trace_messages (booleans), log_level
+    // (trace, debug, info, warn, error, critical or off) and log_format (text or json), level and
+    // format names in any case, and isolation (in-process or process, exactly so); null stands for
+    // a key that is not given. The logging settings apply to the runtime that opens the run too, as
+    // the praenora tool's --log-* flags do. An unknown key or a bad value is INVALID_ARGUMENT.
     WorkflowHandle(const std::string& config, const std::string& options_json);
     // Closes the run (Workflow::close()).
     ~WorkflowHandle();

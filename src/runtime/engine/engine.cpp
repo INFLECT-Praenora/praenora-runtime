@@ -7,6 +7,7 @@
 #include "document/schema_registry.hpp"
 #include "engine/envelope.hpp"
 #include "engine/result_check.hpp"
+#include "isolation/child_settings.hpp"
 #include "loader/library_file.hpp"
 #include "loader/library_gate.hpp"
 #include "observability/status_json.hpp"
@@ -74,11 +75,11 @@ json cause_of(const CallResult& result) {
 }
 
 // The module's error document of a call that did not succeed, when the module said why: none
-// for an unresponsive call, which never returned, for a refused one, which never started, or for
-// one that returned OK without an error document (late, after its deadline).
+// for an unresponsive or crashed call, which never returned, for a refused one, which never
+// started, or for one that returned OK without an error document (late, after its deadline).
 std::optional<json> module_cause(const CallResult& result) {
     if (result.outcome == CallOutcome::succeeded || result.outcome == CallOutcome::unresponsive ||
-        result.outcome == CallOutcome::refused ||
+        result.outcome == CallOutcome::crashed || result.outcome == CallOutcome::refused ||
         (result.status == PRAENORA_STATUS_OK && result.error_json.empty())) {
         return std::nullopt;
     }
@@ -176,6 +177,7 @@ struct Engine::Step {
     std::shared_ptr<spdlog::logger> logger; // module.<step>, or none
     std::unique_ptr<ModuleInstance> instance;
     bool failed = false; // reported as failed in the metrics from now on
+    bool crashed = false; // its module host crashed while it loaded the module: no instance
     // Set by the teardown when a call into the instance is refused: the abandoned call the
     // refusal named. The instance is then kept as it is.
     std::optional<LibraryCall> kept;
@@ -306,7 +308,9 @@ void Engine::start_run() {
 }
 
 void Engine::load_providers() {
-    for (const ProviderLoad& load : provider_loads(workflow_)) {
+    // Only the providers of the steps in this process: a step in a module host has its own loaded
+    // there (start_step()), and this process never loads a provider that only such steps use.
+    for (const ProviderLoad& load : provider_loads(workflow_, IsolationMode::in_process)) {
         const LoadedProvider* provider = nullptr;
         try {
             provider =
@@ -329,8 +333,9 @@ void Engine::open_output(std::int64_t started_at) {
     {
         const std::lock_guard<std::mutex> lock(mutex_);
         record_.emplace(dir ? *dir : fs::path(), workflow_.reproducibility, workflow_.fingerprint,
-                        workflow_.manifest_locations, workflow_.config.overrides,
-                        settings_.validate_payloads, settings_.path_anchors);
+                        workflow_.manifest_locations, workflow_.isolation,
+                        workflow_.config.overrides, settings_.validate_payloads,
+                        settings_.path_anchors);
         record_->write_started(started_at);
     }
     if (dir) {
@@ -376,26 +381,46 @@ bool Engine::start_step(Step& step) {
         return false;
     }
 
-    auto module = modules_.find(&manifest);
-    if (module == modules_.end()) {
-        std::shared_ptr<LoadedModule> loaded;
+    std::shared_ptr<LoadedModule> module;
+    if (resolved.isolation.mode == IsolationMode::process) {
+        // A module host of the step's own, never shared with another step, which loads the module
+        // with validation's digest too. A stop ends the load: the module host is killed.
+        ChildSettings child;
+        child.library_sha256 = resolved.library_sha256;
+        child.logger = step.logger;
+        child.stop_flag = &stop_flag_;
+        // The providers of the step's services, loaded and started in the module host, with
+        // validation's digests; their records go to the run's provider.<name>, as here.
+        child.providers = child_providers(workflow_, resolved.services, settings_.logs);
+        // Compiled models shared with the other sharing steps' module hosts, through the store in
+        // this process; the store's events go to the step's logger.
+        child.share_compiled_models = resolved.isolation.share_compiled_models;
+        // The sandbox profile it applies before it loads any library.
+        child.sandbox = resolved.isolation.sandbox;
         try {
-            loaded = LoadedModule::load(manifest);
+            module = LoadedModule::load_in_child(manifest, std::move(child));
         } catch (const Error& error) {
+            if (error.code() == ErrorCode::CANCELLED && stop_flag_.load()) {
+                stop_run(std::nullopt);
+                return false;
+            }
+            step.crashed = error.code() == ErrorCode::MODULE_CRASHED;
             throw fail(error, Failure{&step, "load"});
         }
-        if (loaded->library_sha256() != resolved.library_sha256) {
-            SourceLocation location;
-            location.file = path_to_utf8(manifest.manifest_path);
-            location.pointer = "/library/path";
-            throw fail(Error(ErrorCode::LIBRARY_DIGEST_MISMATCH,
-                             "the library of module " + step.module +
-                                 " changed after validation: its SHA-256 is now " +
-                                 loaded->library_sha256() + ", it was " + resolved.library_sha256,
-                             std::move(location)),
-                       Failure{&step, "load"});
+    } else {
+        auto loaded = modules_.find(&manifest);
+        if (loaded == modules_.end()) {
+            std::shared_ptr<LoadedModule> library;
+            try {
+                // With validation's digest: a library that changed since is refused before any of
+                // its code runs (LIBRARY_DIGEST_MISMATCH), as in a module host.
+                library = LoadedModule::load(manifest, nullptr, resolved.library_sha256);
+            } catch (const Error& error) {
+                throw fail(error, Failure{&step, "load"});
+            }
+            loaded = modules_.emplace(&manifest, std::move(library)).first;
         }
-        module = modules_.emplace(&manifest, std::move(loaded)).first;
+        module = loaded->second;
     }
 
     InstanceOptions options;
@@ -407,14 +432,17 @@ bool Engine::start_step(Step& step) {
     options.cancel_grace = resolved.timeouts.cancel_grace;
     options.logger = step.logger;
     options.services = settings_.services;
-    for (const std::string& key : resolved.services) {
-        const ServiceVersion& service = workflow_.services.at(key).service;
-        options.provider_services.add(service.name, service.major, provider_tables_.at(key));
+    // A module in a module host is served its services there: the providers are in that process.
+    if (!module->runs_in_child()) {
+        for (const std::string& key : resolved.services) {
+            const ServiceVersion& service = workflow_.services.at(key).service;
+            options.provider_services.add(service.name, service.major, provider_tables_.at(key));
+        }
     }
     options.run_fingerprint = workflow_.fingerprint;
     options.stop_flag = &stop_flag_;
     options.record_lookups = trace_ != nullptr;
-    step.instance = std::make_unique<ModuleInstance>(module->second, std::move(options));
+    step.instance = std::make_unique<ModuleInstance>(std::move(module), std::move(options));
     sync_step_state(step);
 
     const json create = {
@@ -474,11 +502,24 @@ Error Engine::call_error(const Step& step, const char* phase, const CallResult& 
         return Error(ErrorCode::STEP_TIMEOUT, who + " did not return within its timeout of " +
                                                   format_duration(timeout) + when);
     case CallOutcome::unresponsive:
+        if (!result.details_json.empty()) { // in a module host, which was terminated
+            return Error(ErrorCode::MODULE_UNRESPONSIVE,
+                         who + " did not return within its timeout of " + format_duration(timeout) +
+                             " and the cancellation grace of " +
+                             format_duration(resolved.timeouts.cancel_grace) + when +
+                             "; its module host was terminated",
+                         SourceLocation{}, result.details_json);
+        }
         return Error(ErrorCode::MODULE_UNRESPONSIVE,
                      who + " did not return within its timeout of " + format_duration(timeout) +
                          " and the cancellation grace of " +
                          format_duration(resolved.timeouts.cancel_grace) + when +
                          "; the instance is abandoned and its library stays loaded");
+    case CallOutcome::crashed:
+        return Error(ErrorCode::MODULE_CRASHED,
+                     who + " crashed" + when + ": its module host " +
+                         describe_crash(result.details_json),
+                     SourceLocation{}, result.details_json);
     case CallOutcome::refused:
         if (result.refused_by) {
             return Error(ErrorCode::MODULE_UNRESPONSIVE,
@@ -1041,6 +1082,33 @@ void Engine::teardown() noexcept {
         trace(step);
     }
 
+    // An instance whose module host the runtime killed, because a stop came before the module
+    // host had taken a call, went with that process: nothing is left to finalize or destroy, and
+    // no call would reach it. Not a failure (the run was stopped on request), but a warning says
+    // what was left undone.
+    for (auto it = steps_.rbegin(); it != steps_.rend(); ++it) {
+        Step& step = *it;
+        if (step.instance == nullptr || step.kept) {
+            continue;
+        }
+        if (const auto was = step.instance->release_terminated()) {
+            const std::string& id = step.resolved->id;
+            try {
+                log(LogLevel::warn,
+                    "step '" + id + "' (module " + step.module + ") " + left_undone(*was) +
+                        ": its module host was ended when a stop came before it had taken a "
+                        "call, and the instance went with it",
+                    {{"event", "teardown.skipped"},
+                     {"step", id},
+                     {"module", step.module},
+                     {"state", to_string(*was)}});
+            } catch (...) {
+                // Out of memory while building the warning; the instance is gone all the same.
+            }
+            sync_step_state(step);
+        }
+    }
+
     for (auto it = steps_.rbegin(); it != steps_.rend(); ++it) {
         Step& step = *it;
         if (step.instance == nullptr || step.instance->state() != StepState::ready) {
@@ -1071,14 +1139,33 @@ void Engine::teardown() noexcept {
     }
     for (auto it = steps_.rbegin(); it != steps_.rend(); ++it) {
         if (it->instance == nullptr || it->kept ||
-            it->instance->state() == StepState::unresponsive) {
-            continue; // an unresponsive instance is never destroyed
+            it->instance->state() == StepState::unresponsive ||
+            it->instance->state() == StepState::crashed) {
+            continue; // an unresponsive or crashed instance is never destroyed
         }
         show_step_state(*it, StepState::busy);
-        const CallOutcome destroyed = it->instance->destroy();
+        std::string crash;
+        const CallOutcome destroyed = it->instance->destroy(&crash);
         trace(*it);
         if (destroyed == CallOutcome::refused) {
             keep(*it, it->instance->last_refusal());
+        } else if (destroyed == CallOutcome::crashed) {
+            // Recorded as a crashed finalize is: the step's last error (MODULE_CRASHED, phase
+            // destroy) and a warning. Only a module host crashes; other destroy outcomes leave
+            // only the step's state.
+            try {
+                it->failed = true;
+                CallResult result;
+                result.outcome = CallOutcome::crashed;
+                result.details_json = crash;
+                const Error error = call_error(*it, "destroy", result, std::nullopt);
+                metrics_.set_step_error(it->resolved->id, record_of(error, std::nullopt));
+                log(LogLevel::warn, error.what(),
+                    {{"event", "teardown.destroy_failed"}, {"step", it->resolved->id}});
+            } catch (const std::exception& e) {
+                log(LogLevel::warn, "step '" + it->resolved->id + "': destroy: " + e.what(),
+                    {{"event", "teardown.destroy_failed"}, {"step", it->resolved->id}});
+            }
         }
         sync_step_state(*it);
     }
@@ -1171,8 +1258,10 @@ void Engine::set_state(WorkflowState next) {
 }
 
 void Engine::sync_step_state(const Step& step) noexcept {
-    StepState shown = step.instance != nullptr ? step.instance->state() : StepState::loaded;
-    if (step.failed && shown != StepState::unresponsive) {
+    StepState shown = step.instance != nullptr ? step.instance->state()
+                      : step.crashed           ? StepState::crashed
+                                               : StepState::loaded;
+    if (step.failed && shown != StepState::unresponsive && shown != StepState::crashed) {
         shown = StepState::failed;
     }
     show_step_state(step, shown);

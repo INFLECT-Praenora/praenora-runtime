@@ -114,21 +114,31 @@ ProviderInfo provider_info(const detail::IndexedProvider& entry) {
     return info;
 }
 
-// Step 10 of the validation sequence: loads and starts each provider of `workflow`, as a run
-// does (load_provider() checks its library, table and identity, and that its library is still the
-// one validation hashed; its records go to `logs`), then loads each module of `workflow` once
-// (load() checks the library's table and its identity against the manifest) and checks that its
-// library is still the one validation hashed. Each problem is reported for the first step that
-// uses the provider or the module. Providers stay loaded for the rest of the process; module
-// libraries are released again before this returns.
+// Step 10 of the validation sequence: loads and starts each provider that `workflow`'s steps in
+// mode "in-process" use, in this process, as a run does (load_provider() checks its library, table
+// and identity, and that its library is still the one validation hashed; its records go to
+// `logs`), then loads each module of `workflow` once for each place its steps run, as a run does:
+// once in this process (load()) for its steps in mode "in-process", and in a module host for its
+// steps in mode "process", once for each set of isolation settings they have (the sandbox profile
+// and whether the module host shares compiled models), so that a load that fails under one step's
+// settings only is reported (load_in_child(), with the providers of that step's services, which
+// the module host loads and starts first; the module host's events go to the step's logger, the
+// providers' records to `logs`), each checking that the library is still the one validation
+// hashed before any of its code runs, its table and its identity against the manifest. Each
+// problem is reported for the first step that uses the provider in this process, or the module in
+// that place with those settings, with the loader's code, message, location and details. Providers
+// stay loaded for the rest of the process; module libraries are released again, and module hosts
+// ended, before this returns.
 void check_loading(const detail::ValidatedWorkflow& workflow, ValidationReport& report,
                    detail::LogHub* logs) {
-    for (const detail::ProviderLoad& load : detail::provider_loads(workflow)) {
+    for (const detail::ProviderLoad& load :
+         detail::provider_loads(workflow, IsolationMode::in_process)) {
         const auto uses = [&load](const detail::ResolvedStep& step) {
-            return std::any_of(load.keys.begin(), load.keys.end(), [&step](const auto& key) {
-                return std::find(step.services.begin(), step.services.end(), key) !=
-                       step.services.end();
-            });
+            return step.isolation.mode == IsolationMode::in_process &&
+                   std::any_of(load.keys.begin(), load.keys.end(), [&step](const auto& key) {
+                       return std::find(step.services.begin(), step.services.end(), key) !=
+                              step.services.end();
+                   });
         };
         const auto user = std::find_if(workflow.steps.begin(), workflow.steps.end(), uses);
         try {
@@ -142,30 +152,49 @@ void check_loading(const detail::ValidatedWorkflow& workflow, ValidationReport& 
                 details_of(e));
         }
     }
+    // Whether two steps load a module alike: in this process, or in module hosts with the same
+    // profile and sharing.
+    const auto alike = [](const detail::ResolvedStep& a, const detail::ResolvedStep& b) {
+        return a.isolation.mode == b.isolation.mode &&
+               (a.isolation.mode == IsolationMode::in_process ||
+                (a.isolation.sandbox == b.isolation.sandbox &&
+                 a.isolation.share_compiled_models == b.isolation.share_compiled_models));
+    };
     for (const auto& manifest : workflow.manifests) {
-        const auto user = std::find_if(workflow.steps.begin(), workflow.steps.end(),
-                                       [&manifest](const detail::ResolvedStep& step) {
-                                           return step.manifest == manifest.get();
-                                       });
-        if (user == workflow.steps.end()) {
-            continue;
-        }
         const std::string module = identity(manifest->name, manifest->version);
-        try {
-            const std::shared_ptr<detail::LoadedModule> loaded =
-                detail::LoadedModule::load(*manifest);
-            if (loaded->library_sha256() != user->library_sha256) {
-                SourceLocation location;
-                location.file = detail::path_to_utf8(manifest->manifest_path);
-                location.pointer = "/library/path";
-                add(report, ErrorCode::LIBRARY_DIGEST_MISMATCH,
-                    "the library of module " + module +
-                        " changed during validation: its SHA-256 is now " +
-                        loaded->library_sha256() + ", it was " + user->library_sha256,
-                    std::move(location), user->id, module);
+        // The first step of each way its steps load it: in this process first, then in module
+        // hosts, in the order of the steps.
+        std::vector<const detail::ResolvedStep*> users;
+        for (const IsolationMode mode : {IsolationMode::in_process, IsolationMode::process}) {
+            for (const detail::ResolvedStep& step : workflow.steps) {
+                if (step.manifest == manifest.get() && step.isolation.mode == mode &&
+                    std::none_of(users.begin(), users.end(), [&](const detail::ResolvedStep* user) {
+                        return alike(*user, step);
+                    })) {
+                    users.push_back(&step);
+                }
             }
-        } catch (const Error& e) {
-            add(report, e.code(), e.what(), e.location(), user->id, module, details_of(e));
+        }
+        for (const detail::ResolvedStep* user : users) {
+            const IsolationMode mode = user->isolation.mode;
+            try {
+                if (mode == IsolationMode::process) {
+                    detail::ChildSettings child;
+                    child.library_sha256 = user->library_sha256;
+                    if (logs != nullptr) {
+                        child.logger = logs->logger("module." + user->id);
+                    }
+                    child.providers = detail::child_providers(workflow, user->services, logs);
+                    child.share_compiled_models = user->isolation.share_compiled_models;
+                    child.sandbox = user->isolation.sandbox;
+                    static_cast<void>(detail::LoadedModule::load_in_child(*manifest, child));
+                } else {
+                    static_cast<void>(
+                        detail::LoadedModule::load(*manifest, nullptr, user->library_sha256));
+                }
+            } catch (const Error& e) {
+                add(report, e.code(), e.what(), e.location(), user->id, module, details_of(e));
+            }
         }
     }
 }

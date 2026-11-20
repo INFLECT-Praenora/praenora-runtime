@@ -10,6 +10,7 @@
 
 #include <cstddef>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -22,7 +23,8 @@ class ExecutableModel;
 namespace praenora::roadrunner {
 
 // Sets libRoadRunner's process-wide configuration (every key of rr::Config, MCJit among them),
-// routes its logging to the provider's logger and initializes LLVM. Called once, from start().
+// routes its logging to the provider's logger and initializes LLVM, and keeps `host` for its store
+// callbacks (the shared compiled models). Called once, from start().
 void start_engine(const praenora_provider_host* host);
 
 // libRoadRunner objects are made, copied and destroyed only under the provider's engine lock
@@ -47,9 +49,9 @@ struct Quantity {
     std::string selection;  // libRoadRunner's selection of the value
 };
 
-// A compiled model: a libRoadRunner object loaded from the model text, which is never simulated
-// and only copied, and what describe_model reports. Immutable once made; shared by the sessions,
-// plans and kernels of its text.
+// A compiled model: a libRoadRunner object loaded from the model text (compiled, or loaded from a
+// saved state of it), which is never simulated and only copied, and what describe_model reports.
+// Immutable once made; shared by the sessions, plans and kernels of its text.
 class CompiledModel {
 public:
     CompiledModel(RunnerPtr runner, ModelIds ids,
@@ -69,6 +71,10 @@ public:
     // polling `host` for cancellation.
     RunnerPtr copy(const praenora_host_api* host) const;
 
+    // The libRoadRunner object's saved state (saveStateS('b')) in its envelope (state_envelope()),
+    // as the shared compiled models keep it. Waits for the engine as copy() does.
+    std::string saved_state(const praenora_host_api* host) const;
+
 private:
     RunnerPtr runner_;
     ModelIds ids_;
@@ -78,11 +84,39 @@ private:
     std::string description_;
 };
 
-// The compiled model of an SBML text, from the cache or compiled now. Fails with DATA_INVALID
-// (details.reason "model") for a text the provider refuses or the engine cannot compile, and with
-// CANCELLED when the host asks the call to stop while it waits.
+// The compiled model of an SBML text, from the cache, or else from the shared compiled models of
+// the provider host when it offers them and they hold it (logged at debug through `host`:
+// "roadrunner: loaded the compiled model from the shared store"), or compiled now ("roadrunner:
+// compiled the model") and then kept there, when there are any. An entry there that does not load
+// is logged at warn through `host`, and the model is compiled instead. The cache key, which is the
+// store's key too, is the SHA-256 of the engine's identity, the load options and the text: nothing
+// of the process. Fails with DATA_INVALID (details.reason "model") for a text the provider refuses
+// or the engine cannot compile, and with CANCELLED when the host asks the call to stop while it
+// waits.
 std::shared_ptr<const CompiledModel> compiled_model(std::string_view text,
                                                     const praenora_host_api* host);
+
+// The pieces of the shared compiled models, for compiled_model() and its tests.
+//
+// An entry: the bytes "praenora-roadrunner-state\n", the size of the engine's identity (u64,
+// little-endian) and the identity (the engine object of the provider manifest and the load
+// options), the size of the state (u64), the state's SHA-256 (32 bytes), and the state that
+// saveStateS('b') wrote. The checks find an entry that is corrupt or cut short, or that another
+// engine saved; they do not make an entry made on purpose safe to load.
+std::string state_envelope(std::string_view payload);
+// The state that `entry` holds, or nullopt with why in `why`: not an envelope of this provider,
+// another engine's, a size other than the state's, or a SHA-256 other than the state's.
+std::optional<std::string_view> envelope_payload(std::string_view entry, std::string& why);
+// The text compiled now, past the cache and the store: the checks and errors of compiled_model().
+std::shared_ptr<const CompiledModel> compile_model(std::string_view text,
+                                                   const praenora_host_api* host);
+// The text's compiled model loaded from `entry` without compiling (the text's checks still run),
+// or nullptr with why in `why` when the entry does not load: its envelope's checks fail, or
+// libRoadRunner's loadStateS() throws.
+std::shared_ptr<const CompiledModel> load_compiled_model(std::string_view text,
+                                                         std::string_view entry,
+                                                         const praenora_host_api* host,
+                                                         std::string& why);
 
 // Runs Level A time courses of one model: one libRoadRunner object, reset before each run.
 // One call at a time (sessions and plans hold it for their calls).

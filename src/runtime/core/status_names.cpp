@@ -43,6 +43,8 @@ std::string to_string(StepState state) {
         return "failed";
     case StepState::unresponsive:
         return "unresponsive";
+    case StepState::crashed:
+        return "crashed";
     }
     return "failed";
 }

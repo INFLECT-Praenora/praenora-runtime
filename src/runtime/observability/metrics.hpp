@@ -31,9 +31,10 @@ public:
     // The calls below throw praenora::Error(INVALID_ARGUMENT) for a step never registered.
     void set_step_state(const std::string& step, StepState state);
 
-    // One finished invocation: its outcome (unresponsive counts as timed_out), duration
-    // (negative counts as 0) and wall-clock time. last_success_at changes only on success;
-    // `error`, when given, becomes the step's last error, which stays until a later error.
+    // One finished invocation: its outcome (unresponsive counts as timed_out; crashed and refused
+    // count as failed), duration (negative counts as 0) and wall-clock time. last_success_at
+    // changes only on success; `error`, when given, becomes the step's last error, which stays
+    // until a later error.
     void record_invocation(const std::string& step, CallOutcome outcome,
                            std::chrono::nanoseconds duration, std::int64_t at_unix_ns,
                            std::optional<ErrorRecord> error);
@@ -68,7 +69,7 @@ private:
 };
 
 // The health rules, in order:
-//   unhealthy: the run failed, or an instance is failed or unresponsive;
+//   unhealthy: the run failed, or an instance is failed, unresponsive or crashed;
 //   unknown:   the run has not started (created, starting);
 //   degraded:  a timeout, cancellation or failure was counted, the run is stopping or stopped,
 //              or the workflow has a last error (for example a failed status-file write);

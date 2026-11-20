@@ -237,7 +237,8 @@
         "platform",
         "overrides",
         "validation",
-        "manifests"
+        "manifests",
+        "isolation"
       ],
       "additionalProperties": false,
       "properties": {
@@ -320,6 +321,9 @@
             },
             "ticks": {
               "$ref": "#/definitions/count"
+            },
+            "isolation": {
+              "$ref": "#/definitions/isolation_mode"
             }
           },
           "description": "The run settings the caller overrode (CLI flags or API options); empty when none."
@@ -330,6 +334,38 @@
             "off"
           ],
           "description": "Whether payloads were validated against their message types (strict) or not (off, for performance measurements)."
+        },
+        "isolation": {
+          "type": "object",
+          "patternProperties": {
+            "^(?!(inputs|outputs)$)[a-z][a-z0-9_]*$": {
+              "type": "object",
+              "required": [
+                "mode",
+                "share_compiled_models",
+                "sandbox"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "mode": {
+                  "$ref": "#/definitions/isolation_mode"
+                },
+                "share_compiled_models": {
+                  "type": "boolean",
+                  "description": "Whether the step's module host shared compiled models with the other sharing steps' module hosts."
+                },
+                "sandbox": {
+                  "enum": [
+                    "none",
+                    "restricted"
+                  ],
+                  "description": "The sandbox profile of the step's module host: none, or restricted."
+                }
+              }
+            }
+          },
+          "additionalProperties": false,
+          "description": "How each step's module instance was isolated, by step, every field resolved: mode in-process (in the runtime's process) or process (in a module host), whether its module host shared compiled models, and its sandbox profile. Outside the hashed section: it does not change the fingerprint."
         },
         "manifests": {
           "type": "object",
@@ -519,6 +555,12 @@
     "fingerprint": {
       "type": "string",
       "pattern": "^[0-9a-f]{64}$"
+    },
+    "isolation_mode": {
+      "enum": [
+        "in-process",
+        "process"
+      ]
     },
     "manifest_location": {
       "type": "object",

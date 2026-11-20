@@ -86,14 +86,17 @@ without the `{"ok": true, "result": ...}` around it.
 ```python
 Workflow(config, module_paths=None, output_dir=None, seed=None, log_level=None, *,
          ticks=None, overwrite=False, trace_messages=None, status_file=None,
-         log_format=None, log_file=None, catalog_paths=None, provider_paths=None)
+         log_format=None, log_file=None, catalog_paths=None, provider_paths=None,
+         isolation=None)
 ```
 
 The constructor validates the configuration, with its arguments as overrides
 ([configuration.md](configuration.md#overrides-and-precedence)), and prepares the run; nothing is
 loaded yet. `seed` and `ticks` are whole numbers from 0 to 2^53 - 1; `log_level` and `log_format`
-take the names of the tool's options in any case; `None` leaves a setting to the configuration. A
-`with` block closes the run when it ends.
+take the names of the tool's options in any case; `isolation` is `"in-process"` or `"process"`,
+exactly so, as `--isolation` takes them, and sets every step's isolation mode
+([Process isolation](#process-isolation)); `None` leaves a setting to the configuration. A `with`
+block closes the run when it ends.
 
 | Method or property | Does |
 |---|---|
@@ -107,6 +110,37 @@ take the names of the tool's options in any case; `None` leaves a setting to the
 | `latest_outputs()` | The newest envelope of each workflow output, `{"<output>": envelope}`. |
 | `run_record()` | The run record as last written, the same document as its file, whose error records name the run's directories by placeholders such as `<output>`; `None` before the run starts. |
 | `state`, `fingerprint` | Properties: the state name and the run fingerprint. |
+
+### Process isolation
+
+`isolation="process"` (or the configuration's `isolation.mode`,
+[configuration.md](configuration.md#isolation)) runs each step's module instance in a module host,
+the executable `praenora-module-host`, a process of its own, instead of the Python process: a crash
+of the module fails its step with `MODULE_CRASHED` (its state `crashed`) and the interpreter goes
+on, and a call that never returns is ended by killing its module host. The results are those of a
+run in the Python process.
+
+```python
+import praenora.runtime as pr
+
+with pr.Workflow("examples/workflows/estimate-predict/workflow.yaml",
+                 module_paths=["build/dev/modules"], isolation="process") as workflow:
+    print(workflow.run()["state"])
+    print(workflow.run_record()["execution"]["isolation"]["predict"])
+```
+
+```text
+completed
+{'mode': 'process', 'sandbox': 'none', 'share_compiled_models': False}
+```
+
+The runtime finds the module host relative to its runtime library, in `libexec/praenora/`: the
+package in the build tree (`build/<preset>/python`) uses the build tree's runtime library, and so
+its module host. **A wheel holds no module host**: an installation from the wheel refuses process
+mode, as a step in a module host fails to load with `MODULE_HOST_UNAVAILABLE` (code 503, category
+`load`) and `details.reason` `"missing"`. Run such steps in the Python process there
+(`isolation="in-process"`, the default), or use the runtime of a build tree or of a full
+installation.
 
 ## Errors
 
@@ -307,14 +341,18 @@ macOS version all the same (`macosx_15_0_arm64` on macOS 15).
 
 **Contents.** A wheel build has only the Python package's install rules, so the wheel holds just
 `praenora/runtime/` and its `.dist-info` (`METADATA`, `WHEEL` and `RECORD`); `praenora` has no
-`__init__.py`. The wheel built above is 0.91 MB, and 2.2 MB once installed:
+`__init__.py`. The wheel built above is 1.04 MB, and 2.4 MB once installed:
 
 | File | Size | From |
 |---|---|---|
-| `__init__.py` | 17.2 kB | `python/praenora/runtime/`, through `wheel.packages` |
+| `__init__.py` | 18.3 kB | `python/praenora/runtime/`, through `wheel.packages` |
 | `_bindings.py` | 9.3 kB | SWIG's proxy module, installed by the build |
 | `_bindings_native.cpython-312-darwin.so` | 349 kB | The extension, installed by the build |
-| `libpraenora_runtime.0.2.dylib` | 1.8 MB | The runtime library, installed by the build |
+| `libpraenora_runtime.0.2.dylib` | 2.1 MB | The runtime library, installed by the build |
+
+The wheel holds no module host (`praenora-module-host`): steps in process mode are refused there
+(checked with the wheel above) with `MODULE_HOST_UNAVAILABLE`, `details.reason` `"missing"`
+([Process isolation](#process-isolation), [open-questions.md](open-questions.md), OQ-13).
 
 The binaries are Release builds, stripped on installation. The extension finds the runtime library
 beside itself (an RPATH of `$ORIGIN` on Linux, `@loader_path` on macOS; on Windows the DLL lies next

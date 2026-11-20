@@ -2,12 +2,14 @@
 // open. Its parameter `hang` says where it blocks: in "invoke" (the default), which then returns
 // {"outputs":{"out":{"data":{}}}}; in "finalize"; in "destroy" (the instance's destructor); or
 // "none", which never blocks. Without that service invoke fails with UNSUPPORTED when it would
-// block, and finalize and destroy return at once. Lifecycle and engine tests use it to make an
-// instance unresponsive and then release its thread. Its manifest declares diagnostics (the
-// adapter's default, {}), so tests can check that nobody asks an unresponsive instance for them,
-// and the default concurrency "module", which it checks: an invoke or finalize that starts while
-// another invoke, finalize or destroy of the library is running fails with FAILED ("entered while
-// another call into the library was running"), so tests see calls that overlap.
+// block, and finalize and destroy return at once; with the parameter `without_gate` "block"
+// (default "fail") they block for good instead, never looking at cancellation (a module host offers
+// no test.gate). Lifecycle and engine tests use it to make an instance unresponsive and then
+// release its thread. Its manifest declares diagnostics (the adapter's default, {}), so tests can
+// check that nobody asks an unresponsive instance for them, and the default concurrency "module",
+// which it checks: an invoke or finalize that starts while another invoke, finalize or destroy of
+// the library is running fails with FAILED ("entered while another call into the library was
+// running"), so tests see calls that overlap.
 #include <praenora/sdk/module.hpp>
 
 #include "test_gate.h"
@@ -58,8 +60,8 @@ public:
 
     ~HangModule() override {
         const Running running;
-        if (hang_ == "destroy") {
-            static_cast<void>(wait_for_gate());
+        if (hang_ == "destroy" && !wait_for_gate()) {
+            block_without_gate();
         }
     }
 
@@ -67,6 +69,7 @@ public:
         const Running running;
         running.check("invoke");
         if (hang_ == "invoke" && !wait_for_gate()) {
+            block_without_gate();
             throw sdk::Error(PRAENORA_STATUS_UNSUPPORTED,
                              "fx-hang: the host offers no test.gate service (major 0)");
         }
@@ -76,12 +79,19 @@ public:
     void finalize() override {
         const Running running;
         running.check("finalize");
-        if (hang_ == "finalize") {
-            static_cast<void>(wait_for_gate());
+        if (hang_ == "finalize" && !wait_for_gate()) {
+            block_without_gate();
         }
     }
 
 private:
+    // With without_gate "block": never returns, never looks at cancellation.
+    void block_without_gate() const {
+        while (block_without_gate_) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+    }
+
     // Blocks until the gate is open; false at once when the host offers no gate.
     bool wait_for_gate() const noexcept {
         const auto* gate =
@@ -108,8 +118,18 @@ private:
                                  e.what());
         }
         const auto parameters = document.find("parameters");
-        if (parameters == document.end() || !parameters->is_object() ||
-            !parameters->contains("hang")) {
+        if (parameters == document.end() || !parameters->is_object()) {
+            return;
+        }
+        if (parameters->contains("without_gate")) {
+            const nlohmann::json& without_gate = parameters->at("without_gate");
+            if (without_gate != "fail" && without_gate != "block") {
+                throw sdk::Error(PRAENORA_STATUS_INVALID_ARGUMENT,
+                                 "fx-hang: without_gate must be fail or block");
+            }
+            block_without_gate_ = without_gate == "block";
+        }
+        if (!parameters->contains("hang")) {
             return;
         }
         const nlohmann::json& hang = parameters->at("hang");
@@ -123,6 +143,7 @@ private:
 
     sdk::Host host_;
     std::string hang_ = "invoke";
+    bool block_without_gate_ = false;
 };
 
 } // namespace

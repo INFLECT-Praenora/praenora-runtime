@@ -19,6 +19,9 @@ C99_REQUIRE(provider_header_first, offsetof(praenora_provider_api_v0, header) ==
 C99_REQUIRE(provider_describe_after_header,
             offsetof(praenora_provider_api_v0, describe) == sizeof(praenora_api_header));
 C99_REQUIRE(provider_host_context_after_sizes, offsetof(praenora_provider_host, context) == 8);
+/* The callbacks of the shared compiled models are appended after the log callbacks. */
+C99_REQUIRE(provider_host_store_appended, offsetof(praenora_provider_host, load_compiled) >
+                                              offsetof(praenora_provider_host, log_enabled));
 
 /* A sink that appends into a fixed buffer. */
 typedef struct capture {
@@ -138,6 +141,8 @@ int praenora_provider_c99_check(void) {
     host.context = &record;
     host.log = host_log;
     host.log_enabled = host_log_enabled;
+    host.load_compiled = NULL; /* no store, as in the runtime's own process */
+    host.save_compiled = NULL;
     if (api->start(&host, &error_sink) != PRAENORA_STATUS_OK || error.size != 0 ||
         record.last_level != PRAENORA_LOG_INFO || record.logged_bytes != 7 ||
         host.log_enabled(host.context, PRAENORA_LOG_DEBUG) != 0) {
@@ -162,4 +167,6 @@ void praenora_provider_c99_layout(size_t* out) {
     out[5] = offsetof(praenora_provider_api_v0, describe);
     out[6] = offsetof(praenora_provider_api_v0, start);
     out[7] = offsetof(praenora_provider_api_v0, get_service);
+    out[8] = offsetof(praenora_provider_host, load_compiled);
+    out[9] = offsetof(praenora_provider_host, save_compiled);
 }

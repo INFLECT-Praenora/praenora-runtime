@@ -9,7 +9,9 @@
 // initialize() converts the source of parameter `model` from format `from` to format `to` (and
 // the module of parameter `module`, when given); with `simulate`, it then opens a session for the
 // converted text with {"format": <to>}, runs `simulate` (a request of the simulation service) and
-// closes the session. Each invoke() writes to output out
+// closes the session. With parameter `convert_in` "invoke" (the default is "initialize"), the first
+// invoke() does all of this instead of initialize(), so that only the invoke deadline bounds it.
+// Each invoke() writes to output out
 //   {"sha256": <the converted text's SHA-256>, "bytes": <its size>, "report": <the conversion's
 //    report>, "result": <the simulation's result, with simulate only>}.
 // A call of a service that fails fails the module call with the service's status, a message that
@@ -167,6 +169,7 @@ public:
         if (parameters.contains("simulate")) {
             simulate_ = parameters.at("simulate").dump();
         }
+        convert_in_invoke_ = parameters.value("convert_in", std::string("initialize")) == "invoke";
 
         // The tables, once; tables live until the process ends.
         conversion_ = static_cast<const praenora_model_conversion_v0*>(host_.service(
@@ -194,6 +197,31 @@ public:
     }
 
     void initialize(const sdk::InitializeContext&) override {
+        if (!convert_in_invoke_) {
+            convert();
+        }
+    }
+
+    std::string invoke(std::string_view invocation_json) override {
+        // The invocation names no input this module reads, but it must be a document.
+        static_cast<void>(parse(invocation_json, "the invocation document"));
+        if (convert_in_invoke_ && !converted_once_) {
+            convert();
+        }
+        json data = {
+            {"sha256", sha256_hex(converted_)}, {"bytes", converted_.size()}, {"report", report_}};
+        if (simulation_ != nullptr) {
+            data["result"] = result_;
+        }
+        json document;
+        document["outputs"]["out"]["data"] = std::move(data);
+        return document.dump();
+    }
+
+private:
+    // Converts the model, and simulates it with `simulate`.
+    void convert() {
+        converted_once_ = true;
         const praenora_host_api* host = host_.api();
         json options = {{"from", from_}, {"to", to_}};
         if (module_.has_value()) {
@@ -234,25 +262,12 @@ public:
         result_ = parse(result.text, "the simulation's result");
     }
 
-    std::string invoke(std::string_view invocation_json) override {
-        // The invocation names no input this module reads, but it must be a document.
-        static_cast<void>(parse(invocation_json, "the invocation document"));
-        json data = {
-            {"sha256", sha256_hex(converted_)}, {"bytes", converted_.size()}, {"report", report_}};
-        if (simulation_ != nullptr) {
-            data["result"] = result_;
-        }
-        json document;
-        document["outputs"]["out"]["data"] = std::move(data);
-        return document.dump();
-    }
-
-private:
     const sdk::Host& host_;
     const praenora_model_conversion_v0* conversion_ = nullptr;
     const praenora_simulation_v0* simulation_ = nullptr; // with parameter simulate only
     std::string model_, from_, to_, simulate_;
     std::optional<std::string> module_;
+    bool convert_in_invoke_ = false, converted_once_ = false;
     std::string converted_;
     json report_, result_;
 };

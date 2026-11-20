@@ -128,6 +128,10 @@ constexpr std::array kTable = {
         "praenora_provider_get_api)."),
     row(E::API_TABLE_INVALID, "API_TABLE_INVALID", C::load, "module", no_retry,
         "The function table of a module or provider is missing, malformed or incomplete."),
+    row(E::MODULE_HOST_UNAVAILABLE, "MODULE_HOST_UNAVAILABLE", C::load, "environment", no_retry,
+        "A module host (praenora-module-host) for a step's module could not be found, started or "
+        "used: it is missing, did not start, failed the handshake, is of another runtime version "
+        "or channel protocol, or cannot apply its sandbox profile."),
     row(E::GRAPH_INVALID, "GRAPH_INVALID", C::validation, "protocol", no_retry,
         "The workflow graph breaks a structural rule, such as fan-in or a delayed connection "
         "into a required input."),
@@ -147,13 +151,16 @@ constexpr std::array kTable = {
     row(E::STEP_TIMEOUT, "STEP_TIMEOUT", C::timeout, "module/config", retry,
         "A module call passed its deadline and returned within the cancellation grace period."),
     row(E::MODULE_UNRESPONSIVE, "MODULE_UNRESPONSIVE", C::timeout, "module", no_retry,
-        "A module call did not return within its deadline plus the cancellation grace period, or "
-        "a call or load was refused because such a call may still be running in the module's "
-        "library."),
+        "A module call did not return within its deadline plus the cancellation grace period (in a "
+        "module host, which is then terminated), or a call or load was refused because such a "
+        "call may still be running in the module's library."),
     row(E::INPUT_MISSING, "INPUT_MISSING", C::execution, "runtime", no_retry,
         "A required input message was not available when a step ran."),
     row(E::RUN_STOPPED, "RUN_STOPPED", C::cancelled, "none", no_retry,
         "The run was stopped on request."),
+    row(E::MODULE_CRASHED, "MODULE_CRASHED", C::execution, "module", no_retry,
+        "A module host ended (a signal or an exit) or broke its channel's protocol during a load "
+        "or a call into its module."),
     // Exit 1 during a run; the CLI reports 3 when validation finds it.
     row(E::TARGET_DATA_INVALID, "TARGET_DATA_INVALID", C::data, "user data", no_retry,
         "Target data is malformed or breaks the observation rules."),

@@ -6,7 +6,10 @@
 #include "core/seed.hpp"
 #include "core/sha256.hpp"
 #include "document/json_util.hpp"
+#include "isolation/child_process.hpp"
+#include "isolation/sandbox.hpp"
 #include "loader/loaded_module.hpp"
+#include "observability/logging.hpp"
 #include "platform/platform.hpp"
 #include "provider/provider_loader.hpp"
 
@@ -95,6 +98,7 @@ public:
         }
         check_bindings();   // step 5
         resolve_modules();  // step 6
+        check_isolation();  // step 6, the steps in module hosts
         check_parameters(); // step 7
         build_sources();    // step 8
         if (errors() > 0) {
@@ -462,6 +466,56 @@ private:
         }
     }
 
+    // A step that runs in a module host is refused (UNSUPPORTED) where the platform has no
+    // process isolation, located at the field that set the step's mode; the caller's override has
+    // none. Its module's runtime services are loaded in its module host. A step in the runtime's
+    // process that would share compiled models or have a restricted sandbox profile is refused
+    // (CONFIG_INVALID), and a step in a module host with the restricted profile where the platform
+    // has none (UNSUPPORTED), each located at the field that set it.
+    void check_isolation() {
+        for (const auto& [id, binding] : config_.steps) {
+            const Isolation& isolation = binding.isolation;
+            if (definition_->steps.count(id) == 0) {
+                continue;
+            }
+            if (isolation.mode == IsolationMode::in_process && isolation.share_compiled_models) {
+                add(ErrorCode::CONFIG_INVALID, at(isolation.share_pointer),
+                    "step '" + id +
+                        "' runs in the runtime's process (isolation mode \"in-process\"), and "
+                        "share_compiled_models applies only to a step that runs in a module host",
+                    id);
+            }
+            if (isolation.sandbox == SandboxProfile::restricted) {
+                if (isolation.mode == IsolationMode::in_process) {
+                    add(ErrorCode::CONFIG_INVALID, at(isolation.sandbox_pointer),
+                        "step '" + id +
+                            "' runs in the runtime's process (isolation mode \"in-process\"), "
+                            "and sandbox \"restricted\" applies only to a step that runs in a "
+                            "module host",
+                        id);
+                } else if (!restricted_sandbox_available()) {
+                    add(ErrorCode::UNSUPPORTED, at(isolation.sandbox_pointer),
+                        "step '" + id +
+                            "' asks for the restricted sandbox profile (sandbox "
+                            "\"restricted\"), which is available only on macOS in this version",
+                        id);
+                }
+            }
+            if (isolation.mode != IsolationMode::process || process_isolation_available()) {
+                continue;
+            }
+            const SourceLocation location =
+                isolation.mode_pointer.empty() ? SourceLocation{} : at(isolation.mode_pointer);
+            add(ErrorCode::UNSUPPORTED, location,
+                "step '" + id + "' runs in a module host (isolation mode \"process\"" +
+                    (isolation.mode_overridden
+                         ? ", set for every step by the run's isolation override"
+                         : std::string()) +
+                    "), and process isolation is not available on Windows in this version",
+                id);
+        }
+    }
+
     void check_parameters() {
         for (const auto& [id, resolved] : modules_) {
             const StepBinding& binding = config_.steps.at(id);
@@ -526,6 +580,7 @@ private:
     ValidatedWorkflow finish() {
         ValidatedWorkflow result;
         result.definition = definition_;
+        result.isolation = json::object();
         result.graph = build_graph(*definition_, catalog_);
         std::map<fs::path, std::shared_ptr<const ModuleManifest>> manifests;
         for (const std::string& id : result.graph.schedule) {
@@ -549,6 +604,11 @@ private:
             if (const auto keys = step_service_keys_.find(id); keys != step_service_keys_.end()) {
                 step.services.assign(keys->second.begin(), keys->second.end());
             }
+            step.isolation = binding.isolation;
+            result.isolation[id] = {
+                {"mode", std::string(isolation_mode_name(binding.isolation.mode))},
+                {"share_compiled_models", binding.isolation.share_compiled_models},
+                {"sandbox", std::string(sandbox_profile_name(binding.isolation.sandbox))}};
             result.steps.push_back(std::move(step));
         }
         result.services = services_;
@@ -827,10 +887,14 @@ Diagnostic service_unavailable(const ModuleManifest& manifest, std::size_t index
     return diagnostic;
 }
 
-std::vector<ProviderLoad> provider_loads(const ValidatedWorkflow& workflow) {
+std::vector<ProviderLoad> provider_loads(const ValidatedWorkflow& workflow,
+                                         const std::vector<std::string>& keys) {
     std::vector<ProviderLoad> loads;
     std::map<fs::path, std::size_t> by_manifest;
     for (const auto& [key, service] : workflow.services) {
+        if (std::find(keys.begin(), keys.end(), key) == keys.end()) {
+            continue;
+        }
         const auto [entry, added] =
             by_manifest.emplace(service.provider->manifest_path, loads.size());
         if (added) {
@@ -844,6 +908,32 @@ std::vector<ProviderLoad> provider_loads(const ValidatedWorkflow& workflow) {
         load.keys.push_back(key);
     }
     return loads;
+}
+
+std::vector<ProviderLoad> provider_loads(const ValidatedWorkflow& workflow, IsolationMode mode) {
+    std::vector<std::string> keys;
+    for (const ResolvedStep& step : workflow.steps) {
+        if (step.isolation.mode == mode) {
+            keys.insert(keys.end(), step.services.begin(), step.services.end());
+        }
+    }
+    return provider_loads(workflow, keys);
+}
+
+std::vector<ChildProvider> child_providers(const ValidatedWorkflow& workflow,
+                                           const std::vector<std::string>& keys, LogHub* logs) {
+    std::vector<ChildProvider> providers;
+    for (const ProviderLoad& load : provider_loads(workflow, keys)) {
+        ChildProvider provider;
+        provider.manifest = load.provider;
+        provider.library_sha256 = load.library_sha256;
+        provider.services = load.services;
+        if (logs != nullptr) {
+            provider.logger = logs->logger("provider." + load.provider->name);
+        }
+        providers.push_back(std::move(provider));
+    }
+    return providers;
 }
 
 } // namespace praenora::detail

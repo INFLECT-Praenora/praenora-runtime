@@ -95,9 +95,17 @@
       "build_type": "Debug"
     },
     "overrides": {
-      "seed": 7
+      "seed": 7,
+      "isolation": "process"
     },
     "validation": "strict",
+    "isolation": {
+      "a": {
+        "mode": "process",
+        "share_compiled_models": true,
+        "sandbox": "restricted"
+      }
+    },
     "manifests": {
       "steps": {
         "a": {

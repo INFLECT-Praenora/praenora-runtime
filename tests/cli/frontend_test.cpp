@@ -55,6 +55,8 @@ TEST(Frontend, NameListsComeFromTheTables) {
               "trace, debug, info, warn, error, critical or off");
     EXPECT_EQ(frontend::names_of(frontend::kLogFormats), "text or json");
     EXPECT_EQ(frontend::names_of(frontend::kLogFormats, "|", "|"), "text|json");
+    EXPECT_EQ(frontend::names_of(frontend::kIsolationModes), "in-process or process");
+    EXPECT_EQ(frontend::names_of(frontend::kIsolationModes, "|", "|"), "in-process|process");
 
     constexpr frontend::Named<int> kOne[] = {{"one", 1}};
     EXPECT_EQ(frontend::names_of(kOne), "one");
@@ -74,6 +76,13 @@ TEST(Frontend, LookupsTakeTheNamesOfTheirTables) {
     EXPECT_EQ(frontend::graph_format("asyncapi"), praenora::GraphFormat::asyncapi);
     EXPECT_EQ(frontend::graph_format("svg"), std::nullopt);
     EXPECT_EQ(frontend::graph_format("JSON"), std::nullopt);
+
+    // Isolation modes: exactly as written, as in configurations.
+    EXPECT_EQ(frontend::isolation_mode("in-process"), praenora::IsolationMode::in_process);
+    EXPECT_EQ(frontend::isolation_mode("process"), praenora::IsolationMode::process);
+    EXPECT_EQ(frontend::isolation_mode("Process"), std::nullopt);
+    EXPECT_EQ(frontend::isolation_mode("in_process"), std::nullopt);
+    EXPECT_EQ(frontend::isolation_mode(""), std::nullopt);
 
     for (const auto& level : frontend::kLogLevels) {
         EXPECT_EQ(frontend::log_level_name(level.value), level.name);

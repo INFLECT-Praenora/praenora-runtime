@@ -118,6 +118,25 @@ praenora_add_fixture_module(fx-hang
     SOURCES fx-hang/fx_hang.cpp LINK_LIBRARIES nlohmann_json::nlohmann_json)
 target_include_directories(fx_hang PRIVATE "${PROJECT_SOURCE_DIR}/tests/support") # test_gate.h
 praenora_add_fixture_module(fx-lifecycle SOURCES fx-lifecycle/fx_lifecycle.cpp)
+# Modules for module hosts only (process isolation): each ends, damages or blocks its own process
+# on purpose, so no test loads them in its own process. fx-crash ends it in the call its parameters
+# name, fx-crash-at-load in a static initializer, fx-hang-at-load blocks in one for good, and
+# fx-scribble writes onto descriptors 3 to 63, a module host's channel among them.
+praenora_add_fixture_module(fx-crash
+    SOURCES fx-crash/fx_crash.cpp LINK_LIBRARIES nlohmann_json::nlohmann_json)
+praenora_add_fixture_module(fx-crash-at-load SOURCES fx-crash-at-load/fx_crash_at_load.cpp)
+praenora_add_fixture_module(fx-hang-at-load SOURCES fx-hang-at-load/fx_hang_at_load.cpp)
+praenora_add_fixture_module(fx-scribble
+    SOURCES fx-scribble/fx_scribble.cpp LINK_LIBRARIES nlohmann_json::nlohmann_json)
+# fx-deep-stack-at-load uses 2 MiB of stack in a static initializer: it loads on a stack the size
+# of a main thread's, in a test's main thread or in a module host, and crashes on a smaller one.
+praenora_add_fixture_module(fx-deep-stack-at-load
+    SOURCES fx-deep-stack-at-load/fx_deep_stack_at_load.cpp)
+# For the sandbox profiles of a module host: fx-sandbox-probe tries to connect, fork, spawn, write
+# outside and inside the temporary directory and read, as the library loads and in each invoke,
+# and reports what each try got.
+praenora_add_fixture_module(fx-sandbox-probe
+    SOURCES fx-sandbox-probe/fx_sandbox_probe.cpp LINK_LIBRARIES nlohmann_json::nlohmann_json)
 praenora_add_fixture_module(fx-noop SOURCES fx-noop/fx_noop.cpp)
 praenora_add_fixture_module(fx-nondeterministic
     SOURCES fx-nondeterministic/fx_nondeterministic.cpp

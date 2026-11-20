@@ -4,7 +4,7 @@
 // fx-noop, which does nothing, and the probe prints one JSON object on standard output:
 //
 //   {"ticks":N,"steps":4,"invocations":I,"total_ns":T,"mean_invocation_overhead_ns":T/I,
-//    "mean_tick_ns":T/N,"validation":"strict"|"off"}
+//    "mean_tick_ns":T/N,"validation":"strict"|"off","isolation":"in-process"|"process"}
 //
 //   ticks         the ticks run (--ticks)
 //   steps         the workflow's steps
@@ -19,9 +19,13 @@
 //   validation    strict: every payload and envelope is validated against its schema, as in any
 //                 run; off: none is, which only measurements like this one use. It is the
 //                 engine's EngineSettings::validate_payloads, which the run record reports.
-// The difference between a strict and an off run is what validation costs.
+//   isolation     in-process (the default): the steps run in this process; process: each step
+//                 runs in a module host of its own (WorkflowOptions::isolation), so each call is a
+//                 round trip over its channel. The run record reports it for every step.
+// The difference between a strict and an off run is what validation costs; between an in-process
+// and a process run, what a module host costs.
 //
-//   praenora_perf --ticks N --validation strict|off
+//   praenora_perf --ticks N --validation strict|off [--isolation in-process|process]
 //
 // Exit code 0 with the report; 1 when the run fails or does not do what it should (described on
 // standard error); 2 on wrong usage. Turning validation off is not part of the public API, so the
@@ -29,6 +33,7 @@
 // below the system temporary directory (praenora::test::ScratchDir), removed at the end; the run
 // itself writes no file (it has no output directory) and logs nothing.
 #include "api/validation.hpp"
+#include "config/workflow_config.hpp"
 #include "core/paths.hpp"
 #include "core/seed.hpp"
 #include "engine/engine.hpp"
@@ -59,11 +64,13 @@ namespace {
 namespace fs = std::filesystem;
 namespace detail = praenora::detail;
 
-constexpr std::string_view kUsage = "usage: praenora_perf --ticks N --validation strict|off\n";
+constexpr std::string_view kUsage =
+    "usage: praenora_perf --ticks N --validation strict|off [--isolation in-process|process]\n";
 
 struct Options {
     std::uint64_t ticks = 0;
     std::string validation; // strict or off
+    praenora::IsolationMode isolation = praenora::IsolationMode::in_process;
 };
 
 // The options in argv; nullopt, after saying why on standard error, when they are wrong.
@@ -72,7 +79,8 @@ std::optional<Options> parse_options(int argc, char** argv) {
     bool have_ticks = false;
     for (int i = 1; i < argc; ++i) {
         const std::string_view name = argv[i];
-        if ((name != "--ticks" && name != "--validation") || i + 1 == argc) {
+        if ((name != "--ticks" && name != "--validation" && name != "--isolation") ||
+            i + 1 == argc) {
             std::cerr << "praenora_perf: unexpected argument '" << name << "'\n" << kUsage;
             return std::nullopt;
         }
@@ -87,6 +95,17 @@ std::optional<Options> parse_options(int argc, char** argv) {
                 return std::nullopt;
             }
             have_ticks = true;
+        } else if (name == "--isolation") {
+            // The names of the configuration's isolation.mode, from the runtime itself.
+            const auto mode = detail::isolation_mode_from_name(value);
+            if (!mode) {
+                std::cerr << "praenora_perf: --isolation '" << value << "' is not "
+                          << detail::isolation_mode_name(praenora::IsolationMode::in_process)
+                          << " or " << detail::isolation_mode_name(praenora::IsolationMode::process)
+                          << '\n';
+                return std::nullopt;
+            }
+            options.isolation = *mode;
         } else if (value == "strict" || value == "off") {
             options.validation = value;
         } else {
@@ -128,6 +147,7 @@ int run(const Options& options) {
 
     praenora::WorkflowOptions workflow_options;
     workflow_options.ticks = options.ticks;
+    workflow_options.isolation = options.isolation;
     praenora::ValidationReport report;
     std::optional<detail::ValidatedWorkflow> workflow =
         detail::validate_workflow(config, context, workflow_options, report);
@@ -168,11 +188,21 @@ int run(const Options& options) {
                   << " succeeded), expected " << steps * options.ticks << '\n';
         return 1;
     }
-    const auto recorded = engine.run_record().at("execution").at("validation");
+    // A copy that outlives the checks: run_record() returns one by value.
+    const nlohmann::json execution = engine.run_record().at("execution");
+    const auto& recorded = execution.at("validation");
     if (recorded != options.validation) {
         std::cerr << "praenora_perf: the run record reports validation " << recorded.dump()
                   << ", not \"" << options.validation << "\"\n";
         return 1;
+    }
+    const std::string isolation_name(detail::isolation_mode_name(options.isolation));
+    for (const auto& [step, isolation] : execution.at("isolation").items()) {
+        if (isolation.at("mode") != isolation_name) {
+            std::cerr << "praenora_perf: the run record reports isolation " << isolation.dump()
+                      << " for step " << step << ", not \"" << isolation_name << "\"\n";
+            return 1;
+        }
     }
 
     nlohmann::ordered_json result;
@@ -184,6 +214,7 @@ int run(const Options& options) {
         static_cast<double>(total_ns) / static_cast<double>(invocations);
     result["mean_tick_ns"] = static_cast<double>(total_ns) / static_cast<double>(options.ticks);
     result["validation"] = options.validation;
+    result["isolation"] = isolation_name;
     std::cout << result.dump() << '\n';
     return 0;
 }

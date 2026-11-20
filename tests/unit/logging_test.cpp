@@ -11,10 +11,12 @@
 
 #include <gtest/gtest.h>
 #include <nlohmann/json.hpp>
+#include <spdlog/sinks/base_sink.h>
 #include <spdlog/spdlog.h>
 
 #include <filesystem>
 #include <fstream>
+#include <mutex>
 #include <regex>
 #include <string>
 #include <vector>
@@ -205,6 +207,65 @@ TEST(Logging, DoesNotRegisterGlobalLoggers) {
     log_event(*other.logger("praenora.engine"), LogLevel::info, "other hub");
     EXPECT_TRUE(first.lines().empty());
     EXPECT_EQ(second.lines().size(), 1u);
+}
+
+namespace {
+
+// Keeps what each event hands the sinks: spdlog's payload, before any formatter.
+class PayloadSink final : public spdlog::sinks::base_sink<std::mutex> {
+public:
+    std::vector<std::string> payloads;
+
+protected:
+    void sink_it_(const spdlog::details::log_msg& message) override {
+        payloads.emplace_back(message.payload.data(), message.payload.size());
+    }
+    void flush_() override {}
+};
+
+} // namespace
+
+// What a sink receives of an event is taken apart again into its attributes, in their order, and
+// its message (a module host passes its providers' events on so); a payload that log_event() did
+// not make is a message alone.
+TEST(Logging, AnEventIsTakenApartAgainFromWhatASinkReceives) {
+    LogHub hub(quiet(LogFormat::text, LogLevel::trace));
+    const auto sink = std::make_shared<PayloadSink>();
+    hub.add_sink(sink);
+    const auto logger = hub.logger("provider.p");
+    log_event(*logger, LogLevel::info, "loaded and started \xE2\x9C\x93",
+              {{"provider", "p@0.1.0"},
+               {"event", "provider.loaded"},
+               {"count", 3},
+               {"logger", "dropped"},
+               {"nested", {{"b", 1}, {"a", {true, nullptr}}}},
+               {"text", "a \"quoted\" word\nand a line"}});
+    logger->info("plain");
+    ASSERT_EQ(sink->payloads.size(), 2u);
+    const praenora::detail::LoggedEvent event =
+        praenora::detail::decode_logged_event(sink->payloads[0]);
+    EXPECT_EQ(event.message, "loaded and started \xE2\x9C\x93");
+    ASSERT_EQ(event.attributes.size(), 5u);
+    const std::vector<std::string> keys = {"provider", "event", "count", "nested", "text"};
+    for (std::size_t i = 0; i < keys.size(); ++i) {
+        EXPECT_EQ(event.attributes[i].key, keys[i]);
+    }
+    EXPECT_EQ(event.attributes[0].value, "p@0.1.0");
+    EXPECT_EQ(event.attributes[2].value, 3);
+    EXPECT_EQ(event.attributes[3].value, json({{"b", 1}, {"a", {true, nullptr}}}));
+    EXPECT_EQ(event.attributes[4].value, "a \"quoted\" word\nand a line");
+
+    const praenora::detail::LoggedEvent plain =
+        praenora::detail::decode_logged_event(sink->payloads[1]);
+    EXPECT_EQ(plain.message, "plain");
+    EXPECT_TRUE(plain.attributes.empty());
+    // Logged again elsewhere, it is the same event: the same attributes and message.
+    LogHub again(quiet(LogFormat::text, LogLevel::trace));
+    const auto copy = std::make_shared<PayloadSink>();
+    again.add_sink(copy);
+    log_event(*again.logger("provider.p"), LogLevel::info, event.message, event.attributes);
+    ASSERT_EQ(copy->payloads.size(), 1u);
+    EXPECT_EQ(copy->payloads.front(), sink->payloads.front());
 }
 
 TEST(Logging, SinksAddedLaterReachExistingLoggers) {

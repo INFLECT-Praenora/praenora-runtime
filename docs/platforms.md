@@ -8,7 +8,7 @@ and Windows commands below are given as they should work and are marked "not yet
 
 | Platform | Compiler | Status |
 |---|---|---|
-| macOS arm64 (macOS 15) | AppleClang 17 | Verified: configure, build without warnings, and every test in the `dev` (Debug), `dev-release`, `dev-asan` and `dev-tsan` builds; an installation, moved; the Python bindings with CPython 3.12; a Python wheel built offline and installed into a fresh virtual environment ([python.md](python.md#building-a-wheel)); the roadrunner provider with libRoadRunner 2.11.0 and LLVM 13.0.1, every test in a Debug build and the labels `unit`, `contract`, `negative`, `lifecycle`, `integration` and `install` in a ThreadSanitizer build ([The roadrunner provider](#the-roadrunner-provider)); the antimony provider with libAntimony 3.3.0 built from source, every test in a Debug build and in a Debug build with both providers, and the labels `unit`, `contract` and `integration` in a ThreadSanitizer build ([The antimony provider](#the-antimony-provider)). |
+| macOS arm64 (macOS 15) | AppleClang 17 | Verified: configure, build without warnings, and every test in the `dev` (Debug), `dev-release`, `dev-asan` and `dev-tsan` builds; an installation, moved; the Python bindings with CPython 3.12; a Python wheel built offline and installed into a fresh virtual environment ([python.md](python.md#building-a-wheel)); the roadrunner provider with libRoadRunner 2.11.0 and LLVM 13.0.1, every test in a Debug build and the labels `unit`, `contract`, `negative`, `lifecycle`, `integration` and `install` in a ThreadSanitizer build ([The roadrunner provider](#the-roadrunner-provider)); the antimony provider with libAntimony 3.3.0 built from source, every test in a Debug build and in a Debug build with both providers, and the labels `unit`, `contract` and `integration` in a ThreadSanitizer build ([The antimony provider](#the-antimony-provider)); process isolation in module hosts, with the shared compiled models and the restricted sandbox profile, whose tests run outside any other sandbox ([specs/process-isolation.md](specs/process-isolation.md)). |
 | Linux x86-64 | GCC 9+, Clang 10+ | Presets and portable code; not yet verified. |
 | Windows x86-64 | MSVC 19.29+ (Visual Studio 2022) | Presets and portable code; not yet verified. |
 
@@ -296,6 +296,20 @@ own team, so to load third-party modules it needs library validation disabled (t
 notarizing distributed binaries are open questions
 ([open-questions.md](open-questions.md), OQ-13).
 
+**Module hosts and the restricted sandbox profile.** The module host, `praenora-module-host`, is in
+`libexec/praenora/` of the build tree or the installation, beside the runtime's library directory
+([specs/process-isolation.md](specs/process-isolation.md#the-module-host)). The restricted sandbox
+profile of a module host (`sandbox: restricted`) exists only on macOS in this version: the module
+host applies it with `sandbox_init()`, which macOS has deprecated without a successor and still
+provides. macOS applies no second sandbox, so a runtime that runs in a sandbox (another program's)
+cannot run a step under the profile; its load fails with `MODULE_HOST_UNAVAILABLE`, reason
+`sandbox` ([specs/process-isolation.md](specs/process-isolation.md#the-restricted-profile)). The
+build's module host is signed ad hoc, without the hardened runtime, and needs no entitlement. A
+module host signed with the hardened runtime would need, not yet verified:
+`com.apple.security.cs.allow-jit` (or `com.apple.security.cs.allow-unsigned-executable-memory`), so
+that an engine such as libRoadRunner can generate code, and
+`com.apple.security.cs.disable-library-validation`, to load modules and providers signed otherwise.
+
 **Other notes.**
 
 - Worker threads are named `praenora:<step>` by the threads themselves, because macOS names only
@@ -344,6 +358,10 @@ ldd "${TMPDIR:-/tmp}/praenora-install/bin/praenora"
 ```
 
 Thread names are cut to 15 bytes, so long step names are shortened in a debugger.
+
+Process isolation is written for Linux and not yet verified; the restricted sandbox profile of a
+module host is not available on Linux in this version (validation refuses `sandbox: restricted`
+with `UNSUPPORTED`).
 
 ## Windows
 
@@ -394,6 +412,9 @@ and `lib` directory names.
   4 s for the run to wind down.
 - Sanitizer presets exist for GCC and Clang only.
 - The Python extension is a `.pyd` file with the runtime's DLLs beside it ([python.md](python.md)).
+- Process isolation, and with it the restricted sandbox profile, is not available on Windows in this
+  version: validation refuses a step in mode `process` (`UNSUPPORTED`), and the module host is not
+  built.
 
 ## References
 

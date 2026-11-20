@@ -118,6 +118,47 @@ TEST(Fingerprint, IgnoresObservabilityAndOutputs) {
     EXPECT_EQ(validated(chain_config(), options).fingerprint, plain.fingerprint);
 }
 
+TEST(Fingerprint, IgnoresIsolation) {
+    // Results do not depend on where a module runs: the same configuration gives the same
+    // reproducibility section, byte for byte, in either isolation mode, however the mode is set.
+    const auto plain = validated(chain_config());
+    const std::string canonical = praenora::detail::canonical_json(plain.reproducibility);
+    const auto check = [&](const praenora::detail::ValidatedWorkflow& other) {
+        EXPECT_EQ(praenora::detail::canonical_json(other.reproducibility), canonical);
+        EXPECT_EQ(other.fingerprint, plain.fingerprint);
+    };
+    check(validated(chain_config("run: { seed: 7, isolation: { mode: process } }\n")));
+    check(
+        validated(chain_config("run: { seed: 7 }\n", "{}", "    isolation: { mode: process }\n")));
+    check(validated(chain_config("run: { seed: 7, isolation: { mode: in-process } }\n")));
+    check(validated(chain_config(
+        "run: { seed: 7, isolation: { mode: process, share_compiled_models: true } }\n")));
+#if defined(__APPLE__)
+    // The restricted sandbox profile, where the platform has it.
+    check(validated(
+        chain_config("run: { seed: 7, isolation: { mode: process, sandbox: restricted } }\n")));
+#endif
+    for (const auto mode :
+         {praenora::IsolationMode::process, praenora::IsolationMode::in_process}) {
+        praenora::WorkflowOptions options;
+        options.isolation = mode;
+        check(validated(chain_config(), options));
+    }
+    // The steps' modes are in the run record's execution section instead.
+    const auto process =
+        validated(chain_config("run: { seed: 7, isolation: { mode: process } }\n"));
+    EXPECT_EQ(process.isolation,
+              json::parse(R"({"a":{"mode":"process","share_compiled_models":false,)"
+                          R"("sandbox":"none"},)"
+                          R"("b":{"mode":"process","share_compiled_models":false,)"
+                          R"("sandbox":"none"}})"));
+    EXPECT_EQ(plain.isolation,
+              json::parse(R"({"a":{"mode":"in-process","share_compiled_models":false,)"
+                          R"("sandbox":"none"},)"
+                          R"("b":{"mode":"in-process","share_compiled_models":false,)"
+                          R"("sandbox":"none"}})"));
+}
+
 TEST(Fingerprint, ChangesWithTicks) {
     // Without run.ticks the run lasts until the replay input is exhausted.
     const auto until_exhausted = validated(chain_config("run: { seed: 7 }\n"));
@@ -183,7 +224,8 @@ TEST(Fingerprint, ReproducibilitySectionMatchesTheRunRecordSchema) {
            {{"os", "macos"}, {"arch", "arm64"}, {"compiler", "c"}, {"build_type", "Debug"}}},
           {"overrides", json::object()},
           {"validation", "strict"},
-          {"manifests", workflow.manifest_locations}}}};
+          {"manifests", workflow.manifest_locations},
+          {"isolation", workflow.isolation}}}};
     const auto& schema = praenora::detail::SchemaRegistry::builtin().for_kind(
         "run-record", praenora::detail::parse_semver("0.2.0"));
     const auto issues = schema.validate(record);
@@ -367,7 +409,8 @@ TEST(Fingerprint, RecordsTheServicesOfTheRunAndTheirProviders) {
            {{"os", "macos"}, {"arch", "arm64"}, {"compiler", "c"}, {"build_type", "Debug"}}},
           {"overrides", json::object()},
           {"validation", "strict"},
-          {"manifests", workflow.manifest_locations}}}};
+          {"manifests", workflow.manifest_locations},
+          {"isolation", workflow.isolation}}}};
     const auto& schema = praenora::detail::SchemaRegistry::builtin().for_kind(
         "run-record", praenora::detail::parse_semver("0.2.0"));
     for (const auto& issue : schema.validate(record)) {

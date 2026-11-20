@@ -111,6 +111,13 @@
       "seed": 7
     },
     "validation": "strict",
+    "isolation": {
+      "a": {
+        "mode": "in-process",
+        "share_compiled_models": false,
+        "sandbox": "none"
+      }
+    },
     "manifests": {
       "steps": {
         "a": {

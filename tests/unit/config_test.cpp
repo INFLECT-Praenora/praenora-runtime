@@ -14,6 +14,7 @@
 #include <gtest/gtest.h>
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <string>
@@ -23,6 +24,7 @@ namespace fs = std::filesystem;
 using namespace std::chrono_literals;
 using nlohmann::json;
 using praenora::ErrorCode;
+using praenora::IsolationMode;
 using praenora::LogFormat;
 using praenora::LogLevel;
 using praenora::Severity;
@@ -271,6 +273,283 @@ observability: { status_file: status.json }
     (void)load_text(scratch.path(), yaml, refused, too_large);
     ASSERT_FALSE(refused.ok());
     EXPECT_EQ(refused.diagnostics.at(0).code, ErrorCode::INVALID_ARGUMENT) << refused.to_text();
+}
+
+namespace {
+
+// The configuration of test.chain with `run` and four steps: a sets no isolation, b sets mode
+// in-process, c sets mode process, d an empty isolation object.
+std::string isolation_config(const std::string& run) {
+    return R"(kind: workflow-config
+format_version: "0.1.0"
+workflow: { name: test.chain, version: "0.1.0" }
+)" + run + R"(steps:
+  a: { module: { name: fx-echo, version: "0.1.0" } }
+  b:
+    module: { name: fx-echo, version: "0.1.0" }
+    isolation: { mode: in-process }
+  c:
+    module: { name: fx-echo, version: "0.1.0" }
+    isolation: { mode: process }
+  d:
+    module: { name: fx-echo, version: "0.1.0" }
+    isolation: {}
+)";
+}
+
+void expect_isolation(const WorkflowConfig& config, const std::string& step, IsolationMode mode,
+                      const std::string& pointer, bool overridden = false) {
+    SCOPED_TRACE("step " + step);
+    const praenora::detail::Isolation& isolation = config.steps.at(step).isolation;
+    EXPECT_EQ(isolation.mode, mode);
+    EXPECT_EQ(isolation.mode_pointer, pointer);
+    EXPECT_EQ(isolation.mode_overridden, overridden);
+}
+
+} // namespace
+
+TEST(Config, IsolationResolvesFieldByField) {
+    ScratchDir scratch;
+    // Without run.isolation, a step that sets no mode gets the default, in-process.
+    {
+        ValidationReport report;
+        const WorkflowConfig config =
+            load_text(scratch.path() / "default", isolation_config("run: { ticks: 1 }\n"), report);
+        ASSERT_TRUE(report.ok()) << report.to_text();
+        expect_isolation(config, "a", IsolationMode::in_process, "");
+        expect_isolation(config, "b", IsolationMode::in_process, "/steps/b/isolation/mode");
+        expect_isolation(config, "c", IsolationMode::process, "/steps/c/isolation/mode");
+        expect_isolation(config, "d", IsolationMode::in_process, "");
+        EXPECT_FALSE(config.overrides.isolation.has_value());
+    }
+    // run.isolation is every step's default; a step's own field wins.
+    {
+        ValidationReport report;
+        const WorkflowConfig config = load_text(
+            scratch.path() / "run",
+            isolation_config("run: { ticks: 1, isolation: { mode: process } }\n"), report);
+        ASSERT_TRUE(report.ok()) << report.to_text();
+        expect_isolation(config, "a", IsolationMode::process, "/run/isolation/mode");
+        expect_isolation(config, "b", IsolationMode::in_process, "/steps/b/isolation/mode");
+        expect_isolation(config, "c", IsolationMode::process, "/steps/c/isolation/mode");
+        expect_isolation(config, "d", IsolationMode::process, "/run/isolation/mode");
+    }
+    // An empty run.isolation sets nothing.
+    {
+        ValidationReport report;
+        const WorkflowConfig config =
+            load_text(scratch.path() / "empty",
+                      isolation_config("run: { ticks: 1, isolation: {} }\n"), report);
+        ASSERT_TRUE(report.ok()) << report.to_text();
+        expect_isolation(config, "a", IsolationMode::in_process, "");
+        expect_isolation(config, "c", IsolationMode::process, "/steps/c/isolation/mode");
+    }
+    // An unknown mode or field is refused by the schema, at the field.
+    {
+        ValidationReport report;
+        const fs::path file = scratch.path() / "bad" / "workflow.yaml";
+        write_text_file(file, isolation_config("run: { ticks: 1, isolation: { mode: thread, "
+                                               "priority: 1 } }\n"));
+        EXPECT_FALSE(read_workflow_config(file, report).has_value());
+        std::vector<std::string> pointers;
+        for (const auto& diagnostic : report.diagnostics) {
+            EXPECT_EQ(diagnostic.code, ErrorCode::SCHEMA_VIOLATION) << diagnostic.message;
+            pointers.push_back(diagnostic.location.pointer);
+        }
+        std::sort(pointers.begin(), pointers.end());
+        EXPECT_EQ(pointers,
+                  (std::vector<std::string>{"/run/isolation/mode", "/run/isolation/priority"}))
+            << report.to_text();
+    }
+}
+
+TEST(Config, IsolationOverrideSetsEveryStep) {
+    ScratchDir scratch;
+    const std::string yaml = isolation_config("run: { ticks: 1, isolation: { mode: process } }\n");
+    for (const IsolationMode mode : {IsolationMode::in_process, IsolationMode::process}) {
+        WorkflowOptions overrides;
+        overrides.isolation = mode;
+        ValidationReport report;
+        const WorkflowConfig config = load_text(scratch.path(), yaml, report, overrides);
+        ASSERT_TRUE(report.ok()) << report.to_text();
+        for (const char* step : {"a", "b", "c", "d"}) {
+            expect_isolation(config, step, mode, "", true);
+        }
+        ASSERT_TRUE(config.overrides.isolation.has_value());
+        EXPECT_EQ(*config.overrides.isolation, mode);
+    }
+}
+
+// share_compiled_models resolves field by field, as the mode does, apart from it: the step's
+// field, else the run's, else false; the pointer names the field that set it.
+TEST(Config, SharingCompiledModelsResolvesFieldByField) {
+    ScratchDir scratch;
+    const std::string yaml = R"(kind: workflow-config
+format_version: "0.1.0"
+workflow: { name: test.chain, version: "0.1.0" }
+run: { ticks: 1, isolation: { share_compiled_models: true } }
+steps:
+  a: { module: { name: fx-echo, version: "0.1.0" } }
+  b:
+    module: { name: fx-echo, version: "0.1.0" }
+    isolation: { mode: process, share_compiled_models: false }
+  c:
+    module: { name: fx-echo, version: "0.1.0" }
+    isolation: { mode: process }
+)";
+    ValidationReport report;
+    const WorkflowConfig config = load_text(scratch.path() / "run", yaml, report);
+    ASSERT_TRUE(report.ok()) << report.to_text();
+    const auto expect_sharing = [&config](const char* step, bool share,
+                                          const std::string& pointer) {
+        SCOPED_TRACE(std::string("step ") + step);
+        const praenora::detail::Isolation& isolation = config.steps.at(step).isolation;
+        EXPECT_EQ(isolation.share_compiled_models, share);
+        EXPECT_EQ(isolation.share_pointer, pointer);
+    };
+    expect_sharing("a", true, "/run/isolation/share_compiled_models");
+    expect_sharing("b", false, "/steps/b/isolation/share_compiled_models");
+    expect_sharing("c", true, "/run/isolation/share_compiled_models");
+    EXPECT_TRUE(config.isolation.share_compiled_models);
+
+    // Without the field anywhere, no step shares.
+    ValidationReport plain_report;
+    const WorkflowConfig plain =
+        load_text(scratch.path() / "plain", isolation_config("run: { ticks: 1 }\n"), plain_report);
+    ASSERT_TRUE(plain_report.ok()) << plain_report.to_text();
+    for (const char* step : {"a", "b", "c", "d"}) {
+        EXPECT_FALSE(plain.steps.at(step).isolation.share_compiled_models) << step;
+        EXPECT_EQ(plain.steps.at(step).isolation.share_pointer, "") << step;
+    }
+
+    // It is a boolean.
+    ValidationReport bad;
+    const fs::path file = scratch.path() / "bad" / "workflow.yaml";
+    write_text_file(file, isolation_config("run: { ticks: 1, isolation: { mode: process, "
+                                           "share_compiled_models: \"yes\" } }\n"));
+    EXPECT_FALSE(read_workflow_config(file, bad).has_value());
+    ASSERT_EQ(bad.diagnostics.size(), 1u) << bad.to_text();
+    EXPECT_EQ(bad.diagnostics.front().code, ErrorCode::SCHEMA_VIOLATION);
+    EXPECT_EQ(bad.diagnostics.front().location.pointer, "/run/isolation/share_compiled_models");
+}
+
+// The override in-process resets every step's sharing (it has no module host to share with); the
+// override process keeps what the file says.
+TEST(Config, IsolationOverrideInProcessStopsSharing) {
+    ScratchDir scratch;
+    const std::string yaml = isolation_config(
+        "run: { ticks: 1, isolation: { mode: process, share_compiled_models: true } }\n");
+    {
+        WorkflowOptions overrides;
+        overrides.isolation = IsolationMode::in_process;
+        ValidationReport report;
+        const WorkflowConfig config = load_text(scratch.path() / "in", yaml, report, overrides);
+        ASSERT_TRUE(report.ok()) << report.to_text();
+        EXPECT_FALSE(config.isolation.share_compiled_models);
+        for (const char* step : {"a", "b", "c", "d"}) {
+            EXPECT_FALSE(config.steps.at(step).isolation.share_compiled_models) << step;
+            EXPECT_EQ(config.steps.at(step).isolation.share_pointer, "") << step;
+        }
+    }
+    {
+        WorkflowOptions overrides;
+        overrides.isolation = IsolationMode::process;
+        ValidationReport report;
+        const WorkflowConfig config = load_text(scratch.path() / "out", yaml, report, overrides);
+        ASSERT_TRUE(report.ok()) << report.to_text();
+        for (const char* step : {"a", "b", "c", "d"}) {
+            SCOPED_TRACE(step);
+            const praenora::detail::Isolation& isolation = config.steps.at(step).isolation;
+            EXPECT_EQ(isolation.mode, IsolationMode::process);
+            EXPECT_TRUE(isolation.share_compiled_models);
+            EXPECT_EQ(isolation.share_pointer, "/run/isolation/share_compiled_models");
+        }
+    }
+}
+
+// sandbox resolves field by field, as the other fields do: the step's field, else the run's, else
+// none; the pointer names the field that set it. Only the names of the profiles are taken.
+TEST(Config, SandboxResolvesFieldByField) {
+    ScratchDir scratch;
+    const std::string yaml = R"(kind: workflow-config
+format_version: "0.1.0"
+workflow: { name: test.chain, version: "0.1.0" }
+run: { ticks: 1, isolation: { mode: process, sandbox: restricted } }
+steps:
+  a: { module: { name: fx-echo, version: "0.1.0" } }
+  b:
+    module: { name: fx-echo, version: "0.1.0" }
+    isolation: { sandbox: none }
+)";
+    ValidationReport report;
+    const WorkflowConfig config = load_text(scratch.path() / "run", yaml, report);
+    ASSERT_TRUE(report.ok()) << report.to_text();
+    using praenora::detail::SandboxProfile;
+    EXPECT_EQ(config.isolation.sandbox, SandboxProfile::restricted);
+    EXPECT_EQ(config.steps.at("a").isolation.sandbox, SandboxProfile::restricted);
+    EXPECT_EQ(config.steps.at("a").isolation.sandbox_pointer, "/run/isolation/sandbox");
+    EXPECT_EQ(config.steps.at("b").isolation.sandbox, SandboxProfile::none);
+    EXPECT_EQ(config.steps.at("b").isolation.sandbox_pointer, "/steps/b/isolation/sandbox");
+
+    // Without the field anywhere, no step has a profile.
+    ValidationReport plain_report;
+    const WorkflowConfig plain =
+        load_text(scratch.path() / "plain", isolation_config("run: { ticks: 1 }\n"), plain_report);
+    ASSERT_TRUE(plain_report.ok()) << plain_report.to_text();
+    for (const char* step : {"a", "b", "c", "d"}) {
+        EXPECT_EQ(plain.steps.at(step).isolation.sandbox, SandboxProfile::none) << step;
+        EXPECT_EQ(plain.steps.at(step).isolation.sandbox_pointer, "") << step;
+    }
+
+    // Another name is refused by the schema, at the field.
+    ValidationReport bad;
+    const fs::path file = scratch.path() / "bad" / "workflow.yaml";
+    write_text_file(file, isolation_config("run: { ticks: 1, isolation: { mode: process, "
+                                           "sandbox: Restricted } }\n"));
+    EXPECT_FALSE(read_workflow_config(file, bad).has_value());
+    ASSERT_EQ(bad.diagnostics.size(), 1u) << bad.to_text();
+    EXPECT_EQ(bad.diagnostics.front().code, ErrorCode::SCHEMA_VIOLATION);
+    EXPECT_EQ(bad.diagnostics.front().location.pointer, "/run/isolation/sandbox");
+}
+
+// The override in-process sets every step's sandbox to none (a step in the runtime's process has
+// no module host to sandbox); the override process keeps what the file says.
+TEST(Config, IsolationOverrideInProcessDropsTheSandbox) {
+    ScratchDir scratch;
+    const std::string yaml =
+        isolation_config("run: { ticks: 1, isolation: { mode: process, sandbox: restricted } }\n");
+    using praenora::detail::SandboxProfile;
+    for (const IsolationMode mode : {IsolationMode::in_process, IsolationMode::process}) {
+        SCOPED_TRACE(mode == IsolationMode::process ? "process" : "in-process");
+        WorkflowOptions overrides;
+        overrides.isolation = mode;
+        ValidationReport report;
+        const WorkflowConfig config =
+            load_text(scratch.path() / (mode == IsolationMode::process ? "out" : "in"), yaml,
+                      report, overrides);
+        ASSERT_TRUE(report.ok()) << report.to_text();
+        const bool kept = mode == IsolationMode::process;
+        EXPECT_EQ(config.isolation.sandbox,
+                  kept ? SandboxProfile::restricted : SandboxProfile::none);
+        for (const char* step : {"a", "b", "c", "d"}) {
+            SCOPED_TRACE(step);
+            const praenora::detail::Isolation& isolation = config.steps.at(step).isolation;
+            EXPECT_EQ(isolation.sandbox, kept ? SandboxProfile::restricted : SandboxProfile::none);
+            EXPECT_EQ(isolation.sandbox_pointer, kept ? "/run/isolation/sandbox" : "");
+        }
+    }
+}
+
+TEST(Config, IsolationModeNames) {
+    using praenora::detail::isolation_mode_from_name;
+    using praenora::detail::isolation_mode_name;
+    EXPECT_EQ(isolation_mode_name(IsolationMode::in_process), "in-process");
+    EXPECT_EQ(isolation_mode_name(IsolationMode::process), "process");
+    EXPECT_EQ(isolation_mode_from_name("in-process"), IsolationMode::in_process);
+    EXPECT_EQ(isolation_mode_from_name("process"), IsolationMode::process);
+    EXPECT_FALSE(isolation_mode_from_name("Process").has_value());
+    EXPECT_FALSE(isolation_mode_from_name("in_process").has_value());
+    EXPECT_FALSE(isolation_mode_from_name("").has_value());
 }
 
 TEST(Config, UnusableDocumentGivesNoConfiguration) {

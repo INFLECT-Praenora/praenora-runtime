@@ -57,7 +57,8 @@ foreach(_praenora_template IN LISTS _praenora_layout_templates)
         NEWLINE_STYLE UNIX)
 endforeach()
 
-# praenora_add_gtest(<name> LABEL <label> [WHITEBOX] SOURCES <source>... [LINK <library>...])
+# praenora_add_gtest(<name> LABEL <label> [WHITEBOX] [SANDBOX_SKIP] SOURCES <source>...
+#                    [LINK <library>...])
 # praenora_add_gtest(<name> NO_TESTS [WHITEBOX] SOURCES <source>... [LINK <library>...])
 #
 # Adds a GoogleTest executable whose tests are discovered when CTest runs (CTest names
@@ -69,6 +70,8 @@ endforeach()
 # - WHITEBOX: links the runtime's object library and dependencies directly, so tests can use
 #   internal headers (praenora::detail). PRAENORA_RUNTIME_STATIC_DEFINE is defined because the
 #   objects are linked into the executable rather than imported from the shared library.
+# - SANDBOX_SKIP: its tests of the restricted sandbox profile skip, saying so, in a process that
+#   runs in a sandbox already; CTest shows them as skipped (_praenora_sandbox_skip below).
 # - Otherwise the executable links only the shared library Praenora::Runtime.
 # Either way it links praenora_test_support, GTest::gtest_main and the LINK libraries. An
 # executable never links both the object library and the shared library, so LINK cannot add the
@@ -82,9 +85,15 @@ set(_praenora_test_environment "")
 if(APPLE AND "address" IN_LIST PRAENORA_SANITIZERS)
     set(_praenora_test_environment ENVIRONMENT "PRAENORA_DEBUG_KEEP_LIBRARIES=1")
 endif()
+# For executables with tests of the restricted sandbox profile (SANDBOX_SKIP): CTest shows as
+# skipped GoogleTest's skips (its own expression) and, by the full start of its message, a test of
+# the profile in a process that runs in a sandbox already, where macOS applies no second one
+# (kNestedSandboxSkip, tests/support/sandbox_support.hpp).
+set(_praenora_sandbox_skip SKIP_REGULAR_EXPRESSION
+    "\\[  SKIPPED \\]|nested sandbox: this process runs in a sandbox already, and macOS applies")
 
 function(praenora_add_gtest name)
-    cmake_parse_arguments(PARSE_ARGV 1 arg "WHITEBOX;NO_TESTS" "LABEL" "SOURCES;LINK")
+    cmake_parse_arguments(PARSE_ARGV 1 arg "WHITEBOX;NO_TESTS;SANDBOX_SKIP" "LABEL" "SOURCES;LINK")
     if(arg_UNPARSED_ARGUMENTS)
         message(FATAL_ERROR
             "praenora_add_gtest(${name}): unexpected arguments: ${arg_UNPARSED_ARGUMENTS}")
@@ -127,10 +136,14 @@ function(praenora_add_gtest name)
     praenora_target_warnings(${name})
     praenora_copy_runtime_dlls(${name})
 
+    set(skip "")
+    if(arg_SANDBOX_SKIP)
+        set(skip ${_praenora_sandbox_skip})
+    endif()
     if(NOT arg_NO_TESTS)
         gtest_discover_tests(${name}
             DISCOVERY_MODE PRE_TEST
-            PROPERTIES LABELS ${arg_LABEL} ${_praenora_test_environment})
+            PROPERTIES LABELS ${arg_LABEL} ${_praenora_test_environment} ${skip})
     endif()
 endfunction()
 
@@ -167,6 +180,10 @@ praenora_add_gtest(praenora_unit_tests LABEL unit WHITEBOX
         unit/run_record_test.cpp
         unit/path_anchors_test.cpp
         unit/library_gate_test.cpp
+        unit/channel_test.cpp
+        unit/compiled_model_store_test.cpp
+        unit/output_sink_test.cpp
+        unit/sandbox_test.cpp
     LINK Praenora::ModuleSDK)
 # sdk_abi_c99_check.c, simulation_c99_check.c, model_conversion_c99_check.c and
 # provider_abi_c99_check.c prove that the SDK's C headers (those of the simulation and model
@@ -288,7 +305,8 @@ praenora_add_gtest(praenora_negative_tests LABEL negative WHITEBOX
         negative/compat_test.cpp
         negative/config_negative_test.cpp
         negative/validation_test.cpp
-        negative/service_validation_test.cpp)
+        negative/service_validation_test.cpp
+        negative/isolation_validation_test.cpp)
 # The validation tests resolve and check the fixture modules and providers (without loading them);
 # the provider load failures load fixture providers that break the provider interface.
 add_dependencies(praenora_negative_tests praenora_test_modules praenora_test_providers)
@@ -333,6 +351,19 @@ if(PRAENORA_WITH_ROADRUNNER)
     target_compile_definitions(praenora_contract_tests PRIVATE
         "PRAENORA_TEST_ROADRUNNER_MANIFEST=\"${_praenora_roadrunner_manifest}\"")
     add_dependencies(praenora_contract_tests praenora_provider_roadrunner)
+    # The provider's engine code itself, compiled into a test of its own with the provider's
+    # definitions (contract/roadrunner_engine_test.cpp): models loaded from their saved states, as
+    # the shared compiled models keep them, are the models compiled from their texts.
+    praenora_add_gtest(praenora_roadrunner_engine_tests LABEL contract
+        SOURCES
+            contract/roadrunner_engine_test.cpp
+            ../src/providers/roadrunner/engine.cpp
+            ../src/providers/roadrunner/documents.cpp
+        LINK praenora_provider_interface praenora_roadrunner_engine nlohmann_json::nlohmann_json)
+    target_include_directories(praenora_roadrunner_engine_tests PRIVATE
+        "${PROJECT_SOURCE_DIR}/src/providers/roadrunner")
+    target_compile_definitions(praenora_roadrunner_engine_tests PRIVATE
+        "$<TARGET_PROPERTY:praenora_provider_roadrunner,COMPILE_DEFINITIONS>")
 endif()
 # With the antimony provider (PRAENORA_WITH_ANTIMONY): the service checks of the model conversion
 # service against it, with the models of fixtures/models/antimony and fixtures/models/sbml
@@ -363,14 +394,20 @@ praenora_add_gtest(praenora_lifecycle_tests LABEL lifecycle WHITEBOX
         lifecycle/service_visibility_test.cpp)
 add_dependencies(praenora_lifecycle_tests praenora_test_modules praenora_test_providers)
 
+# Isolation tests (label isolation): child processes, the module host and module instances in it
+# (tests/isolation).
+add_subdirectory(isolation)
+
 # Integration tests: the public API through the shared library only, with the fixture modules and
-# the test catalog (integration/api_test.cpp) and, when the examples are built, the example
-# workflow end to end (integration/example_test.cpp).
-set(_praenora_integration_sources integration/api_test.cpp)
+# the test catalog (integration/api_test.cpp), steps in module hosts
+# (integration/isolation_test.cpp) and, when the examples are built, the example workflow end to
+# end (integration/example_test.cpp), in module hosts too (integration/isolation_example_test.cpp).
+set(_praenora_integration_sources integration/api_test.cpp integration/isolation_test.cpp)
 if(PRAENORA_BUILD_EXAMPLES)
-    list(APPEND _praenora_integration_sources integration/example_test.cpp)
+    list(APPEND _praenora_integration_sources integration/example_test.cpp
+        integration/isolation_example_test.cpp)
 endif()
-praenora_add_gtest(praenora_integration_tests LABEL integration
+praenora_add_gtest(praenora_integration_tests LABEL integration SANDBOX_SKIP
     SOURCES ${_praenora_integration_sources})
 # The build's document formats, "<kind>=<version>" pairs separated by ','.
 list(JOIN PRAENORA_FORMAT_VERSIONS "," _praenora_format_versions)
@@ -384,6 +421,10 @@ target_compile_definitions(praenora_integration_tests PRIVATE
 add_dependencies(praenora_integration_tests praenora_test_modules praenora_test_providers)
 if(PRAENORA_BUILD_EXAMPLES)
     add_dependencies(praenora_integration_tests praenora_example_modules)
+endif()
+# The module host, which the runtime starts for the steps in process mode.
+if(TARGET praenora_module_host)
+    add_dependencies(praenora_integration_tests praenora_module_host)
 endif()
 # With the roadrunner provider, the build tree's runtime finds it without a provider path; so it
 # does the antimony provider.

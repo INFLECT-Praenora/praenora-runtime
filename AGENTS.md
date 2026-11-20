@@ -47,6 +47,20 @@ dependencies (every test of a Debug build, alone and with the roadrunner provide
 libRoadRunner (level C) is future work, and so are hierarchical SBML output, CellML and a
 WebAssembly build of the conversion engine.
 
+Process isolation: a step's module instance can run in a module host (`praenora-module-host`, a
+process of its own, with the providers its module uses), so that a crash fails only that step
+(`MODULE_CRASHED`) and a call that never returns is ended by killing the module host; steps in
+module hosts can share compiled models through a store in the runtime's process
+(`share_compiled_models`); and on macOS a module host can apply a restricted sandbox profile to
+itself (`sandbox: restricted`: its own process gets no network, no new processes and no writes
+outside its own temporary directory, which limits a module but is no boundary against one meant to
+do harm) ([docs/specs/process-isolation.md](docs/specs/process-isolation.md)). It is POSIX only and
+verified on macOS arm64; its Linux code is not yet verified, Windows refuses process mode in this
+version, and the Python wheel holds no module host. The tests of the restricted profile skip,
+saying "nested sandbox:", where the tests run in a sandbox already. The contract checks still run
+modules in the runtime's process (OQ-32), and process isolation and the profile on Linux and
+Windows are open questions (OQ-31).
+
 ## Setup and commands
 
 **Dependencies.** CMake 3.24+; Ninja (Linux, macOS) or Visual Studio 2022 (Windows); GCC 9+,
@@ -115,7 +129,8 @@ ctest --preset dev -L python -V                # the Python tests, each one list
 PYTHONPATH=build/dev/python python3 -c 'import praenora.runtime as pr; print(pr.version())'
 cmake --install build/dev                      # into install/dev; --prefix <dir> for another
 cmake --install build/dev --component Examples # the example modules, into lib/praenora/modules
-ctest --preset dev -L perf -V                  # the performance probe's two JSON reports
+ctest --preset dev -L perf -V                  # the performance probe's JSON reports
+ctest --preset dev -L isolation                # process isolation: module hosts, white-box
 ctest --preset dev -L docs -V                  # the documentation checked against the tree
 ./build/dev/bin/praenora providers list --provider-path build/dev/test-providers/test-simulation
 ctest --preset dev-roadrunner                  # with the roadrunner provider (local presets)
@@ -137,14 +152,30 @@ providers of the tests (`build/<preset>/test-providers`) are never installed. A 
 
 Project presets: `linux-x64-{debug,release,asan,tsan}`, `macos-arm64-{debug,release,asan,tsan}` and
 `windows-x64-{debug,release}`, each with configure, build and test presets. Labels: `unit`,
-`protocol`, `contract`, `negative`, `lifecycle`, `integration`, `cli`, `python`, `install`, `perf`,
-`docs`. The `contract` label also holds the tests of provider libraries as files,
+`protocol`, `contract`, `negative`, `lifecycle`, `isolation`, `integration`, `cli`, `python`,
+`install`, `perf`, `docs`. The `isolation` label holds the white-box tests of process isolation,
+`ChildProcess.*` and `Isolation.*` (`praenora_isolation_tests`), which start module hosts
+(`praenora-module-host`, from `build/<preset>/libexec/praenora/`) with the fixture modules, some of
+which crash on purpose, and the fixture providers, which those module hosts load; runs with steps
+in module hosts are tested through the public API in the `integration` label (`IsolationRun.*`,
+`EveryCall/IsolationRunCrash.*`, `Fixtures/IsolationRunProviders.*`, `IsolationValidation.*`,
+`IsolationExample.*`), the validation of such steps in `negative` (`IsolationValidation.*`), and
+the tool's `--isolation` in `cli` (`cli.run.isolation_*`). The tests of the restricted sandbox
+profile (in `isolation` and `integration`) need a process outside any sandbox, since macOS applies
+no second one: in a sandbox (an agent's or a CI service's own) they skip, saying "nested sandbox:
+this process runs in a sandbox already, ...", which the `SKIP_REGULAR_EXPRESSION` of those two
+executables names (`praenora_add_gtest(... SANDBOX_SKIP)`), so CTest shows them as skipped; run
+`ctest --preset dev -L 'isolation|integration'` from an unsandboxed shell to run them
+([docs/testing.md](docs/testing.md#module-hosts)).
+The `contract` label also holds the tests of provider libraries as files,
 `providers.<provider>.exports` (the library exports only the provider entry point) and
 `providers.<provider>.processes` (two fresh processes print the same bytes), for `test-simulation`
 and, when it is built, `roadrunner`, with `praenora_simulation_print`, and for `test-conversion`
 and, when it is built, `antimony`, with `praenora_conversion_print`. It also holds
 `providers.run_twice.shows_first_difference`, which checks how the driver of the `processes` tests
-shows two outputs that differ, and a run that fails. The `cli` label
+shows two outputs that differ, and a run that fails; and, when the roadrunner provider is built,
+`RoadrunnerEngine.*` (`praenora_roadrunner_engine_tests`, the provider's engine code compiled into a
+test of its own: models loaded from saved states). The `cli` label
 holds the CLI driver tests, named `cli.<command>.<case>`; `cli.driver.passes_empty_arguments`, which
 checks that each argument of a command reaches its program, an empty one included, and
 `cli.driver.shows_failing_command`, which checks how that driver shows a failing command; and the
@@ -157,16 +188,19 @@ label-only run of a sanitizer tree (`ctest --preset dev-asan -L python`, or `dev
 and exits 8, since the presets set `noTestsAction: error`; a full run of those trees is unaffected.
 The `install` label holds `install.consumer`: its driver, `tests/install/run_install_test.cmake`,
 installs the build into `build/<preset>/tests/install/work`, builds the consumer projects next to it
-and lists every step it checks; with the roadrunner or the antimony provider it also checks each
-installed provider, which the installed tool lists as usable before and after the installation is
-moved. Builds without install rules (`PRAENORA_INSTALL=OFF`) do not have it. The `perf` label holds
-`perf.validation_strict` and `perf.validation_off`, which run `praenora_perf` for 2000 ticks and
-print its JSON report; they fail only when the probe fails or prints no report, never on timings.
-Both labels also pass in the sanitizer trees, whose flags reach the consumer builds. The `docs`
-label holds `docs.consistency`, the CMake script `tests/docs/check_docs.cmake`: every `ErrorCode`
-name is in `docs/specs/error-taxonomy.md`, every `spec/schemas/*.json` name in
-`docs/specs/protocol.md`, every ADR in `docs/adr/README.md`, every relative Markdown link of
-`README.md`, `AGENTS.md` and `docs/` resolves, and the open-questions register has its 30 rows.
+and lists every step it checks, among them the installed module host and a step that the installed
+tool runs in it, before and after the installation is moved; with the roadrunner or the antimony
+provider it also checks each installed provider, which the installed tool lists as usable before and
+after the installation is moved. Builds without install rules (`PRAENORA_INSTALL=OFF`) do not have
+it. The `perf` label holds `perf.validation_strict` and `perf.validation_off`, which run
+`praenora_perf` for 2000 ticks and print its JSON report, and, except on Windows,
+`perf.process_isolation`, the same with validation and every step in a module host; they fail only
+when the probe fails or prints no report, never on timings. Both labels also pass in the sanitizer
+trees, whose flags reach the consumer builds. The `docs` label holds `docs.consistency`, the CMake
+script `tests/docs/check_docs.cmake`: every `ErrorCode` name is in `docs/specs/error-taxonomy.md`,
+every `spec/schemas/*.json` name in `docs/specs/protocol.md`, every ADR in `docs/adr/README.md`,
+every relative Markdown link of `README.md`, `AGENTS.md` and `docs/` resolves, and the
+open-questions register has its 32 rows.
 Build options are in `cmake/PraenoraOptions.cmake`, among them `PRAENORA_WITH_ROADRUNNER` (OFF),
 which builds the roadrunner provider; with it, the cache variable `LLVM_INSTALL_PREFIX`
 (`cmake/PraenoraRoadrunner.cmake`) names the LLVM that libRoadRunner was built with;
@@ -201,9 +235,14 @@ include/praenora/sdk/         SDK: abi.h, status.h, simulation.h (the simulation
                               testing.hpp (version.h generated)
 src/runtime/                  runtime internals, one directory per component (api/, catalog/,
                               compat/, config/, core/, discovery/, document/, engine/, graph/,
-                              instance/, io/, loader/, observability/, platform/{posix,windows}/,
-                              provider/ (provider manifests, index and loader; the internal
-                              provider interface provider_abi.h))
+                              instance/, io/, isolation/ (process isolation: the channel to a
+                              module host, the runtime's side of one, child processes, the
+                              module host's own server, the store of shared compiled models,
+                              and the sandbox profiles), loader/, observability/,
+                              platform/{posix,windows}/, provider/ (provider manifests, index and
+                              loader; the internal provider interface provider_abi.h))
+src/module_host/              praenora-module-host, the module host (main.cpp; POSIX only, linked
+                              with the runtime's objects), installed in libexec/praenora/
 src/providers/                service providers built with the runtime: roadrunner/
                               (libRoadRunner; only with PRAENORA_WITH_ROADRUNNER=ON), antimony/
                               (libAntimony; only with PRAENORA_WITH_ANTIMONY=ON), common/ (what
@@ -220,7 +259,12 @@ spec/                         schemas/, catalog/, asyncapi/ (generated AsyncAPI 
                               committed; refreshed with PRAENORA_UPDATE_GOLDEN=1)
 examples/                     modules/estimator/, modules/predictor/ (the example modules) and
                               workflows/estimate-predict/ (configuration, data, README)
-tests/                        unit/, protocol/, negative/, contract/, lifecycle/, integration/,
+tests/                        unit/, protocol/, negative/, contract/, lifecycle/, isolation/
+                              (process isolation, white-box, with the helper programs
+                              praenora_isolation_parent_probe, praenora_fake_module_host,
+                              praenora_isolation_short_host_probe and
+                              praenora_isolation_restricted_probe),
+                              integration/,
                               cli/ (CLI tests and their driver run_cli.cmake), python/ (unittest
                               suite of praenora.runtime), install/ (install test: its driver
                               run_install_test.cmake and the projects consumer-module/ and
@@ -232,7 +276,8 @@ tests/                        unit/, protocol/, negative/, contract/, lifecycle/
                               helpers, and run_command.cmake, which the CMake drivers share);
                               fixtures/: modules/ (fixture modules), providers/ (fixture
                               providers, praenora_add_fixture_provider(); test-simulation and
-                              test-conversion offer the public services), models/ (sbml/ and
+                              test-conversion offer the public services, test-store drives the
+                              shared compiled models), models/ (sbml/ and
                               test-decay/ models of the simulation service, test-decay-text/
                               sources of the model conversion service, antimony/ Antimony models
                               and the antimony provider's expected outputs), documents/,
@@ -260,7 +305,10 @@ docs/                         index.md, the guides (architecture, user-guide, co
 - Each module instance has its own worker thread and calls into it are serialized; calls into a
   library that allows no concurrent calls (`features.concurrency: "module"`) take turns across the
   whole process, at one gate per loaded library. The host enforces timeouts; cancellation is
-  cooperative.
+  cooperative. A step may run its instance in a module host instead (`praenora-module-host`, linked
+  with the runtime's objects, started with `posix_spawn()` and reached over a private channel),
+  which loads the step's providers too: its crash fails only that step, and a call that outlives
+  its deadline and grace is ended by killing it.
 - Heavy engines come from service providers: separately built `MODULE` libraries, found through
   `*.provider.json` manifests on provider search paths and loaded on demand, when a run,
   `validate --load` or the contract checks need one of their services; each is started once and
@@ -351,11 +399,13 @@ docs/                         index.md, the guides (architecture, user-guide, co
   [Python](docs/python.md), [platforms](docs/platforms.md).
 - Normative specifications: `docs/specs/` (ABI, protocol, manifest, runtime services and
   providers, the simulation service, the model conversion service, workflow definitions,
-  compatibility, error taxonomy, threading and ownership, time and timeouts, observability,
-  reproducibility, the draft starting workflow), listed in [docs/index.md](docs/index.md); the
-  three on services are [runtime-services.md](docs/specs/runtime-services.md),
+  compatibility, error taxonomy, threading and ownership, process isolation, time and timeouts,
+  observability, reproducibility, the draft starting workflow), listed in
+  [docs/index.md](docs/index.md); the three on services are
+  [runtime-services.md](docs/specs/runtime-services.md),
   [simulation-service.md](docs/specs/simulation-service.md) and
-  [model-conversion-service.md](docs/specs/model-conversion-service.md).
+  [model-conversion-service.md](docs/specs/model-conversion-service.md); process isolation, module
+  hosts and their configuration are in [process-isolation.md](docs/specs/process-isolation.md).
 - Feasibility documents: [WebAssembly](docs/feasibility/webassembly.md) is a design, nothing of
   which is built; [libRoadRunner](docs/feasibility/libroadrunner.md) holds the upstream facts
   behind the built simulation service and its provider `roadrunner`, and the design of level C

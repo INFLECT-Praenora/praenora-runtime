@@ -25,7 +25,19 @@ enum class WorkflowState {
     failed
 };
 
-enum class StepState { loaded, created, ready, busy, finalized, destroyed, failed, unresponsive };
+// crashed: the step's module host ended or broke its channel during its load or a call (process
+// isolation); the instance is never called again.
+enum class StepState {
+    loaded,
+    created,
+    ready,
+    busy,
+    finalized,
+    destroyed,
+    failed,
+    unresponsive,
+    crashed
+};
 
 enum class Health { unknown, healthy, degraded, unhealthy };
 

@@ -60,6 +60,10 @@ endif()
 
 add_subdirectory(src/sdk)
 add_subdirectory(src/runtime)
+# The module host, in which a step's module instance runs in a process of its own: POSIX only.
+if(NOT WIN32)
+    add_subdirectory(src/module_host)
+endif()
 # Service providers shipped with the runtime: the libRoadRunner provider, built only with
 # PRAENORA_WITH_ROADRUNNER, and the libAntimony provider, built only with PRAENORA_WITH_ANTIMONY.
 if(PRAENORA_WITH_ROADRUNNER)

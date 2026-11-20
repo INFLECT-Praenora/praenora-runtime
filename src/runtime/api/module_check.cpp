@@ -117,6 +117,8 @@ std::string call_problem(const char* call, const CallResult& result,
                (result.refused_by ? refusal_reason(*result.refused_by)
                                   : std::string("an abandoned call may still be running in the "
                                                 "library"));
+    case CallOutcome::crashed: // the contract checks run modules in this process: not reached
+        return name + " crashed: its module host ended during the call";
     }
     return name + " did not succeed";
 }
