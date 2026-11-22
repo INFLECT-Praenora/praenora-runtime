@@ -129,7 +129,14 @@ public:
                                {"at_load", g_at_load}};
         std::error_code ec;
         data["temporary_directory"] = std::filesystem::temp_directory_path(ec).string();
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable : 4996) // getenv is fine here: nothing changes the environment
+#endif
         const char* tmpdir = std::getenv("TMPDIR");
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
         data["tmpdir"] = tmpdir != nullptr ? nlohmann::json(tmpdir) : nlohmann::json(nullptr);
         return nlohmann::json{{"outputs", {{"out", {{"data", data}}}}}}.dump();
     }

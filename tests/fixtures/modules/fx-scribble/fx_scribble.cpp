@@ -55,7 +55,10 @@ private:
     static void scribble(const char* data, std::size_t size) {
 #ifndef _WIN32
         for (int descriptor = 3; descriptor <= 63; ++descriptor) {
-            static_cast<void>(::write(descriptor, data, size));
+            // What each write did does not matter. The result is kept in a variable because a
+            // cast to void does not silence glibc's warn_unused_result for GCC.
+            const ssize_t written = ::write(descriptor, data, size);
+            static_cast<void>(written);
         }
 #else
         static_cast<void>(data);

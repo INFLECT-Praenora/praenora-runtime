@@ -49,16 +49,16 @@ private:
 Workflow::Impl::Impl(std::shared_ptr<const detail::RuntimeContext> runtime_context,
                      detail::ValidatedWorkflow workflow, const LogOptions& logging, bool overwrite)
     : context(std::move(runtime_context)) {
-    const std::optional<std::filesystem::path> output_dir = workflow.config.output_dir;
-    if (output_dir) {
-        this->output_dir = detail::path_to_utf8(*output_dir);
+    const std::optional<std::filesystem::path> output_path = workflow.config.output_dir;
+    if (output_path) {
+        output_dir = detail::path_to_utf8(*output_path);
     }
     const std::optional<std::filesystem::path> status_path = workflow.config.status_file;
     const std::chrono::nanoseconds status_interval = workflow.config.status_interval;
     // The run's directories, which the error records of the run record and of the status file name
     // by placeholders; the home directory as it is when the workflow is opened.
     detail::RunDirectories directories;
-    directories.output = output_dir;
+    directories.output = output_path;
     directories.configuration = workflow.config.file.parent_path();
     directories.modules = workflow.module_search_paths;
     directories.providers = context->providers.scanned_search_paths();
@@ -66,8 +66,8 @@ Workflow::Impl::Impl(std::shared_ptr<const detail::RuntimeContext> runtime_conte
     const auto anchors = std::make_shared<const detail::PathAnchors>(directories);
     // Nothing that can fail may run after an earlier run is removed: refuse it first, without
     // changing anything; remove it (with overwrite) only after the log hub and the engine exist.
-    if (output_dir) {
-        detail::check_output_dir(*output_dir, overwrite);
+    if (output_path) {
+        detail::check_output_dir(*output_path, overwrite);
     }
     logs = std::make_unique<detail::LogHub>(logging);
 
@@ -83,8 +83,8 @@ Workflow::Impl::Impl(std::shared_ptr<const detail::RuntimeContext> runtime_conte
         }
     };
     engine = std::make_unique<detail::Engine>(std::move(workflow), std::move(settings));
-    if (output_dir) {
-        detail::prepare_output_dir(*output_dir, overwrite);
+    if (output_path) {
+        detail::prepare_output_dir(*output_path, overwrite);
     }
 
     if (status_path) {

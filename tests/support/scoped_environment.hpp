@@ -42,7 +42,14 @@ public:
 
 private:
     static std::string appended(const char* name, const char* options) {
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable : 4996) // getenv is fine here: nothing changes the environment
+#endif
         const char* value = std::getenv(name);
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
         return value != nullptr && value[0] != '\0' ? std::string(value) + ":" + options
                                                     : std::string(options);
     }

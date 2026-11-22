@@ -156,9 +156,13 @@ ExampleRun run_example(const Runtime& runtime, const fs::path& out, WorkflowOpti
 // Whether the golden files are to be rewritten (PRAENORA_UPDATE_GOLDEN=1) instead of compared.
 bool update_golden() {
 #ifdef _MSC_VER
-#pragma warning(suppress : 4996) // getenv is fine here: nothing changes the environment
+#pragma warning(push)
+#pragma warning(disable : 4996) // getenv is fine here: nothing changes the environment
 #endif
     const char* value = std::getenv("PRAENORA_UPDATE_GOLDEN");
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
     return value != nullptr && std::string(value) == "1";
 }
 

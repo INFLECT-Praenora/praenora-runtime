@@ -134,6 +134,34 @@ package's included, so a release could never carry a new version.
   `uses: <owner>/<name>@<commit> # v<version>`, each value on the line of its key), and the test
   refuses a key whose value is on a later line. It replaces `\`, `;`, `[` and `]` before it
   splits the text into lines, so that no line joins the next or splits into two.
+- **The first run's warnings.** The first run of the workflow, on a pull request to `main`,
+  passed the macOS job and failed the build of the Linux and Windows jobs on warnings that
+  AppleClang does not give. Most were fixed in the code: a parameter that only the POSIX branch of
+  a fixture used, a local variable that hid a member, the result of `write()` that a cast to
+  `void` does not discard for GCC (glibc declares it `warn_unused_result`), and `getenv()` calls,
+  which MSVC deprecates (one more is in a test support header that no job had reached). Those
+  calls, and the three that the tests had marked before with
+  `#pragma warning(suppress : 4996)`, which no MSVC build had compiled yet, now turn C4996 off
+  with `push`, `disable` and `pop` around the call alone, which does not depend on what MSVC takes
+  for the line after the pragma (here an `#endif`). Two are calls on the warnings themselves
+  ([platforms.md](../platforms.md#common-to-every-platform)). GCC 13's `-Wdangling-reference` is
+  turned off for C++ (`cmake/PraenoraWarnings.cmake`): it reports every reference bound to the
+  result of a call that was given a temporary, whatever the reference refers to, and here these
+  are a provider that `load_provider()` keeps loaded for the life of the process and the entries
+  that test helpers look up by a string literal; rewriting each such call would have fixed
+  nothing, since none of these references dangles. MSVC's C4702 (unreachable code) is turned off
+  for the targets that compile libRoadRunner's headers, through the interface target
+  `praenora_roadrunner_engine` (`cmake/PraenoraRoadrunner.cmake`): its `rr/Setting.h` returns after
+  a `throw` in templates, and the code generator reports that where they are instantiated, out of
+  reach of the warning level of external headers. A third is made ahead of the next run, since no
+  job compiled the Python extension: the wrapper that SWIG generates is compiled with the
+  compiler's default warnings and never as errors. It is not this project's code, and its overload
+  dispatch redeclares variables in nested blocks (Clang's `-Wshadow` shows them), which MSVC's
+  `/W4` would report as C4456; the facade it wraps is compiled with the project's warnings, as an
+  object library of its own (`src/python/CMakeLists.txt`). Those builds stopped at their first
+  failures (the Linux job after 113 of its 435 steps; the Windows jobs before the tool, the tests
+  and the Python extension), so more of the code has yet to be compiled there; not yet verified on
+  GitHub.
 
 ## Alternatives considered
 

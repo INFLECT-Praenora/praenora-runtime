@@ -86,7 +86,14 @@ std::string round_trip(const std::string& key, const std::string& data) {
 
 void later(std::string key, std::string data) noexcept {
     try {
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable : 4996) // getenv is fine here: nothing changes the environment
+#endif
         const char* trigger = std::getenv("PRAENORA_TEST_STORE_LATER");
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
         for (int polls = 0; trigger != nullptr && polls < 6000; ++polls) {
             if (std::ifstream(trigger).good()) {
                 break;
@@ -146,7 +153,15 @@ const praenora_test_echo_v0 echo_table = {
 praenora_status PRAENORA_CALL start(const praenora_provider_host* host, praenora_sink*) {
     g_host = host;
     try {
-        if (const char* key = std::getenv("PRAENORA_TEST_STORE_AT_START")) {
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable : 4996) // getenv is fine here: nothing changes the environment
+#endif
+        const char* key = std::getenv("PRAENORA_TEST_STORE_AT_START");
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
+        if (key != nullptr) {
             log(std::string("test-store: at start: ") + (offers_load(host) && offers_save(host)
                                                              ? round_trip(key, "at start")
                                                              : std::string("no store")));

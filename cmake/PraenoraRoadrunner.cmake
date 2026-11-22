@@ -38,7 +38,8 @@
 #   which its headers declare its functions for import from a DLL.
 #
 # Afterwards these exist:
-#   praenora_roadrunner_engine     INTERFACE target linking roadrunner-static::roadrunner-static
+#   praenora_roadrunner_engine     INTERFACE target linking roadrunner-static::roadrunner-static,
+#                                  which also turns MSVC's C4702 off for its consumers
 #   PRAENORA_ROADRUNNER_VERSION    libRoadRunner's version, from its rr/rrVersionInfo.h
 #   PRAENORA_LLVM_VERSION          LLVM's version, from llvm-config --version
 #   PRAENORA_SUNDIALS_VERSION      SUNDIALS's version, from its package
@@ -223,5 +224,11 @@ built with (LLVM_INSTALL_PREFIX is '${LLVM_INSTALL_PREFIX}')"
         add_library(praenora_roadrunner_engine INTERFACE)
         target_link_libraries(praenora_roadrunner_engine INTERFACE
             roadrunner-static::roadrunner-static)
+        # MSVC reports C4702 (unreachable code) in libRoadRunner's rr/Setting.h, whose conversion
+        # templates return after a throw. The code generator reports it where the templates are
+        # instantiated, so the warning level of external headers does not reach it: every target
+        # that compiles libRoadRunner's headers goes without C4702.
+        target_compile_options(praenora_roadrunner_engine INTERFACE
+            $<$<CXX_COMPILER_ID:MSVC>:/wd4702>)
     endif()
 endmacro()

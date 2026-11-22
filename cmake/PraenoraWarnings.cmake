@@ -20,5 +20,14 @@ function(praenora_target_warnings target)
             -Wextra
             -Wpedantic
             $<$<BOOL:${PRAENORA_WARNINGS_AS_ERRORS}>:-Werror>)
+        # GCC 13's -Wdangling-reference (in -Wall) reports every reference bound to what a call
+        # returns when the call was given a temporary, whatever the reference refers to: a
+        # provider that load_provider() keeps loaded for the life of the process, an entry of a
+        # report that a helper looks up by a string literal. It is turned off, for C++ only.
+        if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU"
+           AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 13)
+            target_compile_options(${target} PRIVATE
+                $<$<COMPILE_LANGUAGE:CXX>:-Wno-dangling-reference>)
+        endif()
     endif()
 endfunction()

@@ -25,7 +25,12 @@ a target.
 - **Compilers.** C++17 without extensions and C99. Configuration stops below GCC 9, Clang 10,
   AppleClang 13 or MSVC 19.29 (Visual Studio 2019 16.10). Warnings are `-Wall -Wextra -Wpedantic`
   for GCC and Clang and `/W4 /permissive- /utf-8 /Zc:__cplusplus /EHsc` for MSVC;
-  `PRAENORA_WARNINGS_AS_ERRORS=ON` adds `-Werror` or `/WX`.
+  `PRAENORA_WARNINGS_AS_ERRORS=ON` adds `-Werror` or `/WX`. GCC 13 and newer also get
+  `-Wno-dangling-reference` for C++: its reports here are all false alarms, references to objects
+  that outlive the call (such as a loaded provider); the targets that compile libRoadRunner's
+  headers get MSVC's `/wd4702`, for unreachable code in its `rr/Setting.h`; and the wrapper that
+  SWIG generates for the Python extension is compiled with the compiler's default warnings, never
+  as errors, while the facade it wraps has the project's.
 - **One architecture per build.** A module manifest names one `platform.arch`, so a build targets
   one architecture: several `CMAKE_OSX_ARCHITECTURES` values are refused.
 - **Platform names.** Manifests and `praenora version` name the platform as `linux`, `macos` or

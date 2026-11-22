@@ -125,9 +125,13 @@ bool contains(const std::string& text, const std::string& part) {
 // do), which leaves the unload check nothing to check.
 bool keep_libraries_requested() {
 #ifdef _MSC_VER
-#pragma warning(suppress : 4996) // getenv is fine here: nothing changes the environment
+#pragma warning(push)
+#pragma warning(disable : 4996) // getenv is fine here: nothing changes the environment
 #endif
     const char* value = std::getenv("PRAENORA_DEBUG_KEEP_LIBRARIES");
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
     return value != nullptr && std::string(value) == "1";
 }
 

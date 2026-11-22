@@ -10,6 +10,22 @@ include(UseSWIG)
 set(_praenora_package_dir "${PROJECT_BINARY_DIR}/python/praenora/runtime")
 set(_praenora_package_source "${PROJECT_SOURCE_DIR}/python/praenora/runtime")
 
+# The facade, compiled with the project's warnings into objects of its own, which the extension
+# links. The extension's own source is the wrapper that SWIG generates, which is not this
+# project's code: MSVC's /W4 would report C4456 for the nested declarations of its overload
+# dispatch, which redeclare variables of the blocks around them, so it gets the compiler's default
+# warnings, never as errors.
+add_library(praenora_python_facade OBJECT facade.hpp facade.cpp)
+target_link_libraries(praenora_python_facade PRIVATE
+    Praenora::Runtime
+    praenora_frontend
+    nlohmann_json::nlohmann_json)
+set_target_properties(praenora_python_facade PROPERTIES
+    POSITION_INDEPENDENT_CODE ON
+    CXX_VISIBILITY_PRESET hidden
+    VISIBILITY_INLINES_HIDDEN ON)
+praenora_target_warnings(praenora_python_facade)
+
 # The .i file includes facade.hpp, so editing the header regenerates the wrapper.
 set_property(SOURCE praenora_runtime.i PROPERTY CPLUSPLUS ON)
 set_property(SOURCE praenora_runtime.i PROPERTY DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/facade.hpp")
@@ -18,13 +34,14 @@ swig_add_library(praenora_python_bindings
     LANGUAGE python
     OUTPUT_DIR "${_praenora_package_dir}"
     OUTFILE_DIR "${PROJECT_BINARY_DIR}/swig"
-    SOURCES praenora_runtime.i facade.hpp facade.cpp)
+    SOURCES praenora_runtime.i)
 # -threads: the wrappers of the facade release the GIL around every call into it
 # (praenora_runtime.i keeps SWIG's own string and vector code from releasing it).
 set_property(TARGET praenora_python_bindings PROPERTY SWIG_COMPILE_OPTIONS -threads)
 set_property(TARGET praenora_python_bindings PROPERTY SWIG_USE_TARGET_INCLUDE_DIRECTORIES ON)
 target_include_directories(praenora_python_bindings PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(praenora_python_bindings PRIVATE
+    praenora_python_facade
     Praenora::Runtime
     praenora_frontend
     Python3::Module
@@ -54,8 +71,10 @@ set_target_properties(praenora_python_bindings PROPERTIES
 if(MSVC)
     # Debug builds use the release Python library (SWIG undefines _DEBUG around Python.h).
     target_compile_definitions(praenora_python_bindings PRIVATE SWIG_PYTHON_INTERPRETER_NO_DEBUG)
+    # Of what praenora_target_warnings() gives a target, what the wrapper needs: UTF-8 sources, and
+    # C++ exceptions that unwind through its frames.
+    target_compile_options(praenora_python_bindings PRIVATE /utf-8 /EHsc)
 endif()
-praenora_target_warnings(praenora_python_bindings)
 # Windows: praenora_runtime.dll and the third-party DLLs go beside the extension, where Python
 # looks for the libraries an extension needs.
 praenora_copy_runtime_dlls(praenora_python_bindings)

@@ -106,6 +106,7 @@ static praenora_status PRAENORA_CALL echo(void* context, const praenora_host_api
         }
     }
 #else
+    (void)input;
     (void)output;
     (void)holds;
 #endif
