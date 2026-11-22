@@ -653,7 +653,10 @@ gate in every build that has them: the contract tests run the checks on them.
   `providers.run_twice.shows_first_difference` (`check_run_twice.cmake`) checks that report, also
   for two outputs that differ only by a carriage return before a line feed or by a NUL byte, the
   report on each failure of either run, and that two runs that printed the same bytes pass, with
-  their count.
+  their count. It writes the outputs that its printer prints byte for byte, with
+  `cmake -E echo_append` and `cmake -E cat` through `execute_process()` with `OUTPUT_FILE`, and
+  checks each file's bytes: `file(WRITE)` and `file(APPEND)` write in text mode on Windows, a
+  carriage return before each line feed.
 - **Service checks.** The simulation service's checks
   ([`tests/contract/simulation_service_checks.hpp`](../tests/contract/simulation_service_checks.hpp))
   are a parameterized suite: a provider of the service is checked by a source file that instantiates

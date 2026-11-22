@@ -173,7 +173,8 @@ built with (LLVM_INSTALL_PREFIX is '${LLVM_INSTALL_PREFIX}')"
         RESULT_VARIABLE _praenora_llvm_result
         OUTPUT_VARIABLE PRAENORA_LLVM_VERSION
         ERROR_VARIABLE _praenora_llvm_error
-        OUTPUT_STRIP_TRAILING_WHITESPACE)
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ENCODING UTF-8)
     if(NOT _praenora_llvm_result EQUAL 0 OR
        NOT PRAENORA_LLVM_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+$")
         message(FATAL_ERROR "PRAENORA_WITH_ROADRUNNER is ON, but ${PRAENORA_LLVM_CONFIG} "

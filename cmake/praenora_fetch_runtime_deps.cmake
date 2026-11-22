@@ -166,7 +166,8 @@ if(NOT _archive_kept)
         if(_attempt LESS _download_attempts)
             message("${_script}: the download failed (${_code}: ${_reason}); trying again in "
                 "${_download_pause} seconds")
-            execute_process(COMMAND "${CMAKE_COMMAND}" -E sleep ${_download_pause})
+            execute_process(COMMAND "${CMAKE_COMMAND}" -E sleep ${_download_pause}
+                ENCODING UTF-8)
         endif()
     endforeach()
     if(NOT _code EQUAL 0)
@@ -227,7 +228,7 @@ if(NOT _bundle_kept)
 endif()
 
 set(_line "PRAENORA_RUNTIME_DEPS=${_bundle}")
-execute_process(COMMAND "${CMAKE_COMMAND}" -E echo "${_line}")
+execute_process(COMMAND "${CMAKE_COMMAND}" -E echo "${_line}" ENCODING UTF-8)
 if(DEFINED ENV{GITHUB_ENV} AND NOT "$ENV{GITHUB_ENV}" STREQUAL "")
     file(APPEND "$ENV{GITHUB_ENV}" "${_line}\n")
     message("${_script}: appended the line ${_line} to $ENV{GITHUB_ENV}")

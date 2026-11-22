@@ -424,7 +424,11 @@ docs/                         index.md, the guides (architecture, user-guide, co
   envelopes or reproducibility data; randomness only from seeds derived from the run seed.
   Canonical JSON is nlohmann `dump()` without indentation.
 - **Text.** UTF-8 everywhere, LF line endings (`.gitattributes`, `.editorconfig`); paths travel as
-  UTF-8 strings.
+  UTF-8 strings. Every `execute_process()` of the CMake code gives `ENCODING UTF-8`: without it,
+  CMake on Windows decodes a program's output in the console's or the ANSI code page (CMP0176). A
+  CMake script that must write a file with line feeds byte for byte does not use `file(WRITE)` or
+  `file(APPEND)`, which write in text mode on Windows, a carriage return before each line feed
+  (`tests/providers/check_run_twice.cmake` shows a way).
 - **Tests.** Add GoogleTest executables with `praenora_add_gtest()` (`tests/CMakeLists.txt`) and
   fixture modules with `praenora_add_fixture_module()` (`tests/fixtures/modules/CMakeLists.txt`).
   Tests are named `Suite.Case` in PascalCase, where the suite names the component (for example

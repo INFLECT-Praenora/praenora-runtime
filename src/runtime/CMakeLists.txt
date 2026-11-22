@@ -170,7 +170,11 @@ set_target_properties(praenora_runtime PROPERTIES
 # json-schema-validator, built with default visibility) internal, so they cannot clash with another
 # copy in the host application.
 # - macOS: exported-symbol patterns (verified).
-# - Other ELF platforms: a version script plus --exclude-libs (not yet verified by a build).
+# - Other ELF platforms: a version script plus --exclude-libs. The functions and variables are
+#   matched by their demangled names; the type information, its names and the vtables by their
+#   mangled names, as on macOS, because a version script matches a quoted demangled name (such as
+#   "typeinfo for praenora::Error") literally, never as a pattern, and an unquoted one cannot hold
+#   the spaces of "typeinfo for".
 # - Windows: only dllexport'ed symbols are exported in the first place.
 if(APPLE)
     target_link_options(praenora_runtime PRIVATE
@@ -185,10 +189,10 @@ elseif(NOT WIN32)
   global:
     extern "C++" {
       praenora::*;
-      "typeinfo for praenora::*";
-      "typeinfo name for praenora::*";
-      "vtable for praenora::*";
     };
+    _ZTIN8praenora*;
+    _ZTSN8praenora*;
+    _ZTVN8praenora*;
   local:
     *;
 };

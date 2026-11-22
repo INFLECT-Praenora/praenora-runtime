@@ -3,12 +3,13 @@
 # (tests/providers/CMakeLists.txt). Script mode, cmake -P, with WORK set to a directory of the build
 # tree, which it deletes and fills; it needs only CMake.
 #
-# Each case writes two outputs to first.txt and second.txt in a directory of its own, a NUL byte for
-# each <NUL> in them (_write()), and runs run_twice.cmake with this script as the printer: PRINT is
-# cmake, and MANIFEST, FORMAT, MODEL and END are -DFIRST=<first.txt>, -DSECOND=<second.txt>, -P and
-# this script; WORK is the outputs directory inside the case's directory. With FIRST and SECOND set
-# this script prints the first file, the first time, and the second file, every later time, to
-# standard output as it is, and a line that names the run to standard error, and checks nothing.
+# Each case writes two outputs to first.txt and second.txt in a directory of its own, every byte as
+# it is, a NUL byte for each <NUL> in them (_write()), and runs run_twice.cmake with this script as
+# the printer: PRINT is cmake, and MANIFEST, FORMAT, MODEL and END are -DFIRST=<first.txt>,
+# -DSECOND=<second.txt>, -P and this script; WORK is the outputs directory inside the case's
+# directory. With FIRST and SECOND set this script prints the first file, the first time, and the
+# second file, every later time, to standard output as it is, and a line that names the run to
+# standard error, and checks nothing.
 # When the printed file has a companion <file>.stderr, it prints that file's text to standard error
 # before that line; when it has a companion <file>.fails, it then exits with an error, which CMake
 # reports on standard error after that line. In cases 1 to 13 run_twice.cmake must fail, and its
@@ -66,7 +67,7 @@ if(DEFINED FIRST AND DEFINED SECOND)
         set(run first)
         set(output "${FIRST}")
     endif()
-    execute_process(COMMAND "${CMAKE_COMMAND}" -E cat "${output}")
+    execute_process(COMMAND "${CMAKE_COMMAND}" -E cat "${output}" ENCODING UTF-8)
     set(text "")
     if(EXISTS "${output}.stderr")
         file(READ "${output}.stderr" text)
@@ -84,10 +85,10 @@ endif()
 set(driver "${CMAKE_CURRENT_LIST_DIR}/run_twice.cmake")
 file(REMOVE_RECURSE "${WORK}")
 
-# One NUL byte, in the variable nul_byte, for _write(). No CMake string can be written with one,
-# but file(READ) of a NUL byte at the end of a file puts it into a variable, which file(WRITE) and
-# file(APPEND) write as they are: the last byte of a tar archive, which ends with blocks of NUL
-# bytes. Only those commands, and the check below, may touch that variable.
+# The file nul-byte, one NUL byte, for _write(). No CMake string can be written with one, but
+# file(READ) of a NUL byte at the end of a file puts it into a variable, which file(WRITE) writes
+# as it is: the last byte of a tar archive, which ends with blocks of NUL bytes. The variable is
+# unset once the file is written.
 file(WRITE "${WORK}/empty" "")
 file(ARCHIVE_CREATE OUTPUT "${WORK}/empty.tar" PATHS "${WORK}/empty" FORMAT gnutar)
 file(SIZE "${WORK}/empty.tar" size)
@@ -95,26 +96,68 @@ math(EXPR last "${size} - 1")
 file(READ "${WORK}/empty.tar" nul_byte OFFSET ${last} LIMIT 1)
 # Not a file named nul, which is a device on Windows, in every directory.
 file(WRITE "${WORK}/nul-byte" "${nul_byte}")
+unset(nul_byte)
 file(READ "${WORK}/nul-byte" written HEX)
 if(NOT written STREQUAL "00")
     message(FATAL_ERROR "check_run_twice.cmake: ${WORK}/nul-byte holds the bytes ${written} "
         "(hexadecimal), not one NUL byte")
 endif()
 
-# Writes `text` to the file `file`, with a NUL byte for each <NUL> in it: the parts of the text
-# around them, with nul_byte appended between them.
+# Writes `text` to the file `file`, every byte as it is, with a NUL byte for each <NUL> in it, and
+# checks the file's bytes against the text's. Not with file(WRITE) and file(APPEND): on Windows
+# they write in text mode, a carriage return before each line feed. Each part of the text around
+# the <NUL>s is printed by cmake -E echo_append into a file of its own, and cmake -E cat joins those
+# files, with the file nul-byte between them: execute_process() with OUTPUT_FILE writes what a
+# program prints to the file byte for byte.
 function(_write file text)
-    string(FIND "${text}" "<NUL>" position)
-    file(WRITE "${file}" "")
-    while(NOT position EQUAL -1)
-        string(SUBSTRING "${text}" 0 ${position} part)
+    get_filename_component(directory "${file}" DIRECTORY)
+    file(MAKE_DIRECTORY "${directory}")
+    set(files "")
+    set(expected "")
+    set(index 0)
+    while(TRUE)
+        string(FIND "${text}" "<NUL>" position)
+        if(position EQUAL -1)
+            set(part "${text}")
+        else()
+            string(SUBSTRING "${text}" 0 ${position} part)
+        endif()
+        set(part_file "${file}.part-${index}")
+        execute_process(COMMAND "${CMAKE_COMMAND}" -E echo_append "${part}"
+            OUTPUT_FILE "${part_file}"
+            RESULT_VARIABLE result
+            ENCODING UTF-8)
+        if(NOT result STREQUAL "0")
+            message(FATAL_ERROR "check_run_twice.cmake: cmake -E echo_append could not write "
+                "${part_file}: ${result}")
+        endif()
+        list(APPEND files "${part_file}")
+        string(HEX "${part}" part_bytes)
+        string(APPEND expected "${part_bytes}")
+        if(position EQUAL -1)
+            break()
+        endif()
+        list(APPEND files "${WORK}/nul-byte")
+        string(APPEND expected "00")
         math(EXPR position "${position} + 5")
         string(SUBSTRING "${text}" ${position} -1 text)
-        file(APPEND "${file}" "${part}")
-        file(APPEND "${file}" "${nul_byte}")
-        string(FIND "${text}" "<NUL>" position)
+        math(EXPR index "${index} + 1")
     endwhile()
-    file(APPEND "${file}" "${text}")
+    execute_process(COMMAND "${CMAKE_COMMAND}" -E cat ${files}
+        OUTPUT_FILE "${file}"
+        RESULT_VARIABLE result
+        ENCODING UTF-8)
+    if(NOT result STREQUAL "0")
+        message(FATAL_ERROR "check_run_twice.cmake: cmake -E cat could not write ${file}: "
+            "${result}")
+    endif()
+    list(REMOVE_ITEM files "${WORK}/nul-byte")
+    file(REMOVE ${files})
+    file(READ "${file}" written HEX)
+    if(NOT written STREQUAL expected)
+        message(FATAL_ERROR "check_run_twice.cmake: ${file} holds the bytes ${written} "
+            "(hexadecimal), not those of its text, ${expected}")
+    endif()
 endfunction()
 
 # Runs run_twice.cmake on the outputs first.txt and second.txt in `directory` as the driver of
@@ -131,7 +174,8 @@ function(_run_twice directory tool)
             "-DEND=${CMAKE_CURRENT_LIST_FILE}" "-DWORK=${directory}/outputs" -P "${driver}"
         RESULT_VARIABLE exit_code
         OUTPUT_VARIABLE out
-        ERROR_VARIABLE err)
+        ERROR_VARIABLE err
+        ENCODING UTF-8)
     set(exit_code "${exit_code}" PARENT_SCOPE)
     set(out "${out}" PARENT_SCOPE)
     set(err "${err}" PARENT_SCOPE)

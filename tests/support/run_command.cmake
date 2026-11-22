@@ -6,22 +6,24 @@
 #
 # praenora_test_run(<prefix> <what> <command> [AFTER_PROBLEM <text>] [OUTPUT_FILE <file>])
 #   Runs the command, a ;-list of its program and then its arguments, handed over as one argument
-#   ("${command}"), and sets <prefix>_EXIT, <prefix>_OUT and <prefix>_ERR in the caller's scope:
-#   its exit code (or why it did not run), its standard output and its standard error, as
+#   ("${command}"), and sets <prefix>_EXIT, <prefix>_OUT and <prefix>_ERR in the caller's scope: its
+#   exit code (or why it did not run), its standard output and its standard error, as
 #   execute_process() captures them, which drops the carriage return of each carriage return and
-#   line feed and every NUL byte. With OUTPUT_FILE, the standard output goes to <file> instead,
-#   every byte as it was printed, and <prefix>_OUT is read back from that file with cmake -E cat,
-#   captured in the same way, so it is the same text. The file's directory is made first when it
-#   does not exist: execute_process() may write no file there, and report no error. Each element
-#   of the list reaches the program as one argument, as it is, an empty one included (one spelled
-#   like a keyword of execute_process(), such as COMMAND or TIMEOUT, is read as that keyword). A
-#   command handed over as several arguments (${command}, unquoted) is refused: CMake drops the
-#   empty elements of a list that it expands unquoted. A sanitizer report in either output fails
-#   the test with "<what>: a sanitizer reported a problem", whatever the exit code: a sanitizer
-#   build may report a problem and still exit with 0. With AFTER_PROBLEM, <text>, handed over as
-#   one argument too, follows that problem in the report, as it is: tests/providers/run_twice.cmake
-#   adds the outputs of the first of its two runs to a failure of the second. The two keywords may
-#   come in either order, each followed by its value.
+#   line feed and every NUL byte. They are decoded as UTF-8 (ENCODING UTF-8): without it, CMake on
+#   Windows decodes them in the console's code page, or in the ANSI code page when there is no
+#   console, unless the policy CMP0176 (CMake 3.31) is NEW. With OUTPUT_FILE, the standard output
+#   goes to <file> instead, every byte as it was printed, and <prefix>_OUT is read back from that
+#   file with cmake -E cat, captured in the same way, so it is the same text. The file's directory
+#   is made first when it does not exist: execute_process() may write no file there, and report no
+#   error. Each element of the list reaches the program as one argument, as it is, an empty one
+#   included (one spelled like a keyword of execute_process(), such as COMMAND or TIMEOUT, is read
+#   as that keyword). A command handed over as several arguments (${command}, unquoted) is refused:
+#   CMake drops the empty elements of a list that it expands unquoted. A sanitizer report in either
+#   output fails the test with "<what>: a sanitizer reported a problem", whatever the exit code: a
+#   sanitizer build may report a problem and still exit with 0. With AFTER_PROBLEM, <text>, handed
+#   over as one argument too, follows that problem in the report, as it is:
+#   tests/providers/run_twice.cmake adds the outputs of the first of its two runs to a failure of
+#   the second. The two keywords may come in either order, each followed by its value.
 #
 # praenora_test_fail(<what> <problem> <command> <exit code> <stdout> <stderr>)
 #   Fails the test with a report in one message(FATAL_ERROR): "<what>: <problem>", then the
@@ -105,20 +107,22 @@ function(praenora_test_run prefix what command)
         math(EXPR index "${index} + 1")
     endforeach()
     if(output_file STREQUAL "")
-        string(APPEND call " RESULT_VARIABLE exit_code OUTPUT_VARIABLE out ERROR_VARIABLE err)")
+        string(APPEND call " RESULT_VARIABLE exit_code OUTPUT_VARIABLE out ERROR_VARIABLE err")
     else()
         get_filename_component(directory "${output_file}" DIRECTORY)
         if(NOT directory STREQUAL "")
             file(MAKE_DIRECTORY "${directory}")
         endif()
         string(APPEND call
-            " RESULT_VARIABLE exit_code OUTPUT_FILE \"\${output_file}\" ERROR_VARIABLE err)")
+            " RESULT_VARIABLE exit_code OUTPUT_FILE \"\${output_file}\" ERROR_VARIABLE err")
     endif()
+    string(APPEND call " ENCODING UTF-8)")
     cmake_language(EVAL CODE "${call}")
     if(NOT output_file STREQUAL "")
         # Not file(READ): it keeps NUL bytes, at which if(MATCHES), below and in the callers, stops
         # reading.
-        execute_process(COMMAND "${CMAKE_COMMAND}" -E cat "${output_file}" OUTPUT_VARIABLE out)
+        execute_process(COMMAND "${CMAKE_COMMAND}" -E cat "${output_file}" OUTPUT_VARIABLE out
+            ENCODING UTF-8)
     endif()
     # What a report of AddressSanitizer, LeakSanitizer, ThreadSanitizer or
     # UndefinedBehaviorSanitizer looks like.

@@ -192,6 +192,48 @@ package's included, so a release could never carry a new version.
   directory, so that a white-box test sees only the providers it names. Not yet verified on GitHub:
   the Linux job has yet to build the tool, both providers, the Python extension and the tests, and
   only the macOS job has made its archive.
+- **The third run's failures.** The third run stopped the Linux job's build after 356 of its 435
+  steps, at a unit test that compared a `std::optional` left empty by a conditional expression:
+  GCC 13 at `-O3` reports the value of such an optional as maybe uninitialized, and the test now
+  makes two comparisons instead. The rest of the Linux job was then run under Docker, in the image
+  `ubuntu:24.04` for x86-64 (GCC 13.3, the pinned bundle, the CI preset, as an unprivileged user),
+  which found what the job had yet to reach. Two more test warnings: loop variables of type
+  `const std::string&` over lists of string literals (`-Wrange-loop-construct`; now `const char*`),
+  and results of `json::parse()` cast to `void`, which GCC still reports (nlohmann declares it
+  `warn_unused_result`; the test now counts the documents that `json::accept()` refuses). The tool
+  did not link: the version script of the runtime library quoted its patterns for the type
+  information and vtables (`"typeinfo for praenora::*"`), and a version script matches a quoted
+  name literally, so no type information was exported and `catch (const praenora::Error&)` in the
+  tool found no `typeinfo for praenora::Error`; the script now names them by their mangled names,
+  `_ZTIN8praenora*`, `_ZTSN8praenora*` and `_ZTVN8praenora*`, as the macOS patterns do
+  ([ADR-0023](ADR-0023-public-cpp-api.md)). Two tests failed. The channel to a module host grew a
+  payload's buffer with `reserve()`, which in libstdc++ takes at least twice the old capacity, so a
+  3 MiB payload took 4 MiB, past the announced length that
+  [process-isolation.md](../specs/process-isolation.md) bounds it to; the buffer now grows into a
+  new string reserved to the capacity wanted. And a test of a load failure wrote a text file of 43
+  bytes as the library, of which glibc says only "file too short"; it is now longer than an ELF
+  header, so glibc says "invalid ELF header", as the test expects. After these fixes, the build,
+  one complete run of `ctest`, the archive and the check of its libraries passed under Docker, but
+  for one test, which expects `posix_spawn()` to report that an executable does not exist. That
+  failure is attributed to the emulation of x86-64 there (Rosetta): glibc's `posix_spawn()` gave a
+  child that exited with 127, while the same glibc 2.39 on arm64, not emulated, reports `ENOENT`;
+  not yet verified on native x86-64. Under that emulation `ctest` also hung at times on a child
+  that had exited, until `ctest` was stopped and continued, which was done every 15 seconds during
+  the complete run. In the third run the macOS job passed, and both Windows jobs built and then
+  failed one test each, `providers.run_twice.shows_first_difference`, at its case 3, where the
+  longer output continues with a line feed and the report named a carriage return instead (0x0d).
+  CMake's `file(WRITE)` and `file(APPEND)` write in text mode on Windows (CMake 3.31.6 opens their
+  stream without `std::ios::binary`), so the outputs that `check_run_twice.cmake` wrote for its
+  printer held a carriage return before each line feed. It now writes them byte for byte, with
+  `cmake -E echo_append` and `cmake -E cat` through `execute_process()` with `OUTPUT_FILE`, which
+  takes what a program prints as it is, and checks each file's bytes against its text's. Not yet
+  verified on GitHub: the fix has not yet run on Windows on any machine, and since the script stops
+  at its first failure, its cases 4 to 14 have never run there. And every `execute_process()` of
+  the CMake code now gives `ENCODING UTF-8`: the scripts require CMake 3.24, so the policy CMP0176
+  (CMake 3.31) is not set, and CMake on Windows then decodes a program's output in the console's
+  code page, or in the ANSI code page without a console. On the runners it evidently left UTF-8 as
+  it was, since cases 1 and 2 passed with क in their outputs, but on a machine with another code
+  page it would garble the tests' non-ASCII text.
 
 ## Alternatives considered
 

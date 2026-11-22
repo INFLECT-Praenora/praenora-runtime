@@ -716,9 +716,13 @@ TEST(NestingScan, FollowsYamlCppPossibleKeys) {
     };
     for (const auto& c : cases) {
         const std::string text = std::string(c.prefix) + "'q # c\nj: [[1]]\n'";
-        const std::optional<std::size_t> expected =
-            c.hidden ? std::nullopt : std::optional<std::size_t>(text.find("[[") + 1);
-        EXPECT_EQ(beyond_one_level(text), expected) << text;
+        // Two comparisons, not one with an optional that is empty when the brackets are hidden:
+        // comparing such an optional, GCC 13 at -O3 reports its value as maybe uninitialized.
+        if (c.hidden) {
+            EXPECT_EQ(beyond_one_level(text), std::nullopt) << text;
+        } else {
+            EXPECT_EQ(beyond_one_level(text), text.find("[[") + 1) << text;
+        }
     }
 }
 

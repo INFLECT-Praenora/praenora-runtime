@@ -603,7 +603,7 @@ TEST(Validation, ConfiguredSearchPathProblemsAreWarnedOnce) {
         }
     }
     ASSERT_EQ(warnings.size(), 2u) << result.report.to_text();
-    for (const std::string& name : {"absent", "plain.txt"}) {
+    for (const char* name : {"absent", "plain.txt"}) {
         const std::string path = "'" + path_to_utf8(dir.path() / name) + "'";
         int mentions = 0;
         for (const auto& message : warnings) {

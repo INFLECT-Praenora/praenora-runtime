@@ -602,7 +602,11 @@ TEST(Loader, LoadFailureIncludesSystemMessage) {
     const ScratchDir scratch;
     const fs::path manifest_path = copy_fixture("fx-echo", scratch.path() / "text");
     const fs::path text_library = scratch.path() / "text" / "not-a-library.bin";
-    praenora::test::write_text_file(text_library, "This is a text file, not a module library.\n");
+    // Longer than an ELF header (64 bytes): glibc says only "file too short" of a shorter file,
+    // and "invalid ELF header" of this one.
+    praenora::test::write_text_file(
+        text_library,
+        "This is a text file, not a module library, and longer than an ELF header.\n");
     edit_manifest(manifest_path,
                   [](nlohmann::json& json) { json["library"]["path"] = "not-a-library.bin"; });
 

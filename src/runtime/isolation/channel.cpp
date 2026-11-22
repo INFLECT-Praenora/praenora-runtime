@@ -11,6 +11,7 @@
 #include <cerrno>
 #include <cstring>
 #include <limits>
+#include <utility>
 
 #ifndef _WIN32
 #include <fcntl.h>
@@ -58,6 +59,17 @@ std::uint64_t get_u64(const unsigned char* in) noexcept {
 #ifndef _WIN32
 // The payload grows by at most this much per read, so its size follows the bytes that arrived.
 constexpr std::size_t kReadStep = std::size_t{64} << 10;
+
+// Gives `buffer` room for `capacity` bytes, keeping its bytes. Not the buffer's own reserve():
+// libstdc++'s takes at least twice the old capacity, which would carry the last growth of a
+// payload past its announced length; an empty string's reserve() takes what it is asked for, but
+// for a few bytes of rounding.
+void reserve_exactly(std::string& buffer, std::size_t capacity) {
+    std::string grown;
+    grown.reserve(capacity);
+    grown.append(buffer);
+    buffer = std::move(grown);
+}
 
 std::string system_text(int error) { return std::strerror(error); }
 
@@ -462,7 +474,7 @@ Channel::ReadResult Channel::read(std::optional<std::chrono::steady_clock::time_
         // buffer at most doubles at a time, up to that length.
         const std::size_t step = std::min(kReadStep, size - done);
         if (done + step > payload.capacity()) {
-            payload.reserve(std::min(size, std::max(done + step, 2 * payload.capacity())));
+            reserve_exactly(payload, std::min(size, std::max(done + step, 2 * payload.capacity())));
         }
         payload.resize(done + step);
         std::size_t got_step = 0;

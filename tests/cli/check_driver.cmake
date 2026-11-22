@@ -28,7 +28,7 @@
 cmake_minimum_required(VERSION 3.24)
 
 if(DEFINED PRINT_STDOUT)
-    execute_process(COMMAND "${CMAKE_COMMAND}" -E echo "${PRINT_STDOUT}")
+    execute_process(COMMAND "${CMAKE_COMMAND}" -E echo "${PRINT_STDOUT}" ENCODING UTF-8)
     message(NOTICE "${PRINT_STDERR}")
     return()
 endif()
@@ -68,7 +68,8 @@ if(CHECK STREQUAL "passes_empty_arguments")
             "-DEXPECT_STDOUT_REGEX=${regex}" -P "${driver}"
         RESULT_VARIABLE exit_code
         OUTPUT_VARIABLE out
-        ERROR_VARIABLE err)
+        ERROR_VARIABLE err
+        ENCODING UTF-8)
     if(NOT exit_code STREQUAL "0")
         _fail("run_cli.cmake did not pass the empty arguments and the argument\n ${special}")
     endif()
@@ -83,7 +84,8 @@ if(CHECK STREQUAL "passes_empty_arguments")
                 -P "${CMAKE_CURRENT_LIST_FILE}"
             RESULT_VARIABLE exit_code
             OUTPUT_VARIABLE out
-            ERROR_VARIABLE err)
+            ERROR_VARIABLE err
+            ENCODING UTF-8)
         string(REGEX REPLACE "[ \n]+" " " refusal "${err}")
         string(FIND "${refusal}" "${expected}" position)
         if(exit_code STREQUAL "0" OR position EQUAL -1)
@@ -109,7 +111,8 @@ string(CONCAT expected [[command: "no such program" plain "" "two words" "--titl
 execute_process(COMMAND "${CMAKE_COMMAND}" "-DCMD=${command}" -P "${driver}"
     RESULT_VARIABLE exit_code
     OUTPUT_VARIABLE out
-    ERROR_VARIABLE err)
+    ERROR_VARIABLE err
+    ENCODING UTF-8)
 if(exit_code STREQUAL "0")
     _fail("run_cli.cmake did not fail on a program that does not exist.")
 endif()
@@ -144,7 +147,8 @@ execute_process(COMMAND "${CMAKE_COMMAND}" "-DCMD=${command}" "-DEXPECT_STDOUT_R
         -P "${driver}"
     RESULT_VARIABLE exit_code
     OUTPUT_VARIABLE out
-    ERROR_VARIABLE err)
+    ERROR_VARIABLE err
+    ENCODING UTF-8)
 if(exit_code STREQUAL "0")
     _fail("run_cli.cmake did not fail on a standard output that does not match.")
 endif()

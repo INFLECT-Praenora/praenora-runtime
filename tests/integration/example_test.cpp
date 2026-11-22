@@ -532,6 +532,7 @@ TEST(Example, StatusQueriesDuringRunAreSafe) {
     std::atomic<bool> done{false};
     std::atomic<int> queries{0};
     std::atomic<int> backwards{0};
+    std::atomic<int> malformed{0};
     std::atomic<std::uint64_t> last_seen{0};
     std::thread observer([&] {
         std::uint64_t last = 0;
@@ -546,9 +547,15 @@ TEST(Example, StatusQueriesDuringRunAreSafe) {
             if (document.at("workflow").at("ticks_completed").get<std::uint64_t>() < last) {
                 backwards.fetch_add(1);
             }
-            static_cast<void>(json::parse(workflow->metrics_json()));
-            static_cast<void>(json::parse(workflow->latest_outputs_json()));
-            static_cast<void>(json::parse(workflow->run_record_json()));
+            // json::accept(), not json::parse() cast to void: GCC reports a discarded parse()
+            // even then (nlohmann declares it warn_unused_result).
+            for (const std::string& text :
+                 {workflow->metrics_json(), workflow->latest_outputs_json(),
+                  workflow->run_record_json()}) {
+                if (!json::accept(text)) {
+                    malformed.fetch_add(1);
+                }
+            }
             static_cast<void>(workflow->state());
             queries.fetch_add(1);
         }
@@ -569,6 +576,7 @@ TEST(Example, StatusQueriesDuringRunAreSafe) {
     EXPECT_EQ(summary.ticks_completed, kTicks);
     EXPECT_GT(queries.load(), 0);
     EXPECT_EQ(backwards.load(), 0);
+    EXPECT_EQ(malformed.load(), 0);
     EXPECT_LE(last_seen.load(), kTicks);
     EXPECT_EQ(workflow->status().ticks_completed, kTicks);
 }

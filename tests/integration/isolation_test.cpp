@@ -1618,7 +1618,7 @@ TEST(IsolationRun, LookupsWithoutATableAreTracedAsInTheRuntimesProcess) {
                                                false);
     const std::string trace = read_text(dir.path() / "process" / "trace" / "messages.jsonl");
     for (const char* phase : {"create", "invoke"}) {
-        for (const std::string& service : {"test.absent", "test.other"}) {
+        for (const char* service : {"test.absent", "test.other"}) {
             EXPECT_TRUE(contains(trace, std::string("\"phase\":\"") + phase +
                                             "\",\"provided\":false,\"service\":\"" + service +
                                             "\""))
