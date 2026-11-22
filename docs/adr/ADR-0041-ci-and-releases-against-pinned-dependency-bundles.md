@@ -234,6 +234,28 @@ package's included, so a release could never carry a new version.
   code page, or in the ANSI code page without a console. On the runners it evidently left UTF-8 as
   it was, since cases 1 and 2 passed with क in their outputs, but on a machine with another code
   page it would garble the tests' non-ASCII text.
+- **The fourth run's failure.** In the fourth run the Linux, macOS and `windows-x64-release` jobs
+  passed: on Linux every one of 1146 tests, among them the test of `posix_spawn()` that failed
+  under Docker, which bears out the third run's attribution of that failure to the emulation; on
+  Windows `providers.run_twice.shows_first_difference` with all its cases. The `windows-x64-debug`
+  job failed one test, `StatusFile.AtomicReplaceAndParentCreation`, which had passed in that job in
+  the third run: the last of the hundred values that the test has the status file's writer write
+  never reached the file. On Windows a file that another handle holds open without
+  `FILE_SHARE_DELETE`, as the Microsoft C++ library's `std::ifstream` opens it, cannot be
+  replaced; `write_file_atomically()` tries the replacement ten times, at least 10 ms apart, then
+  fails the write, which the writer reports and does not repeat until it has its next reason to
+  write. The test's reader thread kept opening the file, and so did the test's wait for the last
+  value, during the attempts of the last write; in the Debug build, which reads and parses
+  the 64 KiB document slowly, every attempt evidently found the file open (the test gave the writer
+  no error handler, so the log does not show the refusals). Refusing that one write on macOS gives
+  the same failure. The writer does what
+  [observability.md](../specs/observability.md#status-file) says (a failed write is reported, and
+  the writer keeps going); the test assumed `rename()`, which replaces a file that a reader holds
+  open. It now waits for the writer to take the last value without reading the file, then for the
+  reader thread to read the last document, asking for a write again at each poll, checks the last
+  value in what the destructor wrote, after the reader has stopped, counts the replacements that
+  the writer reported refused (none may be refused off Windows) and expects no other error. Not yet
+  verified on GitHub.
 
 ## Alternatives considered
 
