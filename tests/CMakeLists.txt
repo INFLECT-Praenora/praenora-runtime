@@ -464,3 +464,8 @@ add_subdirectory(perf)
 
 # Documentation test (label docs): the documentation checked against the source tree (tests/docs).
 add_subdirectory(docs)
+
+# CI tooling tests (label ci): the script that fetches a pinned dependency bundle, run on fake
+# archives from file:// URLs, and the workflow checked against the pin and the CI presets
+# (tests/ci).
+add_subdirectory(ci)

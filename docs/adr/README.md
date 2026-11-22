@@ -64,3 +64,5 @@ Some ADRs have a split status, for example "Accepted (shape) / Proposed (details
 | [ADR-0037](ADR-0037-process-isolation-of-module-instances.md) | Process isolation of module instances | Proposed | 2026-11-19 |
 | [ADR-0038](ADR-0038-shared-compiled-models-between-module-hosts.md) | Shared compiled models between module hosts | Proposed | 2026-11-20 |
 | [ADR-0039](ADR-0039-restricted-sandbox-profile-for-module-hosts.md) | A restricted sandbox profile for module hosts | Proposed | 2026-11-20 |
+| [ADR-0040](ADR-0040-mit-license.md) | MIT license | Accepted | 2026-11-21 |
+| [ADR-0041](ADR-0041-ci-and-releases-against-pinned-dependency-bundles.md) | CI and releases against pinned dependency bundles | Proposed | 2026-11-21 |

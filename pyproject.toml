@@ -11,6 +11,13 @@ name = "praenora-runtime"
 dynamic = ["version"]
 description = "Python bindings of the Praenora runtime: validate, inspect and run workflows"
 requires-python = ">=3.10"
+# The table form, which every scikit-build-core version that build-system.requires accepts can
+# read. The SPDX string form of PEP 639 (license = "MIT") is read from scikit-build-core 0.11 on,
+# whose vendored pyproject-metadata (0.9 and newer) has PEP 639; the copy in 0.10 predates it (not
+# checked with 0.10 itself). With scikit-build-core 1.1.2 the wheel's metadata says
+# "License: MIT", and its default wheel.license-files patterns copy LICENSE into the wheel's
+# .dist-info/licenses/ (docs/adr/ADR-0040-mit-license.md).
+license = { text = "MIT" }
 
 [tool.scikit-build]
 # The defaults of scikit-build-core 0.10, the oldest version build-system.requires accepts, whatever

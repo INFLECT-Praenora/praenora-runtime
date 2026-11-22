@@ -6,12 +6,15 @@
 #
 # - libRoadRunner: find_package(roadrunner-static CONFIG), searched on CMAKE_PREFIX_PATH (or
 #   roadrunner-static_DIR). Its installation keeps the package files directly in <prefix>/lib/cmake,
-#   so that directory must be on CMAKE_PREFIX_PATH (the prefix itself is not enough).
+#   so that directory must be on CMAKE_PREFIX_PATH (the prefix itself is not enough); on Windows a
+#   dependency bundle keeps some of them in <prefix>/cmake, which goes there too.
 # - The packages that roadrunner-static links, and only those (zlib, expat, libSBML, rr-libstruct,
 #   CLAPACK, NLEQ1, NLEQ2, POCO Foundation, Net and XML, SUNDIALS), each with
 #   find_package(... CONFIG), searched first beside roadrunner-static's package files (where
 #   libRoadRunner's installation has them; POCO's in lib/cmake/Poco) and then on
-#   CMAKE_PREFIX_PATH. libRoadRunner's own helper, ImportRoadrunnerAndDependencies.cmake, also
+#   CMAKE_PREFIX_PATH. libSBML's package is libsbml-static on Windows (sbml-static elsewhere), and
+#   expat is found before it: on Windows its location is handed to libSBML's package, which cannot
+#   find it otherwise. libRoadRunner's own helper, ImportRoadrunnerAndDependencies.cmake, also
 #   finds bzip2, Threads, LibLZMA and the shared roadrunner and roadrunner_c_api packages, which
 #   the static library does not use; they are not looked up.
 # - LLVM: the installation at LLVM_INSTALL_PREFIX (the variable libRoadRunner's own FindLLVM.cmake
@@ -31,6 +34,8 @@
 #   are all part of libSystem, are removed from the link interfaces, so the linker does not warn
 #   about duplicate libraries.
 # - zlib's package is asked for its static component only (it ships no shared library).
+# - On Windows, libSBML's target gets the definitions LIBSBML_STATIC and LIBLAX_STATIC, without
+#   which its headers declare its functions for import from a DLL.
 #
 # Afterwards these exist:
 #   praenora_roadrunner_engine     INTERFACE target linking roadrunner-static::roadrunner-static
@@ -104,12 +109,14 @@ directories (${_praenora_rr_includes})" "The libRoadRunner installation is incom
             "with the roadrunner provider (2.11.0 is)")
     endif()
 
-    # The packages roadrunner-static links, searched first where libRoadRunner keeps them.
+    # The packages roadrunner-static links, searched first where libRoadRunner keeps them. expat
+    # comes before libSBML, whose package needs its location on Windows.
+    praenora_engine_libsbml_package(_praenora_rr_sbml)
     set(_praenora_rr_hints "${_praenora_rr_cmake_dir}" "${_praenora_rr_cmake_dir}/Poco")
     foreach(_praenora_rr_package IN ITEMS
             "ZLIB|ZLIB::ZLIBSTATIC|COMPONENTS;static"
             "expat|expat::expat|"
-            "sbml-static|sbml-static|"
+            "${_praenora_rr_sbml}|${_praenora_rr_sbml}|"
             "rr-libstruct|rr-libstruct::rr-libstruct-static|"
             "clapack|clapack::lapack|"
             "nleq1|nleq1::nleq1-static|"
@@ -130,15 +137,20 @@ ${_praenora_rr_target}), which libRoadRunner's static library links"
                 "libRoadRunner's binary installation ships it in lib/cmake; add that directory \
 (and lib/cmake/Poco for POCO) to CMAKE_PREFIX_PATH.")
         endif()
+        if(_praenora_rr_name STREQUAL "expat")
+            praenora_engine_expat_for_libsbml()
+        endif()
     endforeach()
+    praenora_engine_libsbml_static(${_praenora_rr_sbml})
     set(PRAENORA_SUNDIALS_VERSION "${SUNDIALS_VERSION}")
-    set(PRAENORA_LIBSBML_VERSION "${sbml-static_VERSION}")
+    set(PRAENORA_LIBSBML_VERSION "${${_praenora_rr_sbml}_VERSION}")
     if(NOT PRAENORA_SUNDIALS_VERSION OR NOT PRAENORA_LIBSBML_VERSION)
         _praenora_roadrunner_missing("the versions of SUNDIALS and libSBML in their packages"
             "The libRoadRunner installation is incomplete.")
     endif()
     praenora_engine_dependency_found(SUNDIALS "${PRAENORA_SUNDIALS_VERSION}" "${SUNDIALS_DIR}")
-    praenora_engine_dependency_found(libSBML "${PRAENORA_LIBSBML_VERSION}" "${sbml-static_DIR}")
+    praenora_engine_dependency_found(libSBML "${PRAENORA_LIBSBML_VERSION}"
+        "${${_praenora_rr_sbml}_DIR}")
 
     # LLVM: LLVM_INSTALL_PREFIX, else an llvm-config on CMAKE_PREFIX_PATH. Not cached, so a changed
     # LLVM_INSTALL_PREFIX is searched again (a cache entry of an older tree is removed first).
@@ -205,7 +217,7 @@ built with (LLVM_INSTALL_PREFIX is '${LLVM_INSTALL_PREFIX}')"
     set_target_properties(roadrunner-static::roadrunner-static PROPERTIES
         INTERFACE_LINK_LIBRARIES "${_praenora_rr_relinked}")
     praenora_engine_drop_system_libraries(roadrunner-static::roadrunner-static
-        clapack::blas clapack::lapack clapack::f2c expat::expat sbml-static)
+        clapack::blas clapack::lapack clapack::f2c expat::expat ${_praenora_rr_sbml})
 
     if(NOT TARGET praenora_roadrunner_engine)
         add_library(praenora_roadrunner_engine INTERFACE)

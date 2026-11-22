@@ -22,18 +22,26 @@
 #   PROVIDERS                   the service providers a default installation includes (the
 #                               roadrunner provider, in a build with PRAENORA_WITH_ROADRUNNER,
 #                               and the antimony provider, with PRAENORA_WITH_ANTIMONY)
+#   LICENSE_DEPENDENCIES        the dependencies built in the tree (PRAENORA_FETCHED_DEPENDENCIES,
+#                               cmake/PraenoraDependencies.cmake), whose license files the
+#                               installation holds in licenses/<name>/
+#   LICENSE_DIRS                PRAENORA_THIRD_PARTY_LICENSE_DIRS: the directories whose contents
+#                               the installation holds in licenses/
 #
 # Steps, in order; the first failure ends the test, showing what ran and what it printed:
 #   1. cmake --install <BUILD_DIR> --prefix <WORK_DIR>/prefix. Each kind of installed file must
 #      be there, and nothing else of its kind: the tool, the runtime library, the headers (the
 #      generated ones included; no template and no internal header), the package configuration,
-#      the schemas and the catalog. No file of the Python package is installed, and no example
-#      module unless INSTALL_EXAMPLES. With example modules built, cmake --install ...
-#      --component Examples then installs them, with their manifests. The installation's
-#      provider directory holds each of PROVIDERS, its manifest and library side by side, and
-#      nothing else (no directory at all without PROVIDERS). On POSIX hosts the module host,
-#      <prefix>/libexec/praenora/praenora-module-host (beside <LIBDIR>: <LIBDIR>/praenora/../..),
-#      is installed and executable.
+#      the schemas and the catalog. The license files, below
+#      <prefix>/<DATADIR>/praenora/licenses: this project's LICENSE at praenora-runtime/LICENSE,
+#      byte for byte; at least one file in <name>/ for each of LICENSE_DEPENDENCIES; and every file
+#      below each of LICENSE_DIRS at its path there, byte for byte. No file of the Python package
+#      is installed, and no example module unless INSTALL_EXAMPLES. With example modules built,
+#      cmake --install ... --component Examples then installs them, with their manifests. The
+#      installation's provider directory holds each of PROVIDERS, its manifest and library side by
+#      side, and nothing else (no directory at all without PROVIDERS). On POSIX hosts the module
+#      host, <prefix>/libexec/praenora/praenora-module-host (beside <LIBDIR>:
+#      <LIBDIR>/praenora/../..), is installed and executable.
 #   2. consumer-module and consumer-app are configured, with uninitialized variables reported
 #      (one read in the installed PraenoraConfig.cmake or PraenoraModule.cmake fails; each
 #      configuration's output is kept in <WORK_DIR>/<consumer>-configure.log), and built, each
@@ -61,8 +69,8 @@
 #      praenora modules check passes for each installed manifest (the module loads from the
 #      installation and passes its contract checks with its installed test vectors).
 #   7. The installation is moved to another directory, whose name holds a space and a non-ASCII
-#      character; from there, steps 5 and 6 succeed again, with the modules found in their new
-#      place.
+#      character; there it still holds the license files of step 1, and from there,
+#      steps 5 and 6 succeed again, with the modules found in their new place.
 # Without the tool or the example modules, the steps that need them are skipped, with a note.
 # Every command runs without the PRAENORA_* variables that the runtime reads (except
 # PRAENORA_DEBUG_KEEP_LIBRARIES), and a sanitizer report in its output fails the test.
@@ -79,7 +87,7 @@ foreach(variable IN ITEMS GENERATOR_PLATFORM GENERATOR_TOOLSET MULTI_CONFIG MAKE
                           CXX_COMPILER BUILD_TYPE PREFIX_PATH C_FLAGS CXX_FLAGS EXE_LINKER_FLAGS
                           SHARED_LINKER_FLAGS MODULE_LINKER_FLAGS OSX_ARCHITECTURES
                           OSX_DEPLOYMENT_TARGET WITH_CLI WITH_EXAMPLES INSTALL_EXAMPLES
-                          PROVIDERS)
+                          PROVIDERS LICENSE_DEPENDENCIES LICENSE_DIRS)
     if(NOT DEFINED ${variable})
         set(${variable} "")
     endif()
@@ -126,6 +134,55 @@ function(_expect_files what installed expected)
         message(FATAL_ERROR "step 1: the installed ${what} in ${installed} differ from the "
             "expected ones.\nexpected:\n  ${expected}\ninstalled:\n  ${found}\n")
     endif()
+endfunction()
+
+# Fails unless the installed file `installed` is there and equals `source`, byte for byte; `step`
+# and `what` name it in messages.
+function(_expect_same_file step what installed source)
+    if(NOT EXISTS "${installed}" OR IS_DIRECTORY "${installed}")
+        message(FATAL_ERROR "${step}: ${what} was not installed at ${installed}")
+    endif()
+    file(SHA256 "${installed}" installed_hash)
+    file(SHA256 "${source}" source_hash)
+    if(NOT installed_hash STREQUAL source_hash)
+        message(FATAL_ERROR "${step}: the installed ${installed} differs from ${source} "
+            "(SHA-256 ${installed_hash}, expected ${source_hash})")
+    endif()
+endfunction()
+
+# Fails unless the installation in `root` holds the license files that step 1 lists: this
+# project's LICENSE, a file for each of LICENSE_DEPENDENCIES and the files of LICENSE_DIRS; `step`
+# names the check in messages.
+function(_expect_licenses root step)
+    set(licenses "${root}/${DATADIR}/praenora/licenses")
+    _expect_same_file("${step}" "this project's license" "${licenses}/praenora-runtime/LICENSE"
+        "${SOURCE_DIR}/LICENSE")
+    message(STATUS "${step}: this project's license is installed at "
+        "${licenses}/praenora-runtime/LICENSE")
+    foreach(name IN LISTS LICENSE_DEPENDENCIES)
+        _files_below("${licenses}/${name}" files)
+        if(NOT files)
+            message(FATAL_ERROR "${step}: no license file of ${name}, which is built in the tree, "
+                "was installed in ${licenses}/${name}")
+        endif()
+        list(JOIN files ", " files)
+        message(STATUS "${step}: the license files of ${name}, built in the tree: ${files}")
+    endforeach()
+    foreach(entry IN LISTS LICENSE_DIRS)
+        if(entry STREQUAL "")
+            continue()
+        endif()
+        cmake_path(SET dir NORMALIZE "${entry}")
+        string(REGEX REPLACE "(.)/+$" "\\1" dir "${dir}")
+        _files_below("${dir}" files)
+        foreach(file IN LISTS files)
+            _expect_same_file("${step}"
+                "${dir}/${file}, of a directory that PRAENORA_THIRD_PARTY_LICENSE_DIRS names,"
+                "${licenses}/${file}" "${dir}/${file}")
+        endforeach()
+        list(LENGTH files count)
+        message(STATUS "${step}: the ${count} files of ${dir} are installed in ${licenses}")
+    endforeach()
 endfunction()
 
 # Steps 5 and 6 for the installation in `root`; `step` names them in messages.
@@ -282,6 +339,7 @@ foreach(kind IN ITEMS schemas catalog)
         "${SOURCE_DIR}/spec/${kind}/*.json")
     _expect_files(${kind} "${prefix}/${DATADIR}/praenora/${kind}" "${expected}")
 endforeach()
+_expect_licenses("${prefix}" "step 1")
 set(package_dir "${prefix}/${LIBDIR}/cmake/Praenora")
 foreach(file IN ITEMS PraenoraConfig.cmake PraenoraConfigVersion.cmake PraenoraModule.cmake
                       PraenoraRuntimeTargets.cmake PraenoraModuleSDKTargets.cmake)
@@ -586,5 +644,6 @@ _check_tool("${prefix}" "steps 5 and 6")
 # 7. The installation, moved.
 set(moved "${WORK_DIR}/moved prëfix")
 file(RENAME "${prefix}" "${moved}")
+_expect_licenses("${moved}" "step 7")
 _check_tool("${moved}" "step 7")
 message(STATUS "step 7: the installation works from ${moved}")

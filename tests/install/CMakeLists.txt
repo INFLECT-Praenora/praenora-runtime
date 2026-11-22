@@ -3,11 +3,12 @@
 # outside: two projects that are not part of this build are configured and built against the
 # installation with find_package(Praenora), consumer-module (COMPONENTS ModuleSDK: a module built
 # with praenora_add_module()) and consumer-app (COMPONENTS Runtime: an application that loads
-# that module), and the installed files (the service providers included) and the installed
-# praenora tool are checked. The driver lists every step. The consumers get this build's
-# generator, compilers, build type, macOS settings, dependency prefixes (CMAKE_PREFIX_PATH) and
-# compile and link flags, sanitizer options included, since they link the installed (in sanitizer
-# builds, instrumented) runtime library.
+# that module), and the installed files (the service providers and the license files included)
+# and the installed praenora tool are checked. The driver lists every step. The consumers get this
+# build's generator, compilers, build type, macOS settings, dependency prefixes
+# (CMAKE_PREFIX_PATH) and compile and link flags, sanitizer options included, since they link the
+# installed (in sanitizer builds, instrumented) runtime library. install.package, below, checks the
+# archive of an installation that the target package makes.
 
 get_property(_praenora_multi_config GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
 # The consumers' flags: this build's CMAKE_<LANG>_FLAGS and CMAKE_<KIND>_LINKER_FLAGS, plus its
@@ -78,10 +79,42 @@ add_test(NAME install.consumer
         "-DWITH_EXAMPLES=${PRAENORA_BUILD_EXAMPLES}"
         "-DINSTALL_EXAMPLES=${PRAENORA_INSTALL_EXAMPLES}"
         "-DPROVIDERS=${_praenora_installed_providers}"
+        # The license files that a default installation holds besides this project's LICENSE
+        # (cmake/PraenoraInstall.cmake): those of the dependencies built in this tree, and the
+        # contents of the directories that PRAENORA_THIRD_PARTY_LICENSE_DIRS names. Each list
+        # reaches the driver as one quoted argument, as the providers' list does.
+        "-DLICENSE_DEPENDENCIES=${PRAENORA_FETCHED_DEPENDENCIES}"
+        "-DLICENSE_DIRS=${PRAENORA_THIRD_PARTY_LICENSE_DIRS}"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/run_install_test.cmake")
 # _praenora_test_environment (tests/CMakeLists.txt): what every test of a macOS
-# AddressSanitizer build needs.
+# AddressSanitizer build needs. Each installation of this build writes install_manifest*.txt into
+# the build tree, so install.consumer and install.package never run at the same time.
 set_tests_properties(install.consumer PROPERTIES
     LABELS install
     TIMEOUT 600
+    RESOURCE_LOCK praenora_install
     ${_praenora_test_environment})
+
+# The archive of an installation (the target package, cmake/PraenoraPackage.cmake, which only the
+# top-level project has): install.package makes one with cpack and checks its name, its .sha256
+# file and its files against an installation, and that there is no source package
+# (check_package.cmake). It runs no installed program. Its scratch directory, pkg/ at the top of
+# the build tree, is named so that cpack's staging paths there are no longer than those of the
+# target package in package/ (Windows limits a path to 260 characters).
+if(PRAENORA_TOP_LEVEL)
+    add_test(NAME install.package
+        COMMAND "${CMAKE_COMMAND}"
+            "-DBUILD_DIR=${PROJECT_BINARY_DIR}"
+            "-DSOURCE_DIR=${PROJECT_SOURCE_DIR}"
+            "-DWORK_DIR=${PROJECT_BINARY_DIR}/pkg"
+            "-DCPACK=${CMAKE_CPACK_COMMAND}"
+            "-DCONFIG=$<CONFIG>"
+            "-DVERSION=${PROJECT_VERSION}"
+            "-DLIBDIR=${CMAKE_INSTALL_LIBDIR}"
+            "-DDATADIR=${CMAKE_INSTALL_DATADIR}"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/check_package.cmake")
+    set_tests_properties(install.package PROPERTIES
+        LABELS install
+        TIMEOUT 600
+        RESOURCE_LOCK praenora_install)
+endif()

@@ -26,16 +26,72 @@ cmake --build --preset dev
 The `dev` preset is a local one: [developer-guide.md](developer-guide.md#local-presets) explains how
 to create it, and [platforms.md](platforms.md) lists the dependencies of each platform.
 
-An installation holds the tool, the runtime library, the headers, the CMake package and the
-schemas and catalog. The example modules are installed only on request, as the component
-`Examples`, into the installation's module directory, where the tool finds them without a search
-path. An installation can be moved:
+An installation holds the tool, the runtime library, the headers, the CMake package, the schemas
+and catalog, and the license files in `share/praenora/licenses/`: this repository's MIT license
+(`praenora-runtime/LICENSE`), those of the dependencies built in the tree, and those of the
+directories that `PRAENORA_THIRD_PARTY_LICENSE_DIRS` names. A static or header-only library found
+installed brings its license files only through that variable, so the installation of a `dev`
+build holds `praenora-runtime/LICENSE` alone unless the variable is set
+([developer-guide.md](developer-guide.md#license-files)). The example modules are installed only
+on request, as the component `Examples`, into the installation's module directory, where the tool
+finds them without a search path. An installation can be moved:
 
 ```bash
 cmake --install build/dev --prefix "${TMPDIR:-/tmp}/praenora-install"
 cmake --install build/dev --prefix "${TMPDIR:-/tmp}/praenora-install" --component Examples
 "${TMPDIR:-/tmp}/praenora-install/bin/praenora" modules list
 ```
+
+A release archive holds such an installation, without the example modules, below one directory of
+its own name, `praenora-runtime-<version>-<os>-<arch>-<compiler>-<config>`
+([developer-guide.md](developer-guide.md#archiving-an-installation)); the Python package is built
+as a wheel instead ([python.md](python.md#building-a-wheel)). It holds both service
+providers, `roadrunner` and `antimony`, and the license files of the third-party libraries that
+they and the runtime link statically, in `share/praenora/licenses/`. Beside it, a `.sha256` file
+holds its SHA-256. Check it, unpack it anywhere and run the tool where it is (`<name>` stands for
+the archive's name):
+
+```bash
+shasum -a 256 -c <name>.tar.xz.sha256          # sha256sum -c on Linux
+tar -xJf <name>.tar.xz
+./<name>/bin/praenora version
+./<name>/bin/praenora providers list           # both providers, usable
+```
+
+On macOS, a browser marks what it downloads as quarantined, and Gatekeeper may then refuse to run
+the tool, whose programs have no Developer ID signature and are not notarized (OQ-13 in
+[open-questions.md](open-questions.md)). `gh release download` and `curl` set no such mark. For an
+archive downloaded with a browser, remove the mark from the directory it was unpacked into (the
+command was run on macOS 15; a browser's download of an archive is not yet verified):
+
+```bash
+xattr -dr com.apple.quarantine <name>
+```
+
+On Windows the archive is a `.zip` and the tool `<name>\bin\praenora.exe`. In PowerShell, compare
+the archive's SHA-256 with the first word of its `.sha256` file, then unpack it (not yet
+verified):
+
+```powershell
+$expected = (-split (Get-Content <name>.zip.sha256))[0]
+(Get-FileHash -Algorithm SHA256 <name>.zip).Hash -eq $expected   # True (-eq ignores case)
+Expand-Archive <name>.zip -DestinationPath .
+.\<name>\bin\praenora.exe version
+.\<name>\bin\praenora.exe providers list
+```
+
+Each archive needs:
+
+| Archive | Needs |
+|---|---|
+| `macos-arm64` | macOS 14 or newer on Apple silicon: the deployment target of the `ci-macos-arm64-release` preset. |
+| `linux-x86_64` | A glibc and a libstdc++ at least as new as those of Ubuntu 24.04, on which it is built (not yet verified). |
+| `windows-x86_64` | Windows 10 or newer and the Microsoft Visual C++ runtime of Visual Studio 2022 (the Visual C++ Redistributable for Visual Studio 2015–2022, x64), whose DLLs the runtime loads; the `debug` archive needs the debug runtime, which comes with Visual Studio, not with the Redistributable (not yet verified). |
+
+Such an archive was made and run on macOS arm64 from a local build; the archives of Linux and
+Windows are not yet verified. The releases `v<version>` of the repository on GitHub are to hold one
+archive per platform key with its `.sha256` file, made by the workflow of
+[releasing.md](releasing.md); no release has been made yet.
 
 ## Commands
 

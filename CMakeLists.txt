@@ -95,7 +95,11 @@ if(PRAENORA_BUILD_TESTS)
     add_subdirectory(tests)
 endif()
 
-# The package's install rules (each directory above installs its own targets and files).
+# The package's install rules (each directory above installs its own targets and files) and, at
+# top level, the target package, which archives an installation (cmake/PraenoraPackage.cmake).
 if(PRAENORA_INSTALL_RULES)
     include(PraenoraInstall)
+    if(PRAENORA_TOP_LEVEL)
+        include(PraenoraPackage)
+    endif()
 endif()

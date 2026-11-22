@@ -283,9 +283,10 @@ OQ-27.
 ### Licensing facts
 
 These are facts about upstream projects, gathered for the license decision (OQ-1) and for
-distribution (OQ-13, OQ-27). This project states no license of its own. libRoadRunner's
-dependencies come from its `libroadrunner-deps` repository, most of them as git submodules
-[R20][R21].
+distribution (OQ-13, OQ-27). This project's files are under the MIT license
+([ADR-0040](../adr/ADR-0040-mit-license.md)), which resolved OQ-1; the engine keeps its own
+licenses, below. libRoadRunner's dependencies come from its `libroadrunner-deps` repository, most
+of them as git submodules [R20][R21].
 
 | Component | License as stated upstream |
 |---|---|

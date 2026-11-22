@@ -58,6 +58,12 @@ downloads its build requirements (a wheel built offline is verified on macOS arm
 WebAssembly and compiling module code through libRoadRunner are designs only
 ([feasibility designs](docs/index.md#feasibility-designs)).
 
+A GitHub Actions workflow builds and tests every pull request to `main` on the four platform keys
+of the dependency bundles (Linux x86-64, macOS arm64, Windows x86-64 Release and Debug), against
+the pinned bundles of praenora-runtime-deps, and drafts the releases, with an archive per platform
+([docs/releasing.md](docs/releasing.md)). It is written but has not run yet, so its Linux and
+Windows builds are not yet verified, and no release has been made.
+
 ## Quick start
 
 You need CMake 3.24 or newer, Ninja (Visual Studio 2022 on Windows), a C++17 compiler and the
@@ -132,6 +138,8 @@ failed, 2 usage, 3 validation, 4 load, 5 timeout, 70 internal, 74 I/O, 130 inter
 - [docs/python.md](docs/python.md): the Python API.
 - [docs/developer-guide.md](docs/developer-guide.md) and [docs/testing.md](docs/testing.md):
   working on the runtime.
+- [docs/releasing.md](docs/releasing.md): the CI workflow, the dependency bundles it builds
+  against, and making a release.
 - [docs/architecture.md](docs/architecture.md): how it fits together.
 - [docs/index.md](docs/index.md): every document, the specifications included.
 - [AGENTS.md](AGENTS.md): guide for contributors and coding agents (commands, layout, conventions,
@@ -139,4 +147,14 @@ failed, 2 usage, 3 validation, 4 load, 5 timeout, 70 internal, 74 I/O, 130 inter
 
 ## Licensing
 
-Licensing has not been decided yet.
+This repository's files are under the MIT license ([LICENSE](LICENSE)), copyright The Praenora
+developers ([ADR-0040](docs/adr/ADR-0040-mit-license.md)). The third-party code that the build
+links statically is not: the service providers link their engines (libRoadRunner with LLVM and
+libSBML, libAntimony) statically, and each keeps the license of its upstream project. Installations,
+and release archives made from them, hold the license files in `share/praenora/licenses/`: this
+repository's, those of the dependencies built in the tree, and those of the directories that
+`PRAENORA_THIRD_PARTY_LICENSE_DIRS` names, such as the `licenses/` directory of a dependency bundle
+([docs/developer-guide.md](docs/developer-guide.md#license-files)). Distributing the providers
+raises questions that are still open: the terms of the NLEQ solvers and the statically linked
+LGPL-2.1 libSBML (OQ-27), and libAntimony's license and those of its dependencies (OQ-29)
+([docs/open-questions.md](docs/open-questions.md)).

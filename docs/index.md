@@ -4,6 +4,8 @@
 
 - [README.md](../README.md): overview, quick start per platform, project status.
 - [AGENTS.md](../AGENTS.md): agent and contributor guide: commands, layout, conventions, rules.
+- [LICENSE](../LICENSE): the MIT license of this repository's files
+  ([ADR-0040](adr/ADR-0040-mit-license.md)).
 
 ## Guides
 
@@ -14,9 +16,9 @@
 - [configuration.md](configuration.md): the workflow configuration reference: every section and
   key, input sources, durations, paths, isolation (module hosts, shared compiled models, the
   restricted sandbox profile), overrides, environment variables, validation.
-- [developer-guide.md](developer-guide.md): dependencies, presets, building and installing,
-  debugging modules (in module hosts too), keeping libraries loaded, message tracing, logging,
-  sanitizer builds, adding a module locally, conventions and the ADR process.
+- [developer-guide.md](developer-guide.md): dependencies, presets, building, installing and
+  archiving, debugging modules (in module hosts too), keeping libraries loaded, message tracing,
+  logging, sanitizer builds, adding a module locally, conventions and the ADR process.
 - [module-developer-guide.md](module-developer-guide.md): writing a module: the SDK, ABI rules, the
   C++ adapter, the manifest, `praenora_add_module()`, the test kit, test vectors, the contract
   checks, a module in a module host and under the restricted sandbox profile, determinism and
@@ -29,6 +31,10 @@
 - [platforms.md](platforms.md): macOS, Linux and Windows: dependencies, presets, run paths, DLL
   search, code signing, the module host and the restricted sandbox profile, and what is verified
   where.
+- [releasing.md](releasing.md): the GitHub Actions workflow that builds and tests every pull
+  request against the pinned dependency bundles, its jobs and runners, raising the pin, the
+  required checks and repository settings, and the release procedure
+  ([ADR-0041](adr/ADR-0041-ci-and-releases-against-pinned-dependency-bundles.md)).
 
 ## Normative specifications
 

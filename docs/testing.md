@@ -57,9 +57,10 @@ path ([below](#the-official-asyncapi-schema)).
 | `integration` | The public API through the shared library only, and the example workflow end to end: golden outputs, determinism, the fingerprint, files on disk, status queries during a run; and steps in module hosts: the same outputs, trace and fingerprint as in the runtime's process, crashes, a killed call, stops, Ctrl+C, `validate --load`, and service providers loaded in module hosts (the same outputs, trace and provider records; a changed provider library, a provider that fails to start or crashes; with the engines' providers, roadrunner and antimony, and a long antimony translation ended with its module host), and steps that share compiled models (the second loads what the first compiled, a step that does not share never reads the store, and the outputs and fingerprint are those of steps that do not share and of the runtime's process; with test-simulation, and with roadrunner), and steps under the restricted sandbox profile (a run and `validate --load` give the module host its profile, and the results are those of the runtime's process; with test-simulation, and with roadrunner). | `praenora_integration_tests` |
 | `cli` | The `praenora` tool: every command, exit code, `--json` shape and diagnostics format (`cli.<command>.<case>`, driven by `tests/cli/run_cli.cmake`), that driver passing each argument of a command to its program, an empty one included (`cli.driver.passes_empty_arguments`), and showing a command that fails (`cli.driver.shows_failing_command`), and the unit tests of its helpers (`CliTable.*`) and of what it shares with the Python extension (`Frontend.*`, `src/frontend`). | `praenora_cli_tests`, the CLI driver and `tests/cli/check_driver.cmake` |
 | `python` | The Python package: CLI parity, errors, the context manager, calls from a second thread. One CTest test, `python.unittest`, runs the `unittest` suite of `tests/python`. | `python.unittest` |
-| `install` | An installation into a scratch prefix: its layout (service providers and the module host included), a module and an application built against it, the installed tool, a step run in the installation's module host, a moved installation, no build or source paths in installed files. | `install.consumer` |
+| `install` | An installation into a scratch prefix: its layout (service providers, the module host and the license files included: this repository's `LICENSE`, byte for byte, a file for each dependency built in the tree, and the files of the directories that `PRAENORA_THIRD_PARTY_LICENSE_DIRS` names), a module and an application built against it, the installed tool, a step run in the installation's module host, a moved installation, no build or source paths in installed files. The archive of an installation that the target `package` makes ([developer-guide.md](developer-guide.md#archiving-an-installation)), made with `cpack -C <config>`: its name (`praenora-runtime-<version>-<os>-<arch>-<compiler>-<config>`, `.tar.xz`, or `.zip` on Windows), its `.sha256` file in the format of `sha256sum`, one top-level directory, and its files, those of an installation without the example modules, byte for byte; a configuration other than Release or Debug must make cpack stop, writing no archive; and there is no source package (no target `package_source`, and cpack stops for the source configuration). | `install.consumer`, `install.package` |
 | `perf` | The performance probe `praenora_perf`: 2000 ticks of a four-step chain of no-op modules, with and without payload validation, and, on POSIX, with every step in a module host. It prints a JSON report and fails only when the probe fails, never on timings. | `perf.validation_strict`, `perf.validation_off`, `perf.process_isolation` |
 | `docs` | The documentation against the source tree: every error code in the error taxonomy, every schema file in the protocol specification, every ADR in its index, every relative link resolving, the open-questions register complete. | `docs.consistency` |
+| `ci` | The CI tooling: `cmake/praenora_fetch_runtime_deps.cmake`, which downloads, checks and unpacks a pinned dependency bundle, run on fake bundle archives (`.tar.xz` and `.zip`) from `file://` URLs whose paths hold a space and a non-ASCII character, with pin files of the test's own: the bundle directory it prints, an absolute path also for a relative destination, and appends to the file that `GITHUB_ENV` names; what a second run reuses (the kept archive and the bundle) and what it downloads or unpacks again (an archive with another SHA-256, a bundle whose manifest names another version); that the leftovers of a stopped run (a partial download, a staging directory) are removed; a download that fails tried 3 times, and one with another SHA-256 than the pinned one not tried again; its errors (an archive with another SHA-256 than the pinned one, a platform the pin does not name, an archive without the manifest or whose manifest names another version, `PLATFORM` or `DESTINATION` not set); and that it accepts each platform of the repository's pin file, `cmake/PraenoraRuntimeDepsPin.cmake`, and checks a download against its pinned SHA-256. And the workflow `.github/workflows/build.yml`, read as text in the format its header comment states ([releasing.md](releasing.md)): its matrix keys are the platforms of the pin file, each once, each with a configure, a build and a test preset `ci-<key>` in `CMakePresets.json`; each key's runner is the label of its operating system (`ubuntu-24.04`, `macos-26`, `windows-2022`), and each `runs-on` is one of these labels or the matrix's runner, never a `-latest` label; and each action is pinned to a commit, 40 hexadecimal digits, followed by a comment `# v<version>`; and no `runs-on:`, `uses:`, `runner:` or `- key:` leaves its value to a later line. Lines that end in `\` are read as lines of their own, so each problem names its line. No network. | `ci.fetch_runtime_deps`, `ci.workflow_consistency` |
 
 The suites of the GoogleTest labels name the components they test:
 
@@ -78,11 +79,12 @@ Builds without the examples, the CLI, the Python bindings or the install rules h
 need them: `PRAENORA_BUILD_EXAMPLES=OFF` drops the `Example.*` tests, the CLI tests of the example
 workflow and the contract checks of the example modules (and the Python tests that need the example
 modules are skipped), `PRAENORA_BUILD_CLI=OFF` drops the `cli` label, `PRAENORA_BUILD_PYTHON=OFF`
-drops `python.unittest`, and `PRAENORA_INSTALL=OFF` drops `install.consumer`. On Windows, where no
-module host is built, the `isolation` label holds only `Isolation.IsNotAvailableOnWindows`, and the
-tests of steps in module hosts (`IsolationRun.*`, `IsolationRunCrash`, `IsolationRunProviders`,
-`IsolationExample.*`, `cli.run.isolation_*`, `perf.process_isolation`, the Python
-`IsolationWorkflowTest`) are left out or check the refusal.
+drops `python.unittest`, and `PRAENORA_INSTALL=OFF` drops `install.consumer` and `install.package`
+(a build of praenora-runtime as a sub-project of another has no `install.package`). On Windows,
+where no module host is built, the `isolation` label holds only
+`Isolation.IsNotAvailableOnWindows`, and the tests of steps in module hosts (`IsolationRun.*`,
+`IsolationRunCrash`, `IsolationRunProviders`, `IsolationExample.*`, `cli.run.isolation_*`,
+`perf.process_isolation`, the Python `IsolationWorkflowTest`) are left out or check the refusal.
 
 ### Module hosts
 
@@ -511,8 +513,8 @@ positive.
 ## Triage
 
 A failing test names its component, and the failure message names an error code, a JSON pointer or
-`file:line`, and the step and tick where they matter. The CLI, install, perf and provider-file
-drivers show a command that failed on one line, with each argument that is empty or holds
+`file:line`, and the step and tick where they matter. The CLI, install, perf, provider-file and CI
+tooling drivers show a command that failed on one line, with each argument that is empty or holds
 whitespace or a quote character shown in double quotes, and its outputs line by line as they were
 printed, as CMake captures them, without the carriage return of each carriage return and line feed
 and without NUL bytes ([`tests/support/run_command.cmake`](../tests/support/run_command.cmake) gives
@@ -533,6 +535,7 @@ Start from the label:
 | `install` | The install rules and the CMake package (`cmake/PraenoraInstall.cmake`, `cmake/PraenoraConfig.cmake.in`, `cmake/PraenoraModule.cmake`); the driver prints each step it checked. | runtime, or environment |
 | `perf` | Only when the probe crashes or prints no report. | runtime |
 | `docs` | The document or link named in the message: a new error code, schema or ADR without its documentation, or a moved file. | whoever changed it |
+| `ci` | `cmake/praenora_fetch_runtime_deps.cmake`, or the pin file `cmake/PraenoraRuntimeDepsPin.cmake`; the report names the case that failed (`tests/ci/check_fetch_runtime_deps.cmake` describes each). | runtime |
 
 When a run or a validation fails, its error code points further. By code range:
 

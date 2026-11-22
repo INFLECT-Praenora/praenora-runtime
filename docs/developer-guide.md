@@ -59,8 +59,9 @@ came from:
 [`CMakePresets.json`](../CMakePresets.json) holds the project presets: `linux-x64-debug`,
 `linux-x64-release`, `linux-x64-asan`, `linux-x64-tsan`, `macos-arm64-debug`, `macos-arm64-release`,
 `macos-arm64-asan`, `macos-arm64-tsan`, `windows-x64-debug` and `windows-x64-release`, each with a
-build and a test preset. Each preset is available only on its host system. Build trees go to
-`build/<preset>`, installations to `install/<preset>`.
+build and a test preset, and the presets of the continuous-integration jobs, which build against a
+dependency bundle ([CI presets](#ci-presets)). Each preset is available only on its host system.
+Build trees go to `build/<preset>`, installations to `install/<preset>`.
 
 Where your dependencies live is local knowledge, so it goes into `CMakeUserPresets.json`, which git
 ignores. Create it from the example:
@@ -90,6 +91,183 @@ linking them into a build for an older target makes the linker warn about each s
 your dependencies target a newer macOS, set `CMAKE_OSX_DEPLOYMENT_TARGET` in `dev-local` to that
 version, for example `"15.0"`. The project default stays 11.0; the setting is local.
 
+## Using a dependency bundle
+
+The repository [praenora-runtime-deps](https://github.com/INFLECT-Praenora/praenora-runtime-deps)
+builds the dependencies that no package manager offers ready to use into a bundle, one per
+platform: json-schema-validator with the nlohmann/json it is compiled against, libRoadRunner with
+its dependencies, the LLVM it was built with, and libAntimony, with their license files and a
+manifest, `praenora-runtime-deps.json`. Its releases publish each bundle as an archive.
+[`cmake/PraenoraRuntimeDepsPin.cmake`](../cmake/PraenoraRuntimeDepsPin.cmake) pins the release
+that this repository builds against and, for each platform key of
+`PRAENORA_RUNTIME_DEPS_PLATFORMS` (such as `macos-arm64-release`), the archive's name and SHA-256.
+The archive's name gives the bundle's version, platform, compiler and build type; for example, for
+0.1.1 and `macos-arm64-release`:
+`praenora-runtime-deps-0.1.1-macos-arm64-appleclang21-release.tar.xz`.
+
+The script [`cmake/praenora_fetch_runtime_deps.cmake`](../cmake/praenora_fetch_runtime_deps.cmake),
+which needs only CMake, downloads one platform's archive from the release into a directory of your
+choice, checks it against the pinned SHA-256, unpacks it there and checks that the bundle's
+manifest names the pinned version. A transfer that fails, or stalls for 120 seconds, is tried
+again, up to three attempts in all; an archive with another SHA-256 is not:
+
+```bash
+cmake -DPLATFORM=macos-arm64-release -DDESTINATION="$HOME/praenora-runtime-deps" \
+    -P cmake/praenora_fetch_runtime_deps.cmake
+```
+
+It prints one line to standard output, which names the bundle's directory, an absolute path
+(here, for 0.1.1):
+
+```text
+PRAENORA_RUNTIME_DEPS=<DESTINATION>/praenora-runtime-deps-0.1.1-macos-arm64-appleclang21-release
+```
+
+Its other messages go to standard error, so a Linux or macOS shell sets the variable with
+`export "$(cmake <the same arguments>)"` (on Windows the line may end in a carriage return; not yet
+verified). When the environment variable `GITHUB_ENV` names a file, as in a step of a GitHub
+Actions job, the script also appends the line to that file, so that the job's later steps have the
+variable. A relative `DESTINATION` is relative to the current directory. The archive stays in
+`DESTINATION`, and a later run there uses it again when it still has the pinned SHA-256 (otherwise
+it downloads it again), and the bundle when the archive matched and the manifest names the pinned
+version (otherwise it unpacks it again). What a stopped run leaves (a partial download, a staging
+directory `.u-<id>/`) is removed by the next run. `-DBASE_URL=<url>` downloads `<url>/<archive>`
+instead of the archive in the release, for a mirror, and `-DPIN_FILE=<file>` reads another pin
+file. The test `ci.fetch_runtime_deps` ([testing.md](testing.md#labels)) runs the script on local
+archives; a download from the release is not yet verified.
+
+**The bundle's compiler.** A bundle is built with one compiler, which its name gives (such as
+`appleclang21`; the manifest's `compiler` member gives its full version). Build the runtime with
+that compiler or a newer one of the same family. The macOS bundle of 0.1.1 is built with
+AppleClang 21, so with an older Xcode, build the bundle locally from a clone of
+praenora-runtime-deps instead (its `docs/building.md` says how) and use the directory it installs
+(`install/<preset>` of that clone) as the bundle below. On macOS, `CMAKE_OSX_DEPLOYMENT_TARGET`
+must also be at least the bundle's (the manifest's `platform.os_min_version`, 14.0 for 0.1.1).
+
+**Local presets.** With `<bundle>` the bundle's directory, the hidden presets of
+`CMakeUserPresets.json` ([Local presets](#local-presets)) list the bundle's directories as
+praenora-runtime-deps' `docs/outputs.md` gives them ("The Praenora runtime's local presets"). The
+runtime must compile against the nlohmann/json that json-schema-validator was compiled against, so
+`<bundle>/json-schema-validator` comes first, before any prefix that holds an nlohmann/json of its
+own, such as Homebrew's `/opt/homebrew`, which stands here for the prefixes of the other
+dependencies:
+
+```json
+{
+  "name": "dev-local",
+  "hidden": true,
+  "cacheVariables": {
+    "CMAKE_PREFIX_PATH": "<bundle>/json-schema-validator;/opt/homebrew",
+    "PRAENORA_THIRD_PARTY_LICENSE_DIRS": "<bundle>/licenses"
+  }
+},
+{
+  "name": "dev-engines-local",
+  "hidden": true,
+  "cacheVariables": {
+    "CMAKE_PREFIX_PATH": "<bundle>/json-schema-validator;/opt/homebrew;<bundle>/roadrunner;<bundle>/roadrunner/lib/cmake;<bundle>/roadrunner/lib/cmake/Poco;<bundle>/llvm;<bundle>/antimony",
+    "LLVM_INSTALL_PREFIX": "<bundle>/llvm",
+    "PRAENORA_WITH_ROADRUNNER": "ON",
+    "PRAENORA_WITH_ANTIMONY": "ON"
+  }
+}
+```
+
+Their other cache variables stay as [Local presets](#local-presets) gives them.
+`PRAENORA_THIRD_PARTY_LICENSE_DIRS` brings the bundle's license files into installations
+([License files](#license-files)). The presets for one provider take part of the list after
+`<bundle>/json-schema-validator;/opt/homebrew`: `dev-roadrunner-local` the `roadrunner`
+directories and `<bundle>/llvm`, with `LLVM_INSTALL_PREFIX`
+([The roadrunner provider](#the-roadrunner-provider)), and `dev-antimony-local`
+`<bundle>/roadrunner`, `<bundle>/roadrunner/lib/cmake` and `<bundle>/antimony`
+([The antimony provider](#the-antimony-provider)). On Windows the list also holds
+`<bundle>/roadrunner/cmake` (not yet verified); the manifest's `consumer.cmake_prefix_path` lists
+each platform's directories in their order. On macOS these are the directories of the presets
+with which this guide was checked, against a bundle built locally from praenora-runtime-deps.
+
+## CI presets
+
+[`CMakePresets.json`](../CMakePresets.json) holds a preset for each platform key of the dependency
+bundles, for continuous-integration jobs: `ci-linux-x64-release`,
+`ci-macos-arm64-release`, `ci-windows-x64-release` and `ci-windows-x64-debug`, each with a build
+and a test preset of the same name. The jobs of the workflow `.github/workflows/build.yml` run
+them, one per key, and archive the installation ([releasing.md](releasing.md#the-workflow)). Each
+inherits the project preset of its key (`linux-x64-release`, and so on) and the hidden preset `ci`
+(`ci-windows` on Windows), and builds into `build/ci-<key>`. They take the bundle's directory from
+the environment variable `PRAENORA_RUNTIME_DEPS`, which the fetch script prints
+([Using a dependency bundle](#using-a-dependency-bundle)), and set these cache variables:
+
+| Cache variable | Value |
+|---|---|
+| `PRAENORA_RUNTIME_DEPS` | `$env{PRAENORA_RUNTIME_DEPS}`, which the configuration checks (below). |
+| `CMAKE_PREFIX_PATH` | The bundle's `json-schema-validator`, `roadrunner`, `roadrunner/lib/cmake`, `roadrunner/lib/cmake/Poco`, `llvm` and `antimony`, in the order of the manifest's `consumer.cmake_prefix_path`; on Windows also `roadrunner/cmake`, after `roadrunner/lib/cmake/Poco`. |
+| `LLVM_INSTALL_PREFIX` | The bundle's `llvm`. |
+| `PRAENORA_THIRD_PARTY_LICENSE_DIRS` | The bundle's `licenses` ([License files](#license-files)). |
+| `PRAENORA_WITH_ROADRUNNER`, `PRAENORA_WITH_ANTIMONY`, `PRAENORA_BUILD_PYTHON`, `PRAENORA_WARNINGS_AS_ERRORS`, `PRAENORA_FETCH_DEPENDENCIES` | `ON` |
+| `CMAKE_DISABLE_FIND_PACKAGE_yaml-cpp`, `CMAKE_DISABLE_FIND_PACKAGE_spdlog`, `CMAKE_DISABLE_FIND_PACKAGE_googletest` | `ON` |
+| `CMAKE_OSX_DEPLOYMENT_TARGET` | `ci-macos-arm64-release` only: `14.0`, the macOS bundle's. |
+| `CMAKE_TRY_COMPILE_CONFIGURATION` | `ci-windows-x64-*` only: `Release` or `Debug`, the configuration of the bundle. The antimony provider's probe links the bundle's libraries when the build is configured, and the Visual Studio generator builds such a program in Debug unless this says otherwise, with another MSVC runtime library than a Release bundle's. |
+
+A tree of these presets builds both providers, the Python bindings and the tests, with warnings as
+errors. nlohmann/json and json-schema-validator come from the bundle, which is first on
+`CMAKE_PREFIX_PATH`. yaml-cpp, spdlog and GoogleTest are built from the commits that
+[`cmake/PraenoraDependencies.cmake`](../cmake/PraenoraDependencies.cmake) pins, whatever is
+installed, so that what a job builds does not depend on what its runner has installed: FetchContent
+first looks for an installed package with `find_package()` under the dependency's content name
+(`googletest` for GoogleTest; `CMAKE_DISABLE_FIND_PACKAGE_GTest` would have no effect), and the
+three `CMAKE_DISABLE_FIND_PACKAGE_<name>` variables turn those calls off. Their status lines should
+then read `fetched into` the tree's `_deps/<name>-src`; not yet verified, as no download was made
+where this was checked. The presets do not set `Python3_EXECUTABLE`: pass
+`-DPython3_EXECUTABLE=<python>` on the configure line, or FindPython takes the first suitable
+interpreter it finds.
+
+**The bundle check.** When the cache variable `PRAENORA_RUNTIME_DEPS` is defined, as these presets
+define it, the configuration stops before any dependency is looked up unless it is the absolute path
+of a directory that holds `praenora-runtime-deps.json`. With the environment variable unset:
+
+```text
+PRAENORA_RUNTIME_DEPS ('') is not a dependency bundle: set the environment variable
+PRAENORA_RUNTIME_DEPS to a bundle directory, for example with cmake -P
+cmake/praenora_fetch_runtime_deps.cmake (docs/developer-guide.md).
+```
+
+A tree configured with other presets does not define the variable and is not checked, whatever the
+environment holds. `cmake --preset` reads the environment variable each time it runs, and passes
+every value of the preset again.
+
+**Running one locally.** With a bundle for your platform and compiler
+([The bundle's compiler](#using-a-dependency-bundle)), on macOS:
+
+```bash
+export PRAENORA_RUNTIME_DEPS=<bundle>
+cmake --preset ci-macos-arm64-release -DPython3_EXECUTABLE=<python>
+cmake --build --preset ci-macos-arm64-release
+ctest --preset ci-macos-arm64-release
+```
+
+As in a job, that configuration downloads yaml-cpp, spdlog and GoogleTest. To use installed
+packages instead and download nothing, turn the three variables off on the configure line;
+`-DFETCHCONTENT_FULLY_DISCONNECTED=ON` makes a package that is not found stop the configuration
+instead of being downloaded. The presets' `CMAKE_PREFIX_PATH` names only the bundle, so the packages
+are then searched in CMake's default places, such as the prefix of each directory on `PATH`
+(`/opt/homebrew` for `/opt/homebrew/bin`), in the order of `PATH`; the environment variable
+`CMAKE_PREFIX_PATH` is searched before those. Homebrew's libraries target the macOS release they
+were built on, so with them also raise the deployment target to that release, or the linker warns
+about each of them ([Local presets](#local-presets)):
+
+```bash
+CMAKE_PREFIX_PATH=/opt/homebrew cmake --preset ci-macos-arm64-release \
+    -DPython3_EXECUTABLE=<python> -DFETCHCONTENT_FULLY_DISCONNECTED=ON \
+    -DCMAKE_DISABLE_FIND_PACKAGE_yaml-cpp=OFF -DCMAKE_DISABLE_FIND_PACKAGE_spdlog=OFF \
+    -DCMAKE_DISABLE_FIND_PACKAGE_googletest=OFF -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0
+```
+
+Give these values again whenever you run `cmake --preset` on that tree. On macOS arm64 the preset
+was checked this way, against a bundle built locally from praenora-runtime-deps with AppleClang 17
+and Homebrew's yaml-cpp, spdlog and GoogleTest: configure, build without warnings, and every test,
+those of the restricted sandbox profile from a shell outside any sandbox
+([testing.md](testing.md#module-hosts)). The Linux and Windows presets are not yet verified.
+
 ## Configure, build and test
 
 ```bash
@@ -114,6 +292,7 @@ Options are cache variables, set in a preset or on the configure line
 | `PRAENORA_FETCH_JSON_SCHEMA_VALIDATOR` | OFF | Build json-schema-validator from its pinned sources even when one is installed, so that a sanitizer build instruments it ([platforms.md](platforms.md#json-schema-validator)). |
 | `PRAENORA_INSTALL` | ON at top level | The install rules (none in a Python wheel build). |
 | `PRAENORA_INSTALL_EXAMPLES` | OFF | Install the example modules with every installation. |
+| `PRAENORA_THIRD_PARTY_LICENSE_DIRS` | empty | Absolute paths of directories (a `;`-list) whose contents every installation holds in `share/praenora/licenses/`, such as the `licenses/` directory of a dependency bundle ([below](#license-files)). |
 | `PRAENORA_WARNINGS_AS_ERRORS` | OFF | Turn compiler warnings into errors. |
 | `PRAENORA_SANITIZERS` | empty | `address;undefined` or `thread`, for GCC and Clang. |
 | `PRAENORA_WITH_ROADRUNNER` | OFF | The roadrunner service provider ([below](#the-roadrunner-provider)). |
@@ -154,6 +333,102 @@ An installation goes elsewhere with `--prefix`; the example modules come with th
 cmake --install build/dev --prefix "${TMPDIR:-/tmp}/praenora-install"
 cmake --install build/dev --prefix "${TMPDIR:-/tmp}/praenora-install" --component Examples
 ```
+
+### License files
+
+This repository's files are under the MIT license ([`LICENSE`](../LICENSE),
+[ADR-0040](adr/ADR-0040-mit-license.md)). Third-party code that the build links statically keeps
+its own license, so installations hold license files in `share/praenora/licenses/`
+([`cmake/PraenoraInstall.cmake`](../cmake/PraenoraInstall.cmake)):
+
+| Path below `share/praenora/licenses/` | Content |
+|---|---|
+| `praenora-runtime/LICENSE` | This repository's license. |
+| `<name>/` | For each dependency built in the tree with FetchContent (`nlohmann_json`, `nlohmann_json_schema_validator`, `yaml-cpp`, `spdlog`; never GoogleTest, which only the tests link), the files at the top of its sources whose names begin with `LICENSE`, `COPYING` or `NOTICE`, in any case, and, for spdlog, the license of the fmt library it bundles (a file whose name holds `license` in `include/spdlog/fmt/bundled/`), each under its path in the sources. A dependency built in the tree without a `LICENSE` or `COPYING` file stops the configuration. Checked with the sources of json-schema-validator 2.4.1 and nlohmann/json 3.12.0; not yet verified with fetched yaml-cpp and spdlog sources, nor the name of spdlog 1.17.0's fmt license file (`fmt.license.rst` is expected: a file named otherwise is not installed, and nothing says so). |
+| the entries of each directory of `PRAENORA_THIRD_PARTY_LICENSE_DIRS` | Its contents, as they are. A dependency bundle's `licenses/` directory holds `<component>/` with the license files of each library in the bundle (libRoadRunner, LLVM, libroadrunner-deps' libraries, libAntimony, nlohmann/json, json-schema-validator) and `praenora-runtime-deps/LICENSE`. An entry that is not the absolute path of a directory stops the configuration. |
+
+The build cannot tell where an installed package keeps its license files, so a static or
+header-only library found with `find_package()` brings them into the installation only through
+`PRAENORA_THIRD_PARTY_LICENSE_DIRS`. The providers' engines (libRoadRunner, LLVM, libSBML,
+libAntimony), the json-schema-validator of a dependency bundle and an installed nlohmann/json
+(header-only, as in the `dev` build) are such libraries, and so is an installed spdlog used through
+its header-only target: when the prefixes come from a bundle, name its `licenses/` directory, for
+example in the hidden `dev-local` preset of `CMakeUserPresets.json`:
+
+```json
+"PRAENORA_THIRD_PARTY_LICENSE_DIRS": "/path/to/bundle/licenses"
+```
+
+A Python wheel build has no install rules: the wheel holds this repository's `LICENSE` only, which
+scikit-build-core copies into its `.dist-info`, into `.dist-info/licenses/` with scikit-build-core
+1.1.2 (0.10 not yet verified) ([python.md](python.md#building-a-wheel)).
+
+### Archiving an installation
+
+The target `package` ([`cmake/PraenoraPackage.cmake`](../cmake/PraenoraPackage.cmake), CPack)
+builds the tree, then archives an installation of it into `build/<preset>/package/`:
+
+```bash
+cmake --build --preset dev --target package
+```
+
+| File | Content |
+|---|---|
+| `<name>.tar.xz` (`.zip` on Windows) | The installation, below one top-level directory `<name>/`: the default install component, which is what `cmake --install` installs, license files included ([License files](#license-files)), and never the example modules (component `Examples`), even with `PRAENORA_INSTALL_EXAMPLES`. It holds no Python package ([python.md](python.md#building-a-wheel)). |
+| `<name>.tar.xz.sha256` (`.zip.sha256`) | The archive's SHA-256 in the format of `sha256sum`: `<hash>`, two spaces, the archive's file name and a newline, so `sha256sum -c` (or `shasum -a 256 -c`) checks it in that directory. |
+
+CPack keeps its staging directory, `_CPack_Packages/`, beside them. The name is
+`praenora-runtime-<version>-<os>-<arch>-<compiler>-<config>`, as the dependency bundles are named
+([Using a dependency bundle](#using-a-dependency-bundle)):
+
+| Label | Value |
+|---|---|
+| `<version>` | The runtime package's version, `project(VERSION)` in `CMakeLists.txt`. |
+| `<os>`, `<arch>` | `linux`, `macos` or `windows`, and `x86_64` or `arm64`: the platform the build is for. |
+| `<compiler>` | `appleclang<major>`, `clang<major>`, `gcc<major>` or `msvc<toolset>` (`msvc143` for Visual Studio 2022). Another compiler builds and installs as usual, but the configuration says `Praenora: package unavailable`, naming it, and the target `package` stops, saying so again. |
+| `<config>` | `release` or `debug`: the configuration packaged. With a single-configuration generator (Ninja, Makefiles) it is `CMAKE_BUILD_TYPE`; any other build type stops the target `package`. With a multi-configuration generator (Visual Studio) it is the configuration that `cpack -C` names. |
+
+The configuration prints the name, for the `dev` preset on macOS:
+
+```text
+-- Praenora: package praenora-runtime-0.2.0-macos-arm64-appleclang17-debug
+```
+
+With a multi-configuration generator the name in that line ends in `-<config>`. Visual Studio names
+the target `PACKAGE`; it passes the build's configuration to cpack (`-C`), so the build preset's
+configuration decides the name:
+
+```bash
+cmake --build --preset ci-windows-x64-debug --target PACKAGE   # ...-msvc143-debug.zip
+```
+
+So a job of the [CI presets](#ci-presets) makes its archive, after its build and tests, with
+`cmake --build --preset ci-<key> --target package`, and with `--target PACKAGE` for the keys
+`windows-x64-release` and `windows-x64-debug`; each archive is then in `build/ci-<key>/package/`.
+
+After a build, `cpack` makes the same archive with any generator, without building first. `-C`
+names the configuration, which a multi-configuration tree needs; a single-configuration tree
+packages its build type, and a `-C` that names another configuration stops cpack:
+
+```bash
+cpack --config build/dev/CPackConfig.cmake -C Debug
+```
+
+There is no source package: the build tree has no target `package_source`, and cpack stops for the
+source configuration that CPack writes all the same, `build/<preset>/cmake/CPackSourceConfig.cmake`.
+A source archive is made from the repository, for example with `git archive`.
+
+The archive of a `ci-*` tree holds both providers and the license files of the dependency bundle.
+An archive never holds the shared libraries that the build found installed: its programs load them
+from where the build found them. A `ci-*` job builds yaml-cpp and spdlog in its tree as static
+libraries (not yet verified with downloaded sources), so its archive needs only the system's
+libraries, which the job checks after making it ([releasing.md](releasing.md#the-workflow); not
+yet verified on GitHub); a tree configured with Homebrew's yaml-cpp and spdlog, such as a local
+`ci-macos-arm64-release` run with the overrides of [CI presets](#ci-presets), gives an archive
+whose programs need them in `/opt/homebrew`, and the job's check fails on it. Checked on macOS
+arm64 with Ninja (`ci-macos-arm64-release` with Homebrew's libraries, and `dev`) and with Ninja
+Multi-Config; the archives of Linux and Windows, and the target `PACKAGE` of Visual Studio, are not
+yet verified.
 
 ### The roadrunner provider
 

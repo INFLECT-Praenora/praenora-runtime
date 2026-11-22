@@ -23,6 +23,13 @@ option(PRAENORA_FETCH_JSON_SCHEMA_VALIDATOR
     "Build json-schema-validator from its pinned sources, even when one is installed" OFF)
 option(PRAENORA_INSTALL "Generate install rules" ${PRAENORA_TOP_LEVEL})
 option(PRAENORA_INSTALL_EXAMPLES "Install the example modules" OFF)
+# Directories of third-party license files, such as the licenses/ directory of a dependency bundle
+# whose libraries the build links statically: with the install rules, the contents of each are
+# installed into ${CMAKE_INSTALL_DATADIR}/praenora/licenses/, beside this project's LICENSE and the
+# license files of the dependencies built in this tree (cmake/PraenoraInstall.cmake), and each
+# entry must be the absolute path of a directory, or the configuration stops.
+set(PRAENORA_THIRD_PARTY_LICENSE_DIRS "" CACHE STRING
+    "Directories (;-list) whose contents are installed into share/praenora/licenses/")
 # PRAENORA_INSTALL_RULES: ON when this build generates the install rules of the package
 # (cmake/PraenoraInstall.cmake and the install() rules of each directory): PRAENORA_INSTALL is ON
 # and the build is not a Python wheel build. scikit-build-core (which sets SKBUILD) packs every

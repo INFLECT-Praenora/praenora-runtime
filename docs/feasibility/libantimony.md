@@ -108,9 +108,11 @@ the provider's tests pins names the test.
   libAntimony is built against them for 14.0, and a build with the provider needs a deployment
   target of at least 14.0 instead of the project default of 11.0.
 - **Windows.** libAntimony's header declares its functions for import from a DLL
-  (`__declspec(dllimport)`) on Windows unless its own build defines `LIB_EXPORTS` [A19], so linking
-  the static library there may need a definition that the provider's build does not give
-  (unverified).
+  (`__declspec(dllimport)`) on Windows unless its own build defines `LIB_EXPORTS` [A19], so the
+  provider's sources and the finder's probe are compiled with `LIB_EXPORTS` there, and libSBML's
+  target gets `LIBSBML_STATIC` and `LIBLAX_STATIC`, as the dependency bundles' documentation
+  advises ([platforms.md](../platforms.md#the-antimony-provider)); not yet verified, as the
+  provider has not been built on Windows.
 - **Linux.** SBMLNetwork needs `libdl`, which the provider's build adds (not built on Linux).
 
 ### The C API
@@ -328,7 +330,9 @@ distributed is OQ-29.
 ### Licensing facts
 
 These are facts about upstream projects, gathered for the license decision (OQ-1) and for
-distribution (OQ-13, OQ-29). This project states no license of its own.
+distribution (OQ-13, OQ-29). This project's files are under the MIT license
+([ADR-0040](../adr/ADR-0040-mit-license.md)), which resolved OQ-1; the engine keeps its own
+licenses, below.
 
 | Component | License as stated upstream |
 |---|---|

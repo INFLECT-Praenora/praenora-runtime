@@ -14,12 +14,21 @@
 #   FETCHCONTENT_SOURCE_DIR_NLOHMANN_JSON_SCHEMA_VALIDATOR names a local copy. The other
 #   dependencies come as they would without the option.
 # - GoogleTest is needed only when PRAENORA_BUILD_TESTS is ON.
+# - When the cache variable PRAENORA_RUNTIME_DEPS is defined, as the ci-* presets of
+#   CMakePresets.json define it, from the environment variable of that name, it must be the
+#   absolute path of a dependency bundle (a directory that holds praenora-runtime-deps.json), or
+#   the configuration stops before any dependency is looked up: those presets' CMAKE_PREFIX_PATH,
+#   LLVM_INSTALL_PREFIX and PRAENORA_THIRD_PARTY_LICENSE_DIRS name the bundle's directories. A
+#   tree that does not define it is not checked.
 #
 # Afterwards these targets exist: nlohmann_json::nlohmann_json,
 # nlohmann_json_schema_validator::validator (IMPORTED when it is an installed library),
 # yaml-cpp::yaml-cpp, the spdlog target named by PRAENORA_SPDLOG_TARGET and, with tests,
 # GTest::gtest and GTest::gtest_main. One status line per dependency reports its version and where
-# it came from.
+# it came from. PRAENORA_FETCHED_DEPENDENCIES lists, by their FetchContent names, the dependencies
+# that are built in this tree, which the runtime links statically (GoogleTest, which only the
+# tests link, left out), and PRAENORA_FETCHED_SOURCE_DIR_<name> holds the source directory of
+# each: cmake/PraenoraInstall.cmake installs their license files.
 #
 # praenora_copy_runtime_dlls(<target>) is also defined here.
 
@@ -77,7 +86,37 @@ function(_praenora_report_dependency label package content pinned_version target
     message(STATUS "Praenora: dependency ${label} ${version} (${origin}${ARGN})")
 endfunction()
 
+# _praenora_record_fetched(<content> <target>)
+# Appends <content> to PRAENORA_FETCHED_DEPENDENCIES and sets PRAENORA_FETCHED_SOURCE_DIR_<content>
+# to its source directory, in the caller's scope, when this configuration made <content> available
+# with FetchContent (_praenora_fetched) and built it in this tree: <target>, which it provides, is
+# not IMPORTED, as for _praenora_report_dependency().
+function(_praenora_record_fetched content target)
+    if(NOT content IN_LIST _praenora_fetched)
+        return()
+    endif()
+    get_target_property(imported ${target} IMPORTED)
+    if(imported)
+        return()
+    endif()
+    FetchContent_GetProperties(${content} SOURCE_DIR source_dir)
+    list(APPEND PRAENORA_FETCHED_DEPENDENCIES ${content})
+    set(PRAENORA_FETCHED_DEPENDENCIES "${PRAENORA_FETCHED_DEPENDENCIES}" PARENT_SCOPE)
+    set(PRAENORA_FETCHED_SOURCE_DIR_${content} "${source_dir}" PARENT_SCOPE)
+endfunction()
+
 macro(praenora_find_dependencies)
+    # The dependency bundle of the ci-* presets, checked before anything is looked up in it.
+    if(DEFINED CACHE{PRAENORA_RUNTIME_DEPS})
+        if(NOT IS_ABSOLUTE "${PRAENORA_RUNTIME_DEPS}" OR
+           NOT EXISTS "${PRAENORA_RUNTIME_DEPS}/praenora-runtime-deps.json")
+            message(FATAL_ERROR "PRAENORA_RUNTIME_DEPS ('${PRAENORA_RUNTIME_DEPS}') is not a "
+                "dependency bundle: set the environment variable PRAENORA_RUNTIME_DEPS to a "
+                "bundle directory, for example with cmake -P "
+                "cmake/praenora_fetch_runtime_deps.cmake (docs/developer-guide.md).")
+        endif()
+    endif()
+
     # Without PRAENORA_FETCH_DEPENDENCIES every dependency comes from find_package(), except
     # json-schema-validator with PRAENORA_FETCH_JSON_SCHEMA_VALIDATOR, which is built below.
     # nlohmann/json is found first, so the validator's own project finds the same package instead
@@ -96,6 +135,8 @@ macro(praenora_find_dependencies)
         set(_praenora_gtest_package GTest)
     endif()
 
+    # The FetchContent names made available below (none without the two options).
+    set(_praenora_fetched "")
     if(PRAENORA_FETCH_DEPENDENCIES OR PRAENORA_FETCH_JSON_SCHEMA_VALIDATOR)
         include(FetchContent)
 
@@ -230,6 +271,15 @@ macro(praenora_find_dependencies)
         message(FATAL_ERROR "spdlog provides neither the spdlog::spdlog nor the "
             "spdlog::spdlog_header_only target.")
     endif()
+
+    # The dependencies built in this tree, whose license files the installation holds.
+    set(PRAENORA_FETCHED_DEPENDENCIES "")
+    _praenora_record_fetched(nlohmann_json nlohmann_json::nlohmann_json)
+    _praenora_record_fetched(nlohmann_json_schema_validator
+        nlohmann_json_schema_validator::validator)
+    _praenora_record_fetched(yaml-cpp yaml-cpp::yaml-cpp)
+    _praenora_record_fetched(spdlog ${PRAENORA_SPDLOG_TARGET})
+    unset(_praenora_fetched)
 
     _praenora_report_dependency(nlohmann_json nlohmann_json nlohmann_json 3.12.0
         nlohmann_json::nlohmann_json)

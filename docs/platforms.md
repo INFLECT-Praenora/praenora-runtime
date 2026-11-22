@@ -8,9 +8,9 @@ and Windows commands below are given as they should work and are marked "not yet
 
 | Platform | Compiler | Status |
 |---|---|---|
-| macOS arm64 (macOS 15) | AppleClang 17 | Verified: configure, build without warnings, and every test in the `dev` (Debug), `dev-release`, `dev-asan` and `dev-tsan` builds; an installation, moved; the Python bindings with CPython 3.12; a Python wheel built offline and installed into a fresh virtual environment ([python.md](python.md#building-a-wheel)); the roadrunner provider with libRoadRunner 2.11.0 and LLVM 13.0.1, every test in a Debug build and the labels `unit`, `contract`, `negative`, `lifecycle`, `integration` and `install` in a ThreadSanitizer build ([The roadrunner provider](#the-roadrunner-provider)); the antimony provider with libAntimony 3.3.0 built from source, every test in a Debug build and in a Debug build with both providers, and the labels `unit`, `contract` and `integration` in a ThreadSanitizer build ([The antimony provider](#the-antimony-provider)); process isolation in module hosts, with the shared compiled models and the restricted sandbox profile, whose tests run outside any other sandbox ([specs/process-isolation.md](specs/process-isolation.md)). |
-| Linux x86-64 | GCC 9+, Clang 10+ | Presets and portable code; not yet verified. |
-| Windows x86-64 | MSVC 19.29+ (Visual Studio 2022) | Presets and portable code; not yet verified. |
+| macOS arm64 (macOS 15) | AppleClang 17 | Verified: configure, build without warnings, and every test in the `dev` (Debug), `dev-release`, `dev-asan` and `dev-tsan` builds; an installation, moved; the Python bindings with CPython 3.12; a Python wheel built offline and installed into a fresh virtual environment ([python.md](python.md#building-a-wheel)); the roadrunner provider with libRoadRunner 2.11.0 and LLVM 13.0.1, every test in a Debug build and the labels `unit`, `contract`, `negative`, `lifecycle`, `integration` and `install` in a ThreadSanitizer build ([The roadrunner provider](#the-roadrunner-provider)); the antimony provider with libAntimony 3.3.0 built from source, every test in a Debug build and in a Debug build with both providers, and the labels `unit`, `contract` and `integration` in a ThreadSanitizer build ([The antimony provider](#the-antimony-provider)); process isolation in module hosts, with the shared compiled models and the restricted sandbox profile, whose tests run outside any other sandbox ([specs/process-isolation.md](specs/process-isolation.md)); the `ci-macos-arm64-release` preset against a dependency bundle built locally, with installed yaml-cpp, spdlog and GoogleTest instead of fetched ones ([The CI presets](#the-ci-presets)). |
+| Linux x86-64 | GCC 9+, Clang 10+ | Presets, a CI preset and portable code. A job of the CI workflow builds and tests the `ci-linux-x64-release` preset with GCC 13 on `ubuntu-24.04` ([releasing.md](releasing.md#the-workflow)), but it has not run yet: not yet verified. |
+| Windows x86-64 | MSVC 19.29+ (Visual Studio 2022) | Presets, CI presets and portable code. Two jobs of the CI workflow build and test the `ci-windows-x64-release` and `ci-windows-x64-debug` presets with Visual Studio 2022 on `windows-2022` ([releasing.md](releasing.md#the-workflow)), but they have not run yet: not yet verified. |
 
 Not yet verified on any platform: downloading dependencies in fetch mode (every dependency was
 installed where this was checked, so nothing was downloaded), and with it the fetched projects'
@@ -144,7 +144,15 @@ takes the libraries of the same names from `LLVM_INSTALL_PREFIX` instead
   and `ubuntu-24` archives are the candidates.
 - **Windows.** Not yet verified. The upstream `windows-msvc18` archives may need newer build tools
   than Visual Studio 2022 (a static library must be linked by tools at least as new as those that
-  built it). In a multi-configuration build every configuration writes its provider to the same
+  built it); the Windows dependency bundles are built with Visual Studio 2022
+  ([The CI presets](#the-ci-presets)). A bundle keeps some of libRoadRunner's packages in
+  `<RR>/cmake`, which goes into `CMAKE_PREFIX_PATH` too. On Windows the finder loads libSBML's
+  package under the name `libsbml-static` (not `sbml-static`), sets `EXPAT_LIBRARY` and
+  `EXPAT_INCLUDE_DIR` from expat's package before it (libSBML's package looks for expat with a
+  `FindEXPAT` module, which need not find the bundle's expat, `libexpatMD.lib` or
+  `libexpatdMD.lib`, by itself), and gives libSBML's target the definitions `LIBSBML_STATIC` and
+  `LIBLAX_STATIC`, without which libSBML's headers declare its functions for import from a DLL.
+  In a multi-configuration build every configuration writes its provider to the same
   directory, `build\<preset>\bin\lib\praenora\providers` (the `..\lib\praenora\providers` of each
   configuration's `bin\<config>`, where its runtime looks), so build one configuration per tree.
 
@@ -153,7 +161,10 @@ The provider goes where the build tree's runtime looks for the providers of its 
 a provider path, and it is installed to `<prefix>/lib/praenora/providers/roadrunner/`. Distributing
 it raises license questions (libSBML is LGPL-2.1 and is linked statically; the NLEQ sources state no
 license), which are open, with the other questions of building and distributing the engine
-([open-questions.md](open-questions.md), OQ-27).
+([open-questions.md](open-questions.md), OQ-27). An installation holds the license files of
+libRoadRunner, LLVM and libroadrunner-deps' libraries only from a directory that
+`PRAENORA_THIRD_PARTY_LICENSE_DIRS` names, such as a dependency bundle's `licenses/`
+([developer-guide.md](developer-guide.md#license-files)).
 
 ## The antimony provider
 
@@ -225,16 +236,58 @@ links a copy of libSBML of its own; a process that loads both holds two.
   8 MB stripped, that needs only libSystem and libc++, and exports only `praenora_provider_get_api`.
 - **Linux.** Not yet verified. The export list is a version script; SBMLNetwork needs `libdl`,
   which the build adds.
-- **Windows.** Not yet verified. libAntimony's header declares its functions for import from a DLL
-  unless its build defines otherwise, so linking its static library may need more than the build
-  provides.
+- **Windows.** Not yet verified. The static libraries have other names there:
+  `libantimony-static.lib`, and `libsbmlnetwork-staticmd.lib` (`libsbmlnetwork-staticmdd.lib` for
+  Debug) in a dependency bundle, which the finder searches for too. libSBML's package is
+  `libsbml-static`, loaded after expat's location is set, and its target gets `LIBSBML_STATIC` and
+  `LIBLAX_STATIC`, as for the roadrunner provider. libAntimony's header (`libutil.h`) declares its
+  functions for import from a DLL unless `LIB_EXPORTS` is defined, so the provider's sources and
+  the probe are compiled with `LIB_EXPORTS`; calls then refer to the names its static library
+  defines. With a multi-configuration generator, the probe is built in the configuration that
+  `CMAKE_TRY_COMPILE_CONFIGURATION` names (Debug when it is not set), whose MSVC runtime library
+  must be the one the libraries were built with: `Release` for a Release bundle, as the
+  `ci-windows-x64-release` preset sets it.
 
 The provider goes where the build tree's runtime looks for the providers of its installation
 (`build/<preset>/lib/praenora/providers/antimony/`), so `praenora providers list` lists it without a
 provider path, and it is installed to `<prefix>/lib/praenora/providers/antimony/`. Distributing it
 raises license questions (libSBML is LGPL-2.1 and is linked statically; the licenses of SBMLNetwork
 and of expat's copy are unchecked), which are open, with the other questions of building and
-distributing libAntimony ([open-questions.md](open-questions.md), OQ-29).
+distributing libAntimony ([open-questions.md](open-questions.md), OQ-29). An installation holds the
+license files of libAntimony, libSBML, SBMLNetwork and expat only from a directory that
+`PRAENORA_THIRD_PARTY_LICENSE_DIRS` names, such as a dependency bundle's `licenses/`
+([developer-guide.md](developer-guide.md#license-files)).
+
+## The CI presets
+
+The `ci-*` presets, for continuous-integration jobs, do not use the installations of the sections
+above. They take json-schema-validator (with the nlohmann/json it is compiled against),
+libRoadRunner with libroadrunner-deps' libraries, LLVM and libAntimony from a dependency bundle of
+[praenora-runtime-deps](https://github.com/INFLECT-Praenora/praenora-runtime-deps), one per
+platform key, at the release that
+[`cmake/PraenoraRuntimeDepsPin.cmake`](../cmake/PraenoraRuntimeDepsPin.cmake) pins
+([developer-guide.md](developer-guide.md#using-a-dependency-bundle)), and build yaml-cpp, spdlog and
+GoogleTest from their pinned commits with FetchContent. Each key has a configure, build and test
+preset in `CMakePresets.json`, which builds both providers, the Python bindings and the tests, with
+warnings as errors ([developer-guide.md](developer-guide.md#ci-presets) lists what they set):
+
+| Preset | Bundle | Inherits | Status |
+|---|---|---|---|
+| `ci-linux-x64-release` | `linux-x64-release` | `linux-x64-release` | Not yet verified. |
+| `ci-macos-arm64-release` | `macos-arm64-release` | `macos-arm64-release`, with `CMAKE_OSX_DEPLOYMENT_TARGET` 14.0, the bundle's | Configure, build without warnings and every test, against a bundle built locally with AppleClang 17, with Homebrew's yaml-cpp, spdlog and GoogleTest instead of fetched ones, and so with their deployment target, 15.0 ([developer-guide.md](developer-guide.md#ci-presets)). Fetched ones are not yet verified. |
+| `ci-windows-x64-release` | `windows-x64-release` | `windows-x64-release`, with `CMAKE_TRY_COMPILE_CONFIGURATION` Release | Not yet verified. |
+| `ci-windows-x64-debug` | `windows-x64-debug` | `windows-x64-debug`, with `CMAKE_TRY_COMPILE_CONFIGURATION` Debug | Not yet verified. |
+
+The jobs of the CI workflow, `.github/workflows/build.yml`, run these presets, each on the runner
+image of its bundle's job in praenora-runtime-deps ([releasing.md](releasing.md#the-workflow)); none
+has run yet, so the table above shows only what was checked locally.
+
+The environment variable `PRAENORA_RUNTIME_DEPS` names the bundle's directory; a configuration with
+one of these presets stops when it does not name a bundle. On Windows, the bundle's
+`roadrunner/cmake` is on `CMAKE_PREFIX_PATH` too, and the finders handle the library names and
+definitions of [The roadrunner provider](#the-roadrunner-provider) and
+[The antimony provider](#the-antimony-provider). A bundle is built with one compiler; build with
+that compiler or a newer one of the same family.
 
 ## macOS
 
@@ -249,7 +302,8 @@ brew install cmake ninja swig nlohmann-json yaml-cpp spdlog googletest
 **Presets.** `macos-arm64-debug`, `macos-arm64-release`, `macos-arm64-asan` and `macos-arm64-tsan`
 (Ninja, `CMAKE_OSX_ARCHITECTURES=arm64`). The local `dev*` presets inherit them; in `dev-local`,
 `CMAKE_PREFIX_PATH` lists Homebrew's prefix and the json-schema-validator prefix
-([developer-guide.md](developer-guide.md#local-presets)).
+([developer-guide.md](developer-guide.md#local-presets)). `ci-macos-arm64-release` builds against a
+dependency bundle ([The CI presets](#the-ci-presets)).
 
 ```bash
 cmake --preset dev
@@ -331,9 +385,10 @@ sudo dnf install cmake ninja-build gcc-c++ json-devel yaml-cpp-devel spdlog-deve
 
 The first line is for Debian and Ubuntu (24.04 or newer), the second for Fedora.
 
-**Presets.** `linux-x64-debug`, `linux-x64-release`, `linux-x64-asan` and `linux-x64-tsan` (Ninja).
-In `CMakeUserPresets.json`, make the `dev*` configure, build and test presets inherit the matching
-`linux-x64-*` presets instead of `macos-arm64-*`, then:
+**Presets.** `linux-x64-debug`, `linux-x64-release`, `linux-x64-asan` and `linux-x64-tsan` (Ninja),
+and `ci-linux-x64-release`, which builds against a dependency bundle
+([The CI presets](#the-ci-presets)). In `CMakeUserPresets.json`, make the `dev*` configure, build
+and test presets inherit the matching `linux-x64-*` presets instead of `macos-arm64-*`, then:
 
 ```sh
 cmake --preset dev
@@ -376,8 +431,11 @@ both use the same C runtime. Builds use `_WIN32_WINNT=0x0A00` (Windows 10).
 
 **Presets.** `windows-x64-debug` and `windows-x64-release` use the Visual Studio 17 2022 generator
 for x64, which is multi-configuration: the build and test presets choose `Debug` or `Release`. Make
-the `dev*` presets inherit them in `CMakeUserPresets.json`. Executables and DLLs go to
-`build\<preset>\bin\<config>`, the example modules to `build\<preset>\modules\<config>`:
+the `dev*` presets inherit them in `CMakeUserPresets.json`. `ci-windows-x64-release` and
+`ci-windows-x64-debug` inherit them and build against the dependency bundle of the same
+configuration, whose MSVC runtime library (`/MD` or `/MDd`) matches it
+([The CI presets](#the-ci-presets)). Executables and DLLs go to `build\<preset>\bin\<config>`, the
+example modules to `build\<preset>\modules\<config>`:
 
 ```bat
 cmake --preset dev

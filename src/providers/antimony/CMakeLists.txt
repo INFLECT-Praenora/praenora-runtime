@@ -50,4 +50,12 @@ praenora_add_provider(praenora_provider_antimony
 # The lock, shared with the fixture provider test-conversion (src/providers/common).
 target_include_directories(praenora_provider_antimony PRIVATE
     "${PROJECT_SOURCE_DIR}/src/providers/common")
+# On Windows, libAntimony's header (libutil.h) declares its functions __declspec(dllimport) unless
+# LIB_EXPORTS is defined, and a call then refers to a name that only a DLL's import library
+# defines; with LIB_EXPORTS the calls refer to the names its static library defines, as in the
+# programs libAntimony's own build links (cmake/PraenoraAntimony.cmake, whose probe is compiled
+# so too).
+if(WIN32)
+    target_compile_definitions(praenora_provider_antimony PRIVATE LIB_EXPORTS)
+endif()
 praenora_target_warnings(praenora_provider_antimony)

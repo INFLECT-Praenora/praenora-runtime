@@ -340,8 +340,14 @@ binaries target 11.0, the linker warns about every Homebrew library, and the tag
 macOS version all the same (`macosx_15_0_arm64` on macOS 15).
 
 **Contents.** A wheel build has only the Python package's install rules, so the wheel holds just
-`praenora/runtime/` and its `.dist-info` (`METADATA`, `WHEEL` and `RECORD`); `praenora` has no
-`__init__.py`. The wheel built above is 1.04 MB, and 2.4 MB once installed:
+`praenora/runtime/` and its `.dist-info` (`METADATA`, `WHEEL`, `RECORD` and `licenses/LICENSE`);
+`praenora` has no `__init__.py`. `licenses/LICENSE` is this repository's MIT license, which
+scikit-build-core copies from the root by its default `wheel.license-files` patterns, and
+`METADATA` says `License: MIT`, from `pyproject.toml`'s `license = { text = "MIT" }`
+([ADR-0040](adr/ADR-0040-mit-license.md)). The license files of the third-party code linked into
+the runtime library, such as a static json-schema-validator, are not in the wheel, whose
+distribution is open ([open-questions.md](open-questions.md), OQ-13). The wheel built above is
+1.04 MB, and 2.4 MB once installed:
 
 | File | Size | From |
 |---|---|---|

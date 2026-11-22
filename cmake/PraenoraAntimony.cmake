@@ -6,16 +6,21 @@
 # given to CMake (docs/platforms.md).
 #
 # - libAntimony: its header antimony_api.h (find_path) and its static library antimony-static
-#   (find_library), searched on CMAKE_PREFIX_PATH: its installation has no CMake package.
+#   (find_library; on Windows also libantimony-static, the name of its .lib there), searched on
+#   CMAKE_PREFIX_PATH: its installation has no CMake package.
 # - libSBML: find_package(sbml-static CONFIG) (libsbml-static on Windows), searched on
 #   CMAKE_PREFIX_PATH, which must hold the directory of its package files (libRoadRunner's
 #   installation keeps them directly in <prefix>/lib/cmake). The packages libSBML links are found as
 #   libAntimony's own build finds them, each with find_package(... CONFIG), searched first beside
 #   libSBML's package files and then on CMAKE_PREFIX_PATH: expat (expat::expat), which libSBML
 #   always links, and zlib (its static component) and bzip2, which it links only when it was built
-#   with them; those two are made available, not required.
+#   with them; those two are made available, not required. On Windows expat is found first, on
+#   CMAKE_PREFIX_PATH, and its location is handed to libSBML's package, which cannot find it
+#   otherwise (praenora_engine_expat_for_libsbml(), cmake/PraenoraEngineDependencies.cmake).
 # - SBMLNetwork: its header sbmlnetwork/libsbmlnetwork_common.h (find_path) and its static library
-#   sbmlnetwork-static (find_library), on CMAKE_PREFIX_PATH: it has no CMake package either.
+#   sbmlnetwork-static (find_library; on Windows also libsbmlnetwork-staticmd and, for Debug,
+#   libsbmlnetwork-staticmdd, the names of libroadrunner-deps' .lib there), on CMAKE_PREFIX_PATH: it
+#   has no CMake package either.
 # - A probe, cmake/praenora_antimony_probe.cpp, is built and run when the build is configured
 #   (try_run). It links all of them as the provider does, which shows that they link together, and
 #   prints the versions the libraries report: libAntimony's getVersionStr() (without its leading
@@ -27,9 +32,13 @@
 # libAntimony and SBMLNetwork become the imported targets praenora::libantimony and
 # praenora::sbmlnetwork. Repairs are made on imported targets only, never in the installations:
 # on macOS, the system libraries m, dl and pthread are removed from the link interfaces, as for
-# the roadrunner provider (cmake/PraenoraEngineDependencies.cmake). With PRAENORA_WITH_ROADRUNNER
-# also ON, cmake/PraenoraRoadrunner.cmake has already loaded the sbml-static package and the
-# packages it links: their targets are used as they are, never defined twice.
+# the roadrunner provider (cmake/PraenoraEngineDependencies.cmake); on Windows, libSBML's target
+# gets the definitions LIBSBML_STATIC and LIBLAX_STATIC, as there. libAntimony's header declares
+# its functions for import from a DLL on Windows unless LIB_EXPORTS is defined, with which calls
+# refer to the names its static library defines: the probe is compiled with it there, and so are
+# the provider's sources (src/providers/antimony/CMakeLists.txt). With PRAENORA_WITH_ROADRUNNER
+# also ON, cmake/PraenoraRoadrunner.cmake has already loaded libSBML's package and the packages it
+# links: their targets are used as they are, never defined twice.
 #
 # Afterwards these exist:
 #   praenora_antimony_engine            INTERFACE target linking libAntimony, SBMLNetwork, libSBML
@@ -58,16 +67,23 @@ macro(praenora_find_antimony)
                                             _praenora_sbmlnetwork_library)
         unset(${_praenora_ant_variable})
     endforeach()
+    set(_praenora_ant_names antimony-static)
+    set(_praenora_sbmlnetwork_names sbmlnetwork-static libsbmlnetwork-static)
+    if(WIN32)
+        # On Windows the static libraries keep the prefix lib, which CMake before 3.29 does not
+        # try, and SBMLNetwork's name ends in md, or mdd for Debug (the MSVC runtime library).
+        list(APPEND _praenora_ant_names libantimony-static)
+        list(APPEND _praenora_sbmlnetwork_names libsbmlnetwork-staticmd libsbmlnetwork-staticmdd)
+    endif()
     find_path(_praenora_ant_include NAMES antimony_api.h NO_CACHE)
-    find_library(_praenora_ant_library NAMES antimony-static NO_CACHE)
+    find_library(_praenora_ant_library NAMES ${_praenora_ant_names} NO_CACHE)
     if(NOT _praenora_ant_include OR NOT _praenora_ant_library)
         _praenora_antimony_missing("libAntimony (its header antimony_api.h and its static \
 library antimony-static)" "Add the prefix of a libAntimony 3.3 installation built from source \
 (which holds include/antimony_api.h and lib/libantimony-static.a) to CMAKE_PREFIX_PATH.")
     endif()
     find_path(_praenora_sbmlnetwork_include NAMES sbmlnetwork/libsbmlnetwork_common.h NO_CACHE)
-    find_library(_praenora_sbmlnetwork_library NAMES sbmlnetwork-static libsbmlnetwork-static
-        NO_CACHE)
+    find_library(_praenora_sbmlnetwork_library NAMES ${_praenora_sbmlnetwork_names} NO_CACHE)
     if(NOT _praenora_sbmlnetwork_include OR NOT _praenora_sbmlnetwork_library)
         _praenora_antimony_missing("SBMLNetwork (its header sbmlnetwork/libsbmlnetwork_common.h \
 and its static library sbmlnetwork-static), which libAntimony links" "Add the prefix that holds \
@@ -77,13 +93,19 @@ it, such as the installation of libRoadRunner's dependencies, to CMAKE_PREFIX_PA
     # libSBML's package. Loaded once with what is on CMAKE_PREFIX_PATH, to learn where its package
     # files are; the packages it links are then searched there first. Its targets file needs
     # expat::expat, which may not exist yet: it then reports the package as not found, but defines
-    # the target, which is complete once expat is found below.
-    if(WIN32)
-        set(_praenora_ant_sbml libsbml-static)
-    else()
-        set(_praenora_ant_sbml sbml-static)
-    endif()
+    # the target, which is complete once expat is found below. On Windows the package cannot find
+    # expat by itself, so expat is found first.
+    praenora_engine_libsbml_package(_praenora_ant_sbml)
     if(NOT TARGET ${_praenora_ant_sbml})
+        if(WIN32)
+            find_package(expat CONFIG QUIET)
+            if(NOT TARGET expat::expat)
+                _praenora_antimony_missing("the CMake package expat (target expat::expat), which \
+libSBML links" "Add the directory that holds its package files (for libRoadRunner's \
+dependencies, <prefix>/lib/cmake or <prefix>/cmake) to CMAKE_PREFIX_PATH.")
+            endif()
+            praenora_engine_expat_for_libsbml()
+        endif()
         find_package(${_praenora_ant_sbml} CONFIG QUIET)
     endif()
     set(_praenora_ant_sbml_dir "${${_praenora_ant_sbml}_DIR}")
@@ -115,6 +137,7 @@ ${_praenora_ant_target}), which libSBML links" "It is searched beside libSBML's 
 (${_praenora_ant_sbml_dir})" "The libSBML installation is incomplete.")
     endif()
     praenora_engine_drop_system_libraries(expat::expat ${_praenora_ant_sbml})
+    praenora_engine_libsbml_static(${_praenora_ant_sbml})
 
     # libAntimony and SBMLNetwork as imported targets, each linking what it needs.
     if(NOT TARGET praenora::sbmlnetwork)
@@ -135,12 +158,20 @@ ${_praenora_ant_target}), which libSBML links" "It is searched beside libSBML's 
             INTERFACE_LINK_LIBRARIES "praenora::sbmlnetwork;${_praenora_ant_sbml}")
     endif()
 
-    # The probe: the libraries link together, and report their versions.
+    # The probe: the libraries link together, and report their versions. On Windows it is compiled
+    # with LIB_EXPORTS, as the provider's sources are. A multi-configuration generator builds it in
+    # CMAKE_TRY_COMPILE_CONFIGURATION (Debug when that is not set), whose MSVC runtime library must
+    # be the one the libraries were built with (the ci-windows-x64-* presets set it).
+    set(_praenora_ant_probe_definitions "")
+    if(WIN32)
+        set(_praenora_ant_probe_definitions COMPILE_DEFINITIONS -DLIB_EXPORTS)
+    endif()
     set(_praenora_ant_probe_dir "${CMAKE_BINARY_DIR}/CMakeFiles/praenora-antimony-probe")
     unset(_praenora_ant_probe_exit CACHE)
     try_run(_praenora_ant_probe_exit _praenora_ant_probe_built
         "${_praenora_ant_probe_dir}" "${_PRAENORA_ANTIMONY_PROBE}"
         LINK_LIBRARIES praenora::libantimony
+        ${_praenora_ant_probe_definitions}
         CXX_STANDARD 17
         CXX_STANDARD_REQUIRED ON
         CXX_EXTENSIONS OFF
