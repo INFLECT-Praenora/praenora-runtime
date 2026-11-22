@@ -8,9 +8,35 @@ your own machine is in [developer-guide.md](developer-guide.md#ci-presets), what
 [user-guide.md](user-guide.md#getting-the-tool). The decisions behind the workflow are in
 [ADR-0041](adr/ADR-0041-ci-and-releases-against-pinned-dependency-bundles.md).
 
-Not yet verified: the workflow has not run on GitHub yet. Its Linux and Windows jobs are the first
-builds of those platforms, and its jobs are the first to download a bundle from its release and to
-build yaml-cpp, spdlog and GoogleTest from downloaded sources. No release has been made.
+## What the runs verified
+
+The workflow first passed on 2026-11-22, in two runs: on the pull request that brought it to
+`main` (run 45041491678, head commit `de4b0e8`), and on `main` with `publish` (run 45044102336,
+commit `bcc3775`), which drafted the first release, v0.2.0; an administrator published it the same
+day.
+In both runs every build job passed every step: the bundle downloaded from praenora-runtime-deps'
+release v0.1.1 and checked against the pin, yaml-cpp, spdlog and GoogleTest downloaded at their
+pinned commits, the configuration, a build with warnings as errors, the tests, the archive and the
+check of its libraries. With `publish`, the release job checked the archives and ran the Linux
+archive's tool for the release notes.
+
+| Job | Runner | Compiler | Tests (none failed) |
+|---|---|---|---|
+| `linux-x64-release` | `ubuntu-24.04` | GCC 13.3.0 | 1146, of which 15 skipped: the 12 of the restricted sandbox profile, which is available only on macOS, and 3 that need what the runner lacks (the locale `de_DE.UTF-8`, a locale that folds bytes beyond ASCII, a file system that ignores case). |
+| `macos-arm64-release` | `macos-26` | AppleClang 21.0.0 | 1150, none skipped: the runner applies no sandbox, so the tests of the restricted profile ran. |
+| `windows-x64-release` | `windows-2022` | MSVC 19.44 (Visual Studio 2022) | 986, of which 5 skipped: 3 that need a file the process cannot read (Windows does not enforce the permissions they set), the check that a provider library exports only its entry point (Windows exports only what is marked `__declspec(dllexport)`), and `Frontend.NamesFoldOnlyAsciiLetters` (no locale that folds bytes beyond ASCII). |
+| `windows-x64-debug` | `windows-2022` | MSVC 19.44 (Visual Studio 2022) | 986, of which 5 skipped, as in the Release job. |
+
+Windows runs fewer tests mostly because it has no process isolation in this version. The runs
+verified, on Linux x86-64 and Windows x86-64 for the first time: the CI presets with both
+providers, the Python bindings (CPython 3.12), the install and archive tests, and, on Linux,
+process isolation in module hosts; on every key, fetch mode for yaml-cpp, spdlog and GoogleTest
+and a bundle downloaded from its release. They do not verify: the other Linux presets (Debug and
+the sanitizer builds); other compilers; the distributions' or vcpkg's packages; a wheel build;
+the tools of the macOS and Windows archives, which no job runs; whether a provider's results are
+the same on other machines of one architecture, or the same across platforms beyond the tests'
+committed expected outputs; and the license review of distributing the providers (OQ-27, OQ-29)
+([platforms.md](platforms.md)).
 
 ## The workflow
 
@@ -43,7 +69,7 @@ Its jobs:
    verified).
 2. **One build job per platform key**, named after the key:
 
-   | Job | Runner | Compiler (expected) | Archive |
+   | Job | Runner | Compiler | Archive |
    |---|---|---|---|
    | `linux-x64-release` | `ubuntu-24.04` | GCC 13 | `praenora-runtime-<version>-linux-x86_64-gcc13-release.tar.xz` |
    | `macos-arm64-release` | `macos-26` | AppleClang 21 | `praenora-runtime-<version>-macos-arm64-appleclang21-release.tar.xz` |
@@ -52,7 +78,8 @@ Its jobs:
 
    The compilers are those that the archive names of the pinned bundles give
    ([The dependency bundles](#the-dependency-bundles)), which these images are expected to have
-   still; the archive names of the first run will show them. None of these jobs has run yet. Each
+   still; the runs of 2026-11-22 got them (GCC 13.3.0, AppleClang 21.0.0, MSVC 19.44)
+   ([What the runs verified](#what-the-runs-verified)). Each
    job turns off Git's line-ending conversion (Windows), checks out the repository, sets up
    Python 3.12 with `actions/setup-python`, installs Ninja and SWIG with apt (Linux), those of
    them that are missing with Homebrew (macOS), or SWIG with Chocolatey (Windows, whose presets
@@ -91,9 +118,10 @@ Its jobs:
    archive of a local `ci-macos-arm64-release` tree configured with Homebrew's yaml-cpp and
    spdlog ([developer-guide.md](developer-guide.md#ci-presets)), where it fails, naming
    Homebrew's yaml-cpp, spdlog and fmt for the runtime library and the module host, and, with
-   those entries left out of `otool`'s output, passes; its Linux and Windows parts were run only
+   those entries left out of `otool`'s output, passes; its Linux and Windows parts were first run
    on hand-made archives, with scripts that print the output of `readelf` and `dumpbin` in their
-   formats. Not yet verified on GitHub.
+   formats. On GitHub the step passed on every key
+   ([What the runs verified](#what-the-runs-verified)).
 
    Last, the job uploads the archive and its `.sha256` file from `build/ci-<key>/package/` as a
    workflow artifact named after the key, kept for 7 days.
@@ -117,7 +145,8 @@ the staging directory of `install.package` (`build\ci-<key>\pkg\`); about 197 fo
 FetchContent's sub-build of GoogleTest; and 172 for the longest object file, which `cl` writes. The
 `windows-x64-debug` job's paths are 4 characters shorter. These are estimates from the paths of a
 macOS build tree (`build/ci-macos-arm64-release`), with the Windows prefix, archive name and
-directories of the Visual Studio generator; not yet verified. Should a Windows job fail on a path
+directories of the Visual Studio generator; both Windows jobs passed without shortening the path
+([What the runs verified](#what-the-runs-verified)). Should a Windows job fail on a path
 that is too long, add a step like the one of praenora-runtime-deps' workflow
 (`Shorten the path of the checkout`), and the `working-directory` of the steps that run CMake.
 
@@ -144,7 +173,8 @@ libraries that Visual Studio 2026 built, as on `windows-2025`). The same labels 
 compilers, as long as GitHub keeps the images' compilers. The macOS bundle of 0.1.1 is named
 `appleclang21`, while praenora-runtime-deps' own documentation expects AppleClang 17 on
 `macos-26`: the image's compiler is newer than that documentation says, and the runtime's macOS
-job, on the same label, is expected to get the same one (not yet verified). The test
+job, on the same label, got AppleClang 21.0.0, the major version that the bundle's name gives. The
+test
 `ci.workflow_consistency` checks that the workflow's matrix keys are the platforms of the pin,
 each with its `ci-<key>` presets, and that each key runs on the label of its operating system
 ([testing.md](testing.md#labels)).
@@ -213,7 +243,8 @@ The release procedure relies on these settings:
    [specs/compatibility-policy.md](specs/compatibility-policy.md#changing-a-version)).
    In a pull request to `main`, raise it, together with the documentation, fixtures and golden
    files that name it; the pull request's checks build and test every platform. The first
-   release, v0.2.0, is made at the current version and needs no raise.
+   release, v0.2.0, was made at the current version without a raise; every later release raises
+   it, since a run with `publish` stops when the tag of its version exists.
 2. **Merge** the pull request into `main`.
 3. **Run the workflow with `publish`** on `main`: in the Actions tab, *Build*, *Run workflow*,
    branch `main`, with *Create a draft release* checked; or

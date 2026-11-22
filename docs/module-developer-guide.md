@@ -9,7 +9,8 @@ rules are in [specs/module-abi.md](specs/module-abi.md), [specs/manifest.md](spe
 [specs/threading-and-ownership.md](specs/threading-and-ownership.md).
 
 The commands were run on macOS arm64 against an installation of this repository's `dev` build.
-Linux and Windows are not yet verified ([platforms.md](platforms.md)).
+On Linux and Windows they are not yet verified, though CI builds the install tests' consumer
+module against an installation there ([platforms.md](platforms.md)).
 
 ## What a module is
 

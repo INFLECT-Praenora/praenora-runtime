@@ -1,8 +1,8 @@
 # ADR-0027: Simulation service v0 and the libRoadRunner provider
 
-- Status: Proposed
+- Status: Accepted (scope noted in Decision)
 - Date: 2026-11-16
-- Supersedes: none
+- Supersedes: none (amends [ADR-0021](ADR-0021-runtime-services-through-host-api.md))
 - Superseded by: none
 
 ## Context
@@ -29,6 +29,12 @@ operations, so its results can differ between machines. Compiling module-supplie
 engine's model would need a hook the engine does not have.
 
 ## Decision
+
+Status split: the service, every bullet below but **The libRoadRunner provider**, is Accepted, by
+the maintainer on 2026-11-22; it resolves OQ-16. The bullet **The libRoadRunner provider** is
+Proposed: CI builds and tests it on every platform key, but whether its results are the same on
+every CPU of one architecture is not verified, and the license review of distributing it is open
+(OQ-27). The builder notes are Proposed.
 
 - **The service.** `praenora.simulation@0`, version 0.0, is a public C99 table declared in
   [`include/praenora/sdk/simulation.h`](../../include/praenora/sdk/simulation.h), installed with the

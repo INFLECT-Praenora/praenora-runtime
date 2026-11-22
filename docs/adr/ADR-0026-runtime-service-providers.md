@@ -1,6 +1,6 @@
 # ADR-0026: Runtime service providers: one engine per process, loaded on demand
 
-- Status: Proposed
+- Status: Accepted (scope noted in Decision)
 - Date: 2026-11-16
 - Supersedes: none (amends [ADR-0021](ADR-0021-runtime-services-through-host-api.md))
 - Superseded by: none
@@ -22,6 +22,12 @@ requirements. Several forces shape where such an engine lives:
   identity has to be known to the runtime.
 
 ## Decision
+
+Status split: service providers, every bullet below but **Provider interface (internal)**, are
+Accepted, by the maintainer on 2026-11-22. The bullet **Provider interface (internal)** is Proposed:
+the interface is internal to the runtime, may change with any runtime release, and is not offered
+to third parties until it has settled (see Alternatives considered). The builder notes are
+Proposed.
 
 - **Service providers.** Heavy engines are offered by service providers: separately built shared
   libraries, shipped with the runtime, each described by a provider manifest

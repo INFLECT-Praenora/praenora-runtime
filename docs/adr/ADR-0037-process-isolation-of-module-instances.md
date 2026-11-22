@@ -1,6 +1,6 @@
 # ADR-0037: Process isolation of module instances
 
-- Status: Proposed
+- Status: Accepted (scope noted in Decision)
 - Date: 2026-11-19
 - Supersedes: none (amends [ADR-0006](ADR-0006-threading-model.md))
 - Superseded by: none
@@ -21,6 +21,15 @@ Modules must not change: ABI v0, the SDK, the protocol and every document a modu
 they are, and results must not depend on where a module runs.
 
 ## Decision
+
+Status split: the answer to OQ-5 is Accepted, by the maintainer on 2026-11-22; it resolves OQ-5.
+That answer is: a module instance can run in a module host, a process of its own that serves
+exactly one instance (the first sentence of **Isolation at the level of the module instance**);
+**Crashes become data**; **A call that never returns is killed**; **Chosen per step**; **Providers
+with their module**; and **Amendment of ADR-0006**. Proposed: how the runtime starts a module host
+(the rest of that first bullet), **Where it is**, **The channel**, **A code seam in the loader**,
+**No module host is left behind**, **A module host that cannot be used**, **Platforms** (OQ-31),
+and the builder notes.
 
 - **Isolation at the level of the module instance.** A module instance can run in a process of its
   own, a *module host*: the executable `praenora-module-host`, which holds the runtime's own code
@@ -374,8 +383,10 @@ The specification is [process-isolation.md](../specs/process-isolation.md).
   its module host. Each module host loads and starts its own providers, so each pays an engine's
   start, and compiles its own models unless its step shares them with other steps' module hosts
   ([ADR-0038](ADR-0038-shared-compiled-models-between-module-hosts.md)).
-- Open: process isolation on Linux (verification) and Windows, with a profile of their own there
-  (OQ-31); the contract checks in a module host (OQ-32).
+- Open: process isolation on Windows, and a profile of their own on Linux and Windows (OQ-31); the
+  contract checks in a module host (OQ-32). Process isolation on Linux, then still to be verified,
+  is verified on x86-64 by CI since 2026-11-22
+  ([releasing.md](../releasing.md#what-the-runs-verified)).
 
 ## References
 

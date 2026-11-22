@@ -1,6 +1,6 @@
 # ADR-0038: Shared compiled models between module hosts
 
-- Status: Proposed
+- Status: Accepted (scope noted in Decision)
 - Date: 2026-11-20
 - Supersedes: none
 - Superseded by: none
@@ -19,6 +19,15 @@ Results must not depend on it, a module host must not reach what another provide
 a module host hands over is untrusted input to the runtime.
 
 ## Decision
+
+Status split: sharing compiled models is Accepted, by the maintainer on 2026-11-22: **Opt-in, per
+step**, **A store in the runtime's process**, **Events** and **Trust**. Proposed: **Provider host
+callbacks**, which extend the provider interface that
+[ADR-0026](ADR-0026-runtime-service-providers.md) keeps Proposed; **Through the channel**, part of
+the channel that [ADR-0037](ADR-0037-process-isolation-of-module-instances.md) keeps Proposed;
+**roadrunner**, the provider's part, as [ADR-0027](ADR-0027-simulation-service-v0.md) keeps its
+provider Proposed; and the builder notes. It resolves no open question: trust beyond the teams
+that write the modules is OQ-19, and Windows is OQ-31.
 
 - **Opt-in, per step.** The configuration's `isolation` object gains the field
   `share_compiled_models` (boolean, default `false`; `workflow-config` 0.1, changed in place),
@@ -193,7 +202,9 @@ The specification is [process-isolation.md](../specs/process-isolation.md#shared
 - Log records of sharing steps depend on the store's content (who compiled, who loaded), as
   provider start records and provider caches already depend on the process's history; outputs,
   trace and fingerprint do not.
-- Open: Linux (not compiled here) and Windows (no process isolation in this version): OQ-31.
+- Open: Windows (no process isolation in this version): OQ-31. Linux, not compiled where this was
+  built, is compiled and tested on x86-64 by CI since 2026-11-22, the sharing tests included
+  ([releasing.md](../releasing.md#what-the-runs-verified)).
 
 ## References
 

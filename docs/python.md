@@ -393,8 +393,10 @@ are open ([open-questions.md](open-questions.md), OQ-13).
 
 ## Platform notes
 
-- **Windows** (not yet verified): the extension's suffix is `.pyd`, and `praenora_runtime.dll` and
-  the third-party DLLs are copied beside it in the build tree, where Python looks for an
-  extension's libraries. Debug builds link the release Python library.
-- **Multi-configuration generators** (not yet verified): every configuration builds into the same
+- **Windows** (verified by CI, Release and Debug, with CPython 3.12, where every third-party
+  library is static, so no third-party DLL is copied): the extension's suffix is `.pyd`, and
+  `praenora_runtime.dll` and the third-party DLLs are copied beside it in the build tree, where
+  Python looks for an extension's libraries. Debug builds link the release Python library.
+- **Multi-configuration generators** (verified by CI with Visual Studio, one configuration per
+  tree; Xcode and Ninja Multi-Config not yet verified): every configuration builds into the same
   package directory, so `PYTHONPATH` stays `build/<preset>/python`.

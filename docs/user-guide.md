@@ -88,10 +88,12 @@ Each archive needs:
 | `linux-x86_64` | A glibc and a libstdc++ at least as new as those of Ubuntu 24.04, on which it is built (not yet verified). |
 | `windows-x86_64` | Windows 10 or newer and the Microsoft Visual C++ runtime of Visual Studio 2022 (the Visual C++ Redistributable for Visual Studio 2015–2022, x64), whose DLLs the runtime loads; the `debug` archive needs the debug runtime, which comes with Visual Studio, not with the Redistributable (not yet verified). |
 
-Such an archive was made and run on macOS arm64 from a local build; the archives of Linux and
-Windows are not yet verified. The releases `v<version>` of the repository on GitHub are to hold one
-archive per platform key with its `.sha256` file, made by the workflow of
-[releasing.md](releasing.md); no release has been made yet.
+Such an archive was made and run on macOS arm64 from a local build. The workflow of
+[releasing.md](releasing.md) makes one per platform key and checks that it needs only the system's
+libraries, and its release job runs the Linux archive's tool
+([releasing.md](releasing.md#what-the-runs-verified)). The releases `v<version>` of the repository
+on GitHub hold one archive per platform key with its `.sha256` file; the first, v0.2.0, was
+published on 2026-11-22.
 
 ## Commands
 

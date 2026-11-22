@@ -32,11 +32,12 @@ service `praenora.model-conversion@0`
 ([docs/specs/model-conversion-service.md](docs/specs/model-conversion-service.md)). Their
 providers are optional. `roadrunner`, which simulates SBML models with libRoadRunner, is built only
 with `-DPRAENORA_WITH_ROADRUNNER=ON` and an installed libRoadRunner 2.11 with its LLVM
-([docs/platforms.md](docs/platforms.md#the-roadrunner-provider)), and is verified on macOS arm64
-with libRoadRunner 2.11.0 and LLVM 13.0.1. `antimony`, which translates Antimony to SBML and back
-with libAntimony, is built only with `-DPRAENORA_WITH_ANTIMONY=ON` and libAntimony 3.3 built from
-source ([docs/platforms.md](docs/platforms.md#the-antimony-provider)), and is verified on macOS
-arm64 with libAntimony 3.3.0.
+([docs/platforms.md](docs/platforms.md#the-roadrunner-provider)), and is verified with
+libRoadRunner 2.11.0 and LLVM 13.0.1 on macOS arm64 and, by CI, on Linux x86-64 and Windows x86-64.
+`antimony`, which translates Antimony to SBML and back with libAntimony, is built only with
+`-DPRAENORA_WITH_ANTIMONY=ON` and libAntimony 3.3 built from source
+([docs/platforms.md](docs/platforms.md#the-antimony-provider)), and is verified with libAntimony
+3.3.0 on the same platforms.
 
 Then process isolation: a step's module instance can run in a module host
 (`praenora-module-host`), a process of its own with the service providers its module uses, so that
@@ -45,24 +46,28 @@ module host. Steps in module hosts can share compiled models through a store in 
 process, and on macOS a module host can apply a restricted sandbox profile to itself: no network,
 no new processes and no writes outside its own temporary directory
 ([docs/specs/process-isolation.md](docs/specs/process-isolation.md)). Modules do not change, and
-neither do the results. It is verified on macOS arm64; Windows does not have it in this version.
+neither do the results. It is verified on macOS arm64 and, by CI, on Linux x86-64; Windows does
+not have it in this version.
 
 | Platform | Status |
 |---|---|
-| macOS arm64 (AppleClang) | verified |
-| Linux x86-64 (GCC, Clang) | presets and portable code; not yet verified |
-| Windows x86-64 (Visual Studio 2022) | presets and portable code; not yet verified |
+| macOS arm64 (AppleClang) | verified, locally and by CI |
+| Linux x86-64 (GCC, Clang) | verified by CI with GCC 13.3 in a Release build; the other presets and Clang not yet verified |
+| Windows x86-64 (Visual Studio 2022) | verified by CI in Release and Debug builds; libraries from vcpkg or conda-forge not yet verified |
 
-Not yet verified anywhere: downloading dependencies in fetch mode, and a Python wheel build that
-downloads its build requirements (a wheel built offline is verified on macOS arm64).
+Fetch mode is verified by CI for yaml-cpp, spdlog and GoogleTest
+([docs/releasing.md](docs/releasing.md#what-the-runs-verified)). Not yet verified anywhere:
+downloading nlohmann/json and json-schema-validator in fetch mode (CI takes them from the bundle),
+and a Python wheel build that downloads its build requirements (a wheel built offline is verified
+on macOS arm64).
 WebAssembly and compiling module code through libRoadRunner are designs only
 ([feasibility designs](docs/index.md#feasibility-designs)).
 
 A GitHub Actions workflow builds and tests every pull request to `main` on the four platform keys
 of the dependency bundles (Linux x86-64, macOS arm64, Windows x86-64 Release and Debug), against
 the pinned bundles of praenora-runtime-deps, and drafts the releases, with an archive per platform
-([docs/releasing.md](docs/releasing.md)). It is written but has not run yet, so its Linux and
-Windows builds are not yet verified, and no release has been made.
+([docs/releasing.md](docs/releasing.md)). It first passed on every platform key on 2026-11-22,
+and the first release, v0.2.0, was published from it the same day.
 
 ## Quick start
 
@@ -95,8 +100,10 @@ ctest --preset dev
 ./build/dev/bin/praenora version
 ```
 
-**Linux** (not yet verified) runs the same commands. **Windows** (not yet verified) builds with
-Visual Studio, whose builds are multi-configuration:
+**Linux** runs the same commands (CI verifies the `ci-linux-x64-release` preset; a `dev` preset
+on Linux is not yet verified). **Windows** builds with Visual Studio, whose builds are
+multi-configuration (CI verifies the `ci-windows-x64-*` presets; a `dev` preset on Windows is not
+yet verified):
 
 ```bat
 cmake --preset dev

@@ -4,9 +4,11 @@
   `PRAENORA_PROVIDER_ABI_MINOR` 0); document format `provider-manifest` 0.1.0 (schema
   [`provider-manifest.0.1.schema.json`](../../spec/schemas/provider-manifest.0.1.schema.json));
   service requirements in `module-manifest` 0.2.0 and services in the `run-record` 0.2.0
-- **Status:** Normative. Proposed ([ADR-0026](../adr/ADR-0026-runtime-service-providers.md)). The
-  provider interface is internal to the runtime: it is built only in this repository, never
-  installed, and may change with any runtime release.
+- **Status:** Normative. Service providers as ADR-0026 decides them are Accepted; the details its
+  builder notes add, and the [Provider interface](#provider-interface), are Proposed
+  ([ADR-0026](../adr/ADR-0026-runtime-service-providers.md)). The provider interface is internal
+  to the runtime: it is built only in this repository, never installed, and may change with any
+  runtime release.
 - **Requirement keywords:** MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are used as described in
   [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119).
 

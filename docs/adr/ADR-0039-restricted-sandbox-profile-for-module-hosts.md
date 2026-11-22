@@ -1,6 +1,6 @@
 # ADR-0039: A restricted sandbox profile for module hosts
 
-- Status: Proposed
+- Status: Accepted (scope noted in Decision)
 - Date: 2026-11-20
 - Supersedes: none
 - Superseded by: none
@@ -22,6 +22,15 @@ another (`EPERM`). Linux and Windows have other mechanisms (seccomp, Landlock; j
 AppContainer), which this version does not use.
 
 ## Decision
+
+Status split: the restricted profile on macOS is Accepted, by the maintainer on 2026-11-22: **A
+per-step setting**, **The profile**, **What it is not**, **Applied by the module host, first**,
+**The module host's own temporary directory** and **Failure**. That only macOS has the profile is
+this version's limit, as in the bullet **Platforms** of
+[ADR-0037](ADR-0037-process-isolation-of-module-instances.md); how Linux and Windows get one is
+OQ-31. Proposed: **Not verified for signed programs**, whose entitlements are documented and not
+verified (OQ-13), and the builder notes. It resolves no open question: OQ-13, OQ-19 and OQ-31 stay
+open.
 
 - **A per-step setting.** The configuration's `isolation` object gains the field `sandbox`, `"none"`
   (the default) or `"restricted"` (`workflow-config` 0.1, changed in place), resolved field by

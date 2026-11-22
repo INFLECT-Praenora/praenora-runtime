@@ -3,7 +3,9 @@
 - **Version:** service `praenora.simulation` 0.0 (`PRAENORA_SIMULATION_SERVICE_MAJOR` 0,
   `PRAENORA_SIMULATION_SERVICE_MINOR` 0), declared in
   [`simulation.h`](../../include/praenora/sdk/simulation.h) of the module SDK 0.2.0
-- **Status:** Normative. Proposed ([ADR-0027](../adr/ADR-0027-simulation-service-v0.md)).
+- **Status:** Normative. The service as ADR-0027 decides it is Accepted; the details its builder
+  notes add, and [The roadrunner provider](#the-roadrunner-provider), are Proposed
+  ([ADR-0027](../adr/ADR-0027-simulation-service-v0.md)).
 - **Requirement keywords:** MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are used as described in
   [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119).
 

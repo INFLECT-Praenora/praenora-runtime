@@ -1,15 +1,26 @@
 # ADR-0021: Runtime services through the host API; libRoadRunner simulation service deferred
 
-- Status: Proposed
+- Status: Accepted (scope noted in Decision)
 - Date: 2026-11-10
 - Supersedes: none
-- Superseded by: none
+- Superseded by: none (amended by [ADR-0026](ADR-0026-runtime-service-providers.md),
+  [ADR-0027](ADR-0027-simulation-service-v0.md) and
+  [ADR-0035](ADR-0035-model-conversion-service-v0.md))
 
 ## Context
 
 Some modules will need shared facilities, for example simulating a model from a standard model description, which are heavy dependencies not suited to each module bundling its own. The project wants a runtime-service mechanism and a designed, but not built, libRoadRunner service.
 
 ## Decision
+
+Status split: the mechanism is Accepted, by the maintainer on 2026-11-22: the registry and
+`get_service()` of the first bullet, and the test-only service `test.gate` of the second. The plans
+of the other bullets were amended by later records and are kept here as written:
+[ADR-0026](ADR-0026-runtime-service-providers.md) offers engines from service providers instead of
+linking libRoadRunner into the runtime, [ADR-0027](ADR-0027-simulation-service-v0.md) specifies the
+simulation service and decides the shape of its API, which resolves OQ-16, and
+[ADR-0035](ADR-0035-model-conversion-service-v0.md) specifies the model conversion service and its
+provider `antimony`. The builder notes are Proposed.
 
 - The host keeps a registry mapping a service name and major version to a function table, exposed through `host_api.get_service(context, name, name_size, service_abi_major)`, which returns NULL if unavailable. Service tables are C structs with the same header convention as module tables. Each use is logged in the trace.
 - The MVP registers no production services. Tests register a test-only service, `test.gate`, which also drives the unresponsive-module test deterministically.

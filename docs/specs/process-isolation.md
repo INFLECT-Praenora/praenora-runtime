@@ -1,7 +1,15 @@
 # Process isolation of module instances
 
 - **Version:** runtime 0.2.0; module ABI 0.0, which does not change
-- **Status:** Normative. Proposed
+- **Status:** Normative. That a step's module instance can run in a module host of its own,
+  chosen per step and with its providers, where its crash fails only that step and a call that
+  never returns is killed, is Accepted
+  ([ADR-0037](../adr/ADR-0037-process-isolation-of-module-instances.md), in part), and so are
+  sharing compiled models between such steps, opt-in per step, through a bounded store in the
+  runtime's process ([ADR-0038](../adr/ADR-0038-shared-compiled-models-between-module-hosts.md),
+  in part), and the restricted sandbox profile on macOS
+  ([ADR-0039](../adr/ADR-0039-restricted-sandbox-profile-for-module-hosts.md), in part); the rest
+  is Proposed
   ([ADR-0037](../adr/ADR-0037-process-isolation-of-module-instances.md),
   [ADR-0038](../adr/ADR-0038-shared-compiled-models-between-module-hosts.md),
   [ADR-0039](../adr/ADR-0039-restricted-sandbox-profile-for-module-hosts.md)). The channel between
@@ -569,7 +577,7 @@ as `stopped` (`RUN_STOPPED`). A stop requested before the step's load starts no 
 | Platform | Process isolation | The restricted profile |
 |---|---|---|
 | macOS | Available; verified on arm64. | Available (`sandbox_init()`), outside another sandbox. |
-| Linux | Written for, not yet verified: `PR_SET_PDEATHSIG` (module hosts are started from one thread of the runtime's own, which lasts as long as the process), `MSG_NOSIGNAL`, bounded writes sent with `MSG_DONTWAIT`, and the module host closes the descriptors above 3 itself. | Not available in this version: validation refuses it (`UNSUPPORTED`); loading under it fails with `MODULE_HOST_UNAVAILABLE`, `details.reason` `sandbox`. |
+| Linux | Available; its tests pass on x86-64 in CI ([releasing.md](../releasing.md#what-the-runs-verified)), though none there checks the closing of descriptors, which is tested on macOS only. It uses `PR_SET_PDEATHSIG` (module hosts are started from one thread of the runtime's own, which lasts as long as the process), `MSG_NOSIGNAL`, bounded writes sent with `MSG_DONTWAIT`, and the module host closes the descriptors above 3 itself. | Not available in this version: validation refuses it (`UNSUPPORTED`); loading under it fails with `MODULE_HOST_UNAVAILABLE`, `details.reason` `sandbox`. |
 | Windows | Not available in this version: validation refuses a step in mode `process` (`UNSUPPORTED`); loading in a module host fails with `MODULE_HOST_UNAVAILABLE`, `details.reason` `spawn`; and the module host is not built. | Not available. |
 
 Process isolation and a restricted profile on Linux and Windows are an open question

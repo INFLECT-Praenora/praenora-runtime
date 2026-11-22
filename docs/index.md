@@ -32,7 +32,8 @@
   search, code signing, the module host and the restricted sandbox profile, and what is verified
   where.
 - [releasing.md](releasing.md): the GitHub Actions workflow that builds and tests every pull
-  request against the pinned dependency bundles, its jobs and runners, raising the pin, the
+  request against the pinned dependency bundles, what its runs verified, its jobs and runners,
+  raising the pin, the
   required checks and repository settings, and the release procedure
   ([ADR-0041](adr/ADR-0041-ci-and-releases-against-pinned-dependency-bundles.md)).
 

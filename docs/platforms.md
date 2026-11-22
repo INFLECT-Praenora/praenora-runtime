@@ -1,24 +1,29 @@
 # Platforms
 
 `praenora-runtime` is written for Linux x86-64, Windows x86-64 and macOS arm64, with presets,
-portable code and commands for each. This build has been verified on macOS arm64 only; the Linux
-and Windows commands below are given as they should work and are marked "not yet verified".
+portable code and commands for each. It is verified on macOS arm64 locally and by CI, and by CI
+on Linux x86-64 and Windows x86-64 with the CI presets
+([releasing.md](releasing.md#what-the-runs-verified)); the other Linux and Windows commands below
+are given as they should work and are marked "not yet verified".
 
 ## Verification status
 
 | Platform | Compiler | Status |
 |---|---|---|
-| macOS arm64 (macOS 15) | AppleClang 17 | Verified: configure, build without warnings, and every test in the `dev` (Debug), `dev-release`, `dev-asan` and `dev-tsan` builds; an installation, moved; the Python bindings with CPython 3.12; a Python wheel built offline and installed into a fresh virtual environment ([python.md](python.md#building-a-wheel)); the roadrunner provider with libRoadRunner 2.11.0 and LLVM 13.0.1, every test in a Debug build and the labels `unit`, `contract`, `negative`, `lifecycle`, `integration` and `install` in a ThreadSanitizer build ([The roadrunner provider](#the-roadrunner-provider)); the antimony provider with libAntimony 3.3.0 built from source, every test in a Debug build and in a Debug build with both providers, and the labels `unit`, `contract` and `integration` in a ThreadSanitizer build ([The antimony provider](#the-antimony-provider)); process isolation in module hosts, with the shared compiled models and the restricted sandbox profile, whose tests run outside any other sandbox ([specs/process-isolation.md](specs/process-isolation.md)); the `ci-macos-arm64-release` preset against a dependency bundle built locally, with installed yaml-cpp, spdlog and GoogleTest instead of fetched ones ([The CI presets](#the-ci-presets)). |
-| Linux x86-64 | GCC 9+, Clang 10+ | Presets, a CI preset and portable code. A job of the CI workflow builds and tests the `ci-linux-x64-release` preset with GCC 13 on `ubuntu-24.04` ([releasing.md](releasing.md#the-workflow)), but it has not run yet: not yet verified. |
-| Windows x86-64 | MSVC 19.29+ (Visual Studio 2022) | Presets, CI presets and portable code. Two jobs of the CI workflow build and test the `ci-windows-x64-release` and `ci-windows-x64-debug` presets with Visual Studio 2022 on `windows-2022` ([releasing.md](releasing.md#the-workflow)), but they have not run yet: not yet verified. |
+| macOS arm64 (macOS 15; macOS 26 in CI) | AppleClang 17; AppleClang 21 in CI | Verified: configure, build without warnings, and every test in the `dev` (Debug), `dev-release`, `dev-asan` and `dev-tsan` builds; an installation, moved; the Python bindings with CPython 3.12; a Python wheel built offline and installed into a fresh virtual environment ([python.md](python.md#building-a-wheel)); the roadrunner provider with libRoadRunner 2.11.0 and LLVM 13.0.1, every test in a Debug build and the labels `unit`, `contract`, `negative`, `lifecycle`, `integration` and `install` in a ThreadSanitizer build ([The roadrunner provider](#the-roadrunner-provider)); the antimony provider with libAntimony 3.3.0 built from source, every test in a Debug build and in a Debug build with both providers, and the labels `unit`, `contract` and `integration` in a ThreadSanitizer build ([The antimony provider](#the-antimony-provider)); process isolation in module hosts, with the shared compiled models and the restricted sandbox profile, whose tests run outside any other sandbox ([specs/process-isolation.md](specs/process-isolation.md)); the `ci-macos-arm64-release` preset against a dependency bundle built locally, with installed yaml-cpp, spdlog and GoogleTest instead of fetched ones ([The CI presets](#the-ci-presets)); and by CI, the `ci-macos-arm64-release` preset with AppleClang 21 on `macos-26`, against the dependency bundle, with fetched yaml-cpp, spdlog and GoogleTest: every test, those of the restricted sandbox profile included, and the archive ([releasing.md](releasing.md#what-the-runs-verified)). |
+| Linux x86-64 | GCC 9+, Clang 10+ | Presets, a CI preset and portable code. Verified by CI ([releasing.md](releasing.md#what-the-runs-verified)): the `ci-linux-x64-release` preset with GCC 13.3 on `ubuntu-24.04`, against the dependency bundle: configure, build without warnings, and every test, with both providers, process isolation in module hosts, the Python bindings with CPython 3.12, the install tests and the archive (15 tests skip: the 12 of the restricted sandbox profile, which exists only on macOS, and 3 that need what the runner lacks). Not yet verified: the `linux-x64-debug`, `linux-x64-asan` and `linux-x64-tsan` presets, Clang, older GCC, and the distributions' packages ([Linux](#linux)). |
+| Windows x86-64 | MSVC 19.29+ (Visual Studio 2022) | Presets, CI presets and portable code. Verified by CI ([releasing.md](releasing.md#what-the-runs-verified)): the `ci-windows-x64-release` and `ci-windows-x64-debug` presets with MSVC 19.44 (Visual Studio 2022) on `windows-2022`, against the dependency bundles: configure, build without warnings, and every test, with both providers, the Python bindings with CPython 3.12, the install tests and the archives (5 tests skip, which Windows cannot run). Process isolation is not available on Windows in this version. Not yet verified: older MSVC, and libraries from vcpkg or conda-forge ([Windows](#windows)). |
 
-Not yet verified on any platform: downloading dependencies in fetch mode (every dependency was
-installed where this was checked, so nothing was downloaded), and with it the fetched projects'
-option names that keep their libraries static and their install rules off
-([ADR-0017](adr/ADR-0017-dependency-management.md)); building a Python wheel that downloads its
-build requirements (an offline wheel build is verified on macOS arm64); Python 3.10 and 3.11;
-and multi-configuration generators (Visual Studio, Xcode, Ninja Multi-Config). macOS x86-64 is not
-a target.
+Fetch mode is verified by CI for yaml-cpp, spdlog and GoogleTest, which the CI presets download
+and build ([The CI presets](#the-ci-presets)), and the fetched yaml-cpp and spdlog end up static
+libraries: the archive check finds no library of theirs. Which of the settings of
+[ADR-0017](adr/ADR-0017-dependency-management.md) brings that about, and that the fetched
+projects' install rules are off, no test shows. Not yet verified on any platform: downloading
+nlohmann/json and json-schema-validator in fetch mode (CI takes them from the bundle); building a
+Python wheel that downloads its build requirements (an offline wheel build is verified on macOS
+arm64); Python 3.10 and 3.11; and the multi-configuration generators Xcode and Ninja Multi-Config
+(Visual Studio's is verified by CI on Windows, one configuration per tree). macOS x86-64 is not a
+target.
 
 ## Common to every platform
 
@@ -145,14 +150,16 @@ takes the libraries of the same names from `LLVM_INSTALL_PREFIX` instead
   or, if LLVM's MCJit memory manager does not use `MAP_JIT`,
   `com.apple.security.cs.allow-unsigned-executable-memory`. Neither is verified with such a host
   yet.
-- **Linux.** Not yet verified. The export list is a version script; the upstream `manylinux_2_28`
-  and `ubuntu-24` archives are the candidates.
-- **Windows.** Not yet verified. The upstream `windows-msvc18` archives may need newer build tools
-  than Visual Studio 2022 (a static library must be linked by tools at least as new as those that
-  built it); the Windows dependency bundles are built with Visual Studio 2022
-  ([The CI presets](#the-ci-presets)). A bundle keeps some of libRoadRunner's packages in
-  `<RR>/cmake`, which goes into `CMAKE_PREFIX_PATH` too. On Windows the finder loads libSBML's
-  package under the name `libsbml-static` (not `sbml-static`), sets `EXPAT_LIBRARY` and
+- **Linux.** Built and tested by CI against the dependency bundle, with GCC 13.3 on Ubuntu 24.04
+  ([releasing.md](releasing.md#what-the-runs-verified)). The export list is a version script,
+  which `providers.roadrunner.exports` checks. The upstream `manylinux_2_28` and `ubuntu-24`
+  archives are not yet verified.
+- **Windows.** Built and tested by CI against the dependency bundles, Release and Debug, which are
+  built with Visual Studio 2022 ([The CI presets](#the-ci-presets)). The upstream `windows-msvc18`
+  archives may need newer build tools than Visual Studio 2022 (a static library must be linked by
+  tools at least as new as those that built it); not yet verified. A bundle keeps some of
+  libRoadRunner's packages in `<RR>/cmake`, which goes into `CMAKE_PREFIX_PATH` too. On Windows
+  the finder loads libSBML's package under the name `libsbml-static` (not `sbml-static`), sets `EXPAT_LIBRARY` and
   `EXPAT_INCLUDE_DIR` from expat's package before it (libSBML's package looks for expat with a
   `FindEXPAT` module, which need not find the bundle's expat, `libexpatMD.lib` or
   `libexpatdMD.lib`, by itself), and gives libSBML's target the definitions `LIBSBML_STATIC` and
@@ -239,11 +246,13 @@ links a copy of libSBML of its own; a process that loads both holds two.
   macOS 14: a build with the provider needs `CMAKE_OSX_DEPLOYMENT_TARGET` 14.0 or later (15.0 where
   this was checked). The provider library is a `.so` bundle, about 12 MB in a Debug build and about
   8 MB stripped, that needs only libSystem and libc++, and exports only `praenora_provider_get_api`.
-- **Linux.** Not yet verified. The export list is a version script; SBMLNetwork needs `libdl`,
-  which the build adds.
-- **Windows.** Not yet verified. The static libraries have other names there:
-  `libantimony-static.lib`, and `libsbmlnetwork-staticmd.lib` (`libsbmlnetwork-staticmdd.lib` for
-  Debug) in a dependency bundle, which the finder searches for too. libSBML's package is
+- **Linux.** Built and tested by CI against the dependency bundle, with GCC 13.3 on Ubuntu 24.04
+  ([releasing.md](releasing.md#what-the-runs-verified)). The export list is a version script,
+  which `providers.antimony.exports` checks; SBMLNetwork needs `libdl`, which the build adds.
+- **Windows.** Built and tested by CI against the dependency bundles, Release and Debug
+  ([releasing.md](releasing.md#what-the-runs-verified)). The static libraries have other names
+  there: `libantimony-static.lib`, and `libsbmlnetwork-staticmd.lib`
+  (`libsbmlnetwork-staticmdd.lib` for Debug) in a dependency bundle, which the finder searches for too. libSBML's package is
   `libsbml-static`, loaded after expat's location is set, and its target gets `LIBSBML_STATIC` and
   `LIBLAX_STATIC`, as for the roadrunner provider. libAntimony's header (`libutil.h`) declares its
   functions for import from a DLL unless `LIB_EXPORTS` is defined, so the provider's sources and
@@ -278,14 +287,15 @@ warnings as errors ([developer-guide.md](developer-guide.md#ci-presets) lists wh
 
 | Preset | Bundle | Inherits | Status |
 |---|---|---|---|
-| `ci-linux-x64-release` | `linux-x64-release` | `linux-x64-release` | Not yet verified. |
-| `ci-macos-arm64-release` | `macos-arm64-release` | `macos-arm64-release`, with `CMAKE_OSX_DEPLOYMENT_TARGET` 14.0, the bundle's | Configure, build without warnings and every test, against a bundle built locally with AppleClang 17, with Homebrew's yaml-cpp, spdlog and GoogleTest instead of fetched ones, and so with their deployment target, 15.0 ([developer-guide.md](developer-guide.md#ci-presets)). Fetched ones are not yet verified. |
-| `ci-windows-x64-release` | `windows-x64-release` | `windows-x64-release`, with `CMAKE_TRY_COMPILE_CONFIGURATION` Release | Not yet verified. |
-| `ci-windows-x64-debug` | `windows-x64-debug` | `windows-x64-debug`, with `CMAKE_TRY_COMPILE_CONFIGURATION` Debug | Not yet verified. |
+| `ci-linux-x64-release` | `linux-x64-release` | `linux-x64-release` | Verified by CI: configure, build without warnings and every test, with GCC 13.3 and fetched yaml-cpp, spdlog and GoogleTest. |
+| `ci-macos-arm64-release` | `macos-arm64-release` | `macos-arm64-release`, with `CMAKE_OSX_DEPLOYMENT_TARGET` 14.0, the bundle's | Verified by CI: configure, build without warnings and every test, with AppleClang 21 and fetched yaml-cpp, spdlog and GoogleTest. Locally also against a bundle built with AppleClang 17, with Homebrew's yaml-cpp, spdlog and GoogleTest instead of fetched ones, and so with their deployment target, 15.0 ([developer-guide.md](developer-guide.md#ci-presets)). |
+| `ci-windows-x64-release` | `windows-x64-release` | `windows-x64-release`, with `CMAKE_TRY_COMPILE_CONFIGURATION` Release | Verified by CI: configure, build without warnings and every test, with MSVC 19.44 and fetched yaml-cpp, spdlog and GoogleTest. |
+| `ci-windows-x64-debug` | `windows-x64-debug` | `windows-x64-debug`, with `CMAKE_TRY_COMPILE_CONFIGURATION` Debug | Verified by CI, as for Release. |
 
 The jobs of the CI workflow, `.github/workflows/build.yml`, run these presets, each on the runner
-image of its bundle's job in praenora-runtime-deps ([releasing.md](releasing.md#the-workflow)); none
-has run yet, so the table above shows only what was checked locally.
+image of its bundle's job in praenora-runtime-deps ([releasing.md](releasing.md#the-workflow)); what
+their runs of 2026-11-22 verified, with the tests that skip on each platform, is in
+[releasing.md](releasing.md#what-the-runs-verified).
 
 The environment variable `PRAENORA_RUNTIME_DEPS` names the bundle's directory; a configuration with
 one of these presets stops when it does not name a bundle. On Windows, the bundle's
@@ -378,7 +388,10 @@ that an engine such as libRoadRunner can generate code, and
 
 ## Linux
 
-Not yet verified: nothing in this section has been built or run.
+CI builds and tests the `ci-linux-x64-release` preset, which inherits `linux-x64-release`, and its
+install tests run the installed tool through its run paths, before and after the installation is
+moved ([The CI presets](#the-ci-presets)). The rest of this section is not yet verified: the
+distributions' packages, the other presets and the commands below.
 
 **Dependencies.** Distribution packages provide everything except json-schema-validator, which is
 built from source ([json-schema-validator](#json-schema-validator)):
@@ -419,13 +432,17 @@ ldd "${TMPDIR:-/tmp}/praenora-install/bin/praenora"
 
 Thread names are cut to 15 bytes, so long step names are shortened in a debugger.
 
-Process isolation is written for Linux and not yet verified; the restricted sandbox profile of a
-module host is not available on Linux in this version (validation refuses `sandbox: restricted`
-with `UNSUPPORTED`).
+Process isolation in module hosts is verified on Linux x86-64 by CI; the restricted sandbox
+profile of a module host is not available on Linux in this version (validation refuses
+`sandbox: restricted` with `UNSUPPORTED`).
 
 ## Windows
 
-Not yet verified: nothing in this section has been built or run.
+CI builds and tests the `ci-windows-x64-release` and `ci-windows-x64-debug` presets, which inherit
+`windows-x64-release` and `windows-x64-debug`, with Visual Studio 2022, and their install tests run
+the installed tool, before and after the installation is moved
+([The CI presets](#the-ci-presets)). The rest of this section is not yet verified: libraries from
+vcpkg or conda-forge, `dev*` presets that inherit the Windows presets, and the commands below.
 
 **Toolchain and dependencies.** Visual Studio 2022 with the C++ workload, CMake 3.24 or newer, and
 the libraries from vcpkg or conda-forge (json-schema-validator built from source where they do not

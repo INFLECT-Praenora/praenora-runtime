@@ -111,9 +111,10 @@ the provider's tests pins names the test.
   (`__declspec(dllimport)`) on Windows unless its own build defines `LIB_EXPORTS` [A19], so the
   provider's sources and the finder's probe are compiled with `LIB_EXPORTS` there, and libSBML's
   target gets `LIBSBML_STATIC` and `LIBLAX_STATIC`, as the dependency bundles' documentation
-  advises ([platforms.md](../platforms.md#the-antimony-provider)); not yet verified, as the
-  provider has not been built on Windows.
-- **Linux.** SBMLNetwork needs `libdl`, which the provider's build adds (not built on Linux).
+  advises ([platforms.md](../platforms.md#the-antimony-provider)); verified by CI, which builds
+  and tests the provider on Windows against the dependency bundles.
+- **Linux.** SBMLNetwork needs `libdl`, which the provider's build adds (built and tested on Linux
+  by CI).
 
 ### The C API
 
@@ -319,8 +320,8 @@ it, and libAntimony then opens `f`.
 | Platform | Project presets | Upstream libAntimony 3.3.0 binaries [A3] | Notes |
 |---|---|---|---|
 | macOS arm64 | `macos-arm64-*` | `macosx_14_0_arm64` Python wheel | Built and tested ([platforms.md](../platforms.md#the-antimony-provider)): libAntimony from source against the release binaries of libRoadRunner 2.11.0, for macOS 14.0. |
-| Linux x86-64 | `linux-x64-*` | `manylinux_2_28_x86_64` Python wheel | Not built. The provider's export list is a version script there, and SBMLNetwork needs `libdl`. |
-| Windows x86-64 | `windows-x64-*` | `win_amd64` Python wheel | Not built. libAntimony builds with MSVC x64 [A1]; its header declares its functions for import from a DLL ([Build and link](#build-and-link)). Keep the shared MSVC runtime; the provider frees libAntimony's memory only through `freeAll()`. |
+| Linux x86-64 | `linux-x64-*` | `manylinux_2_28_x86_64` Python wheel | Built and tested by CI against the dependency bundle ([releasing.md](../releasing.md#what-the-runs-verified)). The provider's export list is a version script there, which `providers.antimony.exports` checks, and SBMLNetwork needs `libdl`. |
+| Windows x86-64 | `windows-x64-*` | `win_amd64` Python wheel | Built and tested by CI against the dependency bundles ([releasing.md](../releasing.md#what-the-runs-verified)). libAntimony builds with MSVC x64 [A1]; its header declares its functions for import from a DLL ([Build and link](#build-and-link)). Keep the shared MSVC runtime; the provider frees libAntimony's memory only through `freeAll()`. |
 | macOS x86-64 | none | `macosx_15_0_x86_64` Python wheel | Not a project platform. |
 | Linux arm64, Windows arm64 | none | none listed | Building from source should be possible (unverified). |
 
@@ -403,7 +404,7 @@ documents (unverified how libAntimony resolves them).
 | Another copy of libAntimony in the process | Races between the provider and a module that links libAntimony | The provider's copy is static and hidden behind its export list; module authors use the service. |
 | libAntimony's switch of the process's locale | Code on another thread that formats or parses through the C locale sees `C` while a conversion runs | Stated in the specification; the runtime does not depend on the locale; the provider cannot prevent it. |
 | Long translations under one lock | Calls wait; deadlines pass while they wait | A cancellable wait; conversions in `create` or `initialize`; OQ-30. |
-| Linux and Windows builds are not done | The provider exists on macOS arm64 only | Build and test there (OQ-29). |
+| Linux and Windows builds were not done | The provider existed on macOS arm64 only | Done: CI builds and tests it on Linux x86-64 and Windows x86-64 against the dependency bundles ([releasing.md](../releasing.md#what-the-runs-verified)). |
 | License discrepancy (BSD-3-Clause or MIT), a statically linked LGPL-2.1 libSBML, SBMLNetwork and expat unchecked | Distribution blocked or obligations unmet | Ask upstream; a license review with the simulation service's (OQ-1, OQ-13, OQ-27, OQ-29). |
 | Models with distributions | They convert to SBML only | Stated in the specification and tested; exempting distrib from the rule `package` would be a decision of its own. |
 
@@ -417,9 +418,16 @@ remains:
 
 1. **Other platforms.** Build the provider on Linux x86-64 and Windows x86-64 and run its tests.
    *Exit:* the same tests pass, and the Windows import declaration and the Linux export list are
-   confirmed or corrected here (OQ-29).
+   confirmed or corrected here (OQ-29). Done by CI against the dependency bundles
+   ([releasing.md](../releasing.md#what-the-runs-verified)): the tests pass on both, the Linux
+   export list is confirmed by `providers.antimony.exports`, and the Windows build with
+   `LIB_EXPORTS` links and runs.
 2. **Determinism elsewhere.** Run `providers.antimony.processes` on a second machine and on the
-   other platforms. *Exit:* identical bytes, or the differences recorded.
+   other platforms. *Exit:* identical bytes, or the differences recorded. On the other platforms,
+   done by CI: on Linux x86-64 and Windows x86-64 two processes print the same bytes, and the
+   provider's tests, which compare conversions byte for byte with the committed expected outputs
+   of `tests/fixtures/models/antimony/`, pass there as on macOS, so those conversions give the same
+   bytes on all three platforms. A second machine of one platform is not compared.
 3. **License review.** *Exit:* a written answer on libAntimony's license, on linking libSBML, and on
    SBMLNetwork and expat, recorded in an ADR before the provider is distributed (OQ-29).
 4. **A new libAntimony.** Before the build accepts a version other than 3.3.x, read its lexer and

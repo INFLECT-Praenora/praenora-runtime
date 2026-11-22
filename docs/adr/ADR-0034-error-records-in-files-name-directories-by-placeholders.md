@@ -73,7 +73,8 @@ on the machine where the run happens, who needs the absolute paths to find the f
     search paths in search order, the provider search paths in search order, home.
   - A string is scanned from left to right; replaced text is never scanned again.
   - On Windows `/` and `\` are both separators, either matching the other, and letters are
-    compared without regard to ASCII case (not yet verified).
+    compared without regard to ASCII case (verified by CI on Windows:
+    `PathAnchors.OnWindowsBothSeparatorsMatchAndCaseDoesNotMatter`).
 - **Where.** The parts of an error record that can name files: `message`, `location.file`, and
   every string of `details` and of `cause`, however deeply nested; never an object key, never a
   value that is not a string, and never the record's `name`, `code`, `tick`, `at` or

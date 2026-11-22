@@ -43,7 +43,9 @@ cmake --preset dev -DPRAENORA_FETCH_DEPENDENCIES=ON
 ```
 
 With every package installed, as where this was run, that configuration finds them all and downloads
-nothing; an actual download is not yet verified. `PRAENORA_FETCH_JSON_SCHEMA_VALIDATOR=ON` is the
+nothing. An actual download is verified by CI for yaml-cpp, spdlog and GoogleTest, which the CI
+presets download ([CI presets](#ci-presets)), and not yet for nlohmann/json and
+json-schema-validator. `PRAENORA_FETCH_JSON_SCHEMA_VALIDATOR=ON` is the
 one option that builds a dependency even when it is installed: json-schema-validator, from its
 pinned sources, downloaded unless a local copy is named, so that sanitizer builds instrument it
 ([Sanitizer builds](#sanitizer-builds)). Configuring prints one line per dependency, saying where it
@@ -134,7 +136,8 @@ version (otherwise it unpacks it again). What a stopped run leaves (a partial do
 directory `.u-<id>/`) is removed by the next run. `-DBASE_URL=<url>` downloads `<url>/<archive>`
 instead of the archive in the release, for a mirror, and `-DPIN_FILE=<file>` reads another pin
 file. The test `ci.fetch_runtime_deps` ([testing.md](testing.md#labels)) runs the script on local
-archives; a download from the release is not yet verified.
+archives; a download from the release is verified by CI, whose jobs download their bundles with it
+([releasing.md](releasing.md#what-the-runs-verified)).
 
 **The bundle's compiler.** A bundle is built with one compiler, which its name gives (such as
 `appleclang21`; the manifest's `compiler` member gives its full version). Build the runtime with
@@ -181,7 +184,8 @@ directories and `<bundle>/llvm`, with `LLVM_INSTALL_PREFIX`
 ([The roadrunner provider](#the-roadrunner-provider)), and `dev-antimony-local`
 `<bundle>/roadrunner`, `<bundle>/roadrunner/lib/cmake` and `<bundle>/antimony`
 ([The antimony provider](#the-antimony-provider)). On Windows the list also holds
-`<bundle>/roadrunner/cmake` (not yet verified); the manifest's `consumer.cmake_prefix_path` lists
+`<bundle>/roadrunner/cmake` (not yet verified in a `dev-local` preset; the Windows CI presets'
+list holds it too); the manifest's `consumer.cmake_prefix_path` lists
 each platform's directories in their order. On macOS these are the directories of the presets
 with which this guide was checked, against a bundle built locally from praenora-runtime-deps.
 
@@ -215,10 +219,10 @@ errors. nlohmann/json and json-schema-validator come from the bundle, which is f
 installed, so that what a job builds does not depend on what its runner has installed: FetchContent
 first looks for an installed package with `find_package()` under the dependency's content name
 (`googletest` for GoogleTest; `CMAKE_DISABLE_FIND_PACKAGE_GTest` would have no effect), and the
-three `CMAKE_DISABLE_FIND_PACKAGE_<name>` variables turn those calls off. Their status lines should
-then read `fetched into` the tree's `_deps/<name>-src`; not yet verified, as no download was made
-where this was checked. The presets do not set `Python3_EXECUTABLE`: pass
-`-DPython3_EXECUTABLE=<python>` on the configure line, or FindPython takes the first suitable
+three `CMAKE_DISABLE_FIND_PACKAGE_<name>` variables turn those calls off. Their status lines then
+read `fetched into` the tree's `_deps/<name>-src`, as the CI jobs' logs show. The presets do not
+set `Python3_EXECUTABLE`: pass `-DPython3_EXECUTABLE=<python>` on the configure line, or
+FindPython takes the first suitable
 interpreter it finds.
 
 **The bundle check.** When the cache variable `PRAENORA_RUNTIME_DEPS` is defined, as these presets
@@ -266,7 +270,8 @@ Give these values again whenever you run `cmake --preset` on that tree. On macOS
 was checked this way, against a bundle built locally from praenora-runtime-deps with AppleClang 17
 and Homebrew's yaml-cpp, spdlog and GoogleTest: configure, build without warnings, and every test,
 those of the restricted sandbox profile from a shell outside any sandbox
-([testing.md](testing.md#module-hosts)). The Linux and Windows presets are not yet verified.
+([testing.md](testing.md#module-hosts)). CI verifies the four CI presets on their runners, with
+fetched yaml-cpp, spdlog and GoogleTest ([releasing.md](releasing.md#what-the-runs-verified)).
 
 ## Configure, build and test
 
@@ -421,14 +426,15 @@ A source archive is made from the repository, for example with `git archive`.
 The archive of a `ci-*` tree holds both providers and the license files of the dependency bundle.
 An archive never holds the shared libraries that the build found installed: its programs load them
 from where the build found them. A `ci-*` job builds yaml-cpp and spdlog in its tree as static
-libraries (not yet verified with downloaded sources), so its archive needs only the system's
-libraries, which the job checks after making it ([releasing.md](releasing.md#the-workflow); not
-yet verified on GitHub); a tree configured with Homebrew's yaml-cpp and spdlog, such as a local
+libraries, from downloaded sources, so its archive needs only the system's libraries, which the job
+checks after making it ([releasing.md](releasing.md#the-workflow); the check passed on every key);
+a tree configured with Homebrew's yaml-cpp and spdlog, such as a local
 `ci-macos-arm64-release` run with the overrides of [CI presets](#ci-presets), gives an archive
 whose programs need them in `/opt/homebrew`, and the job's check fails on it. Checked on macOS
 arm64 with Ninja (`ci-macos-arm64-release` with Homebrew's libraries, and `dev`) and with Ninja
-Multi-Config; the archives of Linux and Windows, and the target `PACKAGE` of Visual Studio, are not
-yet verified.
+Multi-Config; CI makes the archives of Linux and Windows, the latter with the target `PACKAGE` of
+Visual Studio, and `install.package` checks them there
+([releasing.md](releasing.md#what-the-runs-verified)).
 
 ### The roadrunner provider
 
@@ -784,8 +790,9 @@ Deprecated.
 - **Builder notes.** A call made while building that does not change what gets built goes into the
   relevant ADR as a bullet under "Builder notes (Proposed)" in its Decision section.
 - **Open questions.** A question that stays open has a row in
-  [open-questions.md](open-questions.md). Resolving one updates its row and adds or supersedes an
-  ADR.
+  [open-questions.md](open-questions.md). Resolving one needs an Accepted decision of the
+  maintainer (the linked ADR accepted, in full or in part, or an Accepted ADR that is new or
+  supersedes it) and updates its row, as the register's header says.
 
 Changes that come with obligations:
 

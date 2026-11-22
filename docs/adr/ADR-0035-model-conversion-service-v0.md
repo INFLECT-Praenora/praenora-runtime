@@ -288,8 +288,8 @@ which libRoadRunner's dependencies also provide.
 - The run fingerprint changes with the versions of libAntimony, libSBML and SBMLNetwork, which the
   build reads from the libraries themselves, and with the setting for function definitions.
 - Building the provider needs libAntimony built from source and, on macOS, a deployment target of
-  at least 14.0, the dependencies' own; it is verified on macOS arm64 only, and distributing it
-  needs a license review (OQ-29).
+  at least 14.0, the dependencies' own; it is verified locally on macOS arm64 and by CI on every
+  platform key against the dependency bundles, and distributing it needs a license review (OQ-29).
 - Open: hierarchical (`comp`) SBML output, CellML, a WebAssembly build, the simulation service
   reading Antimony itself, and a conversion command in the tool or the Python package
   ([feasibility/libantimony.md](../feasibility/libantimony.md#future-work)).

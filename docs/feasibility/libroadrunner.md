@@ -10,10 +10,12 @@
   Level C, compiling module code through libRoadRunner, is future work: neither specified nor
   built ([Level C](#level-c-compiling-through-roadrunner-future-work), OQ-28). Where this document
   and the specifications differ, the specifications hold.
-- **Decision records:** [ADR-0026](../adr/ADR-0026-runtime-service-providers.md) and
-  [ADR-0027](../adr/ADR-0027-simulation-service-v0.md) (Proposed), which amend
-  [ADR-0021](../adr/ADR-0021-runtime-services-through-host-api.md); the open questions OQ-16, OQ-27
-  and OQ-28 in [open-questions.md](../open-questions.md).
+- **Decision records:** [ADR-0026](../adr/ADR-0026-runtime-service-providers.md) (providers
+  Accepted, the provider interface Proposed) and
+  [ADR-0027](../adr/ADR-0027-simulation-service-v0.md) (the service Accepted, the provider
+  `roadrunner` Proposed), which amend
+  [ADR-0021](../adr/ADR-0021-runtime-services-through-host-api.md); the open questions OQ-16
+  (resolved), OQ-27 and OQ-28 in [open-questions.md](../open-questions.md).
 - **Sources:** facts from upstream documentation were checked on 2026-11-11 against libRoadRunner
   2.11.0 and are cited as [R1] to [R32]. Facts about the 2.11.0 release binaries and source were
   checked on 2026-11-16, when the provider was built, and are cited as [R33] to [R35]; [R36], an
@@ -241,8 +243,8 @@ specification), numbers only, so a module can pass the numeric parts of one thro
 | Platform | Project presets | libRoadRunner 2.11.0 binaries [R3][R4] | Notes |
 |---|---|---|---|
 | macOS arm64 | `macos-arm64-*` | `macos-14-arm64` archives; `macosx_14_0_arm64` wheels | Built and tested ([platforms.md](../platforms.md#the-roadrunner-provider)). Built for macOS 14.0 [R33]: a build with the provider needs a deployment target of at least 14.0 instead of the project default 11.0. Building libRoadRunner from source for 11.0 is unverified. A hardened-runtime host needs a JIT entitlement ([Security](#security)). |
-| Linux x86-64 | `linux-x64-*` | `manylinux_2_28-x86_64` and `ubuntu-24-x86_64` archives; `manylinux_2_28` wheels | Not built. The provider's export list is a version script there. The manylinux 2.28 tag implies glibc 2.28 or newer (unverified). The README notes that the Linux binaries depend on ncurses [R1]. |
-| Windows x86-64 | `windows-x64-*` | `windows-msvc18-x86_64` archives; `win_amd64` wheels | Not built. Microsoft's rule: the final link must use build tools at least as new as the newest that built any input [R29]. If `msvc18` denotes Visual Studio 2026 (unverified), linking the static archives needs its build tools, not the Visual Studio 2022 of the project presets; otherwise build libRoadRunner from source with Visual Studio 2022. |
+| Linux x86-64 | `linux-x64-*` | `manylinux_2_28-x86_64` and `ubuntu-24-x86_64` archives; `manylinux_2_28` wheels | Built and tested by CI against the dependency bundle, not against these archives ([releasing.md](../releasing.md#what-the-runs-verified)). The provider's export list is a version script there, which `providers.roadrunner.exports` checks. The manylinux 2.28 tag implies glibc 2.28 or newer (unverified). The README notes that the Linux binaries depend on ncurses [R1]. |
+| Windows x86-64 | `windows-x64-*` | `windows-msvc18-x86_64` archives; `win_amd64` wheels | Built and tested by CI against the dependency bundles, which build libRoadRunner from source with Visual Studio 2022, not against these archives ([releasing.md](../releasing.md#what-the-runs-verified)). Microsoft's rule: the final link must use build tools at least as new as the newest that built any input [R29]. If `msvc18` denotes Visual Studio 2026 (unverified), linking the static archives needs its build tools, not the Visual Studio 2022 of the project presets; otherwise build libRoadRunner from source with Visual Studio 2022. |
 | macOS x86-64 | none | `macos-15-x86_64` archives and wheels | Not a project platform. |
 | Linux arm64, Windows arm64 | none | none listed | Building from source should be possible on platforms LLVM supports (unverified). |
 
@@ -387,7 +389,7 @@ model code inline into each other instead of meeting through the kernel's functi
 | Risk | Effect | Mitigation |
 |---|---|---|
 | MCJit code may differ between CPUs of one architecture | Equal fingerprints with results that are not byte-identical | Check on a second machine of the same architecture; until then, [reproducibility.md](../specs/reproducibility.md) states it as not verified. |
-| Linux and Windows builds are not done | The provider exists on macOS arm64 only | Build and test with the upstream archives or with source builds (OQ-27). |
+| Linux and Windows builds were not done | The provider existed on macOS arm64 only | Done: CI builds and tests it on Linux x86-64 and Windows x86-64 against the dependency bundles, source builds ([releasing.md](../releasing.md#what-the-runs-verified)); the upstream archives are not built there (OQ-27). |
 | Static linking of LGPL-2.1 libSBML, and NLEQ sources without a stated license | Distribution blocked or obligations unmet | License review before the provider is distributed (OQ-1, OQ-13, OQ-27). |
 | Hardened-runtime hosts | Code generation fails without a JIT entitlement | Name the entitlement in the host's signing; verify with such a host (OQ-27). |
 | Engine warnings are dropped (libRoadRunner's logger at the error level) | Warnings about a model never reach the logs | Revisit the level when a module needs them ([simulation-service.md](../specs/simulation-service.md#the-roadrunner-provider), Logging). |
@@ -400,7 +402,10 @@ model code inline into each other instead of meeting through the kernel's functi
    reproducibility claim narrowed.
 2. **Other platforms.** Build the provider on Linux x86-64 and Windows x86-64 and run its tests.
    *Exit:* the same tests pass, and the Windows linker and the Linux export list are confirmed or
-   corrected here.
+   corrected here. Done by CI against the dependency bundles
+   ([releasing.md](../releasing.md#what-the-runs-verified)): the tests pass on both, the Linux
+   export list is confirmed by `providers.roadrunner.exports`, and the Windows link works with
+   bundles built by Visual Studio 2022. The upstream archives are not built there.
 3. **License review.** *Exit:* a written answer on linking libSBML and on the NLEQ terms, recorded
    in an ADR before the provider is distributed.
 4. **Hardened runtime.** Load the provider in a host signed with the hardened runtime. *Exit:* the

@@ -1,6 +1,6 @@
 # ADR-0041: CI and releases against pinned dependency bundles
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-11-21
 - Supersedes: none
 - Superseded by: none
@@ -27,6 +27,12 @@ bundles of a pinned release. The change rules of AGENTS.md froze every version, 
 package's included, so a release could never carry a new version.
 
 ## Decision
+
+Accepted by the maintainer on 2026-11-22, after the workflow's fifth and sixth runs passed and the
+first release, v0.2.0, was published (builder notes). It answers how CI builds and how releases are
+made, the release-archive part of OQ-13, OQ-27 and OQ-29, and resolves none of them: wheels,
+manylinux, signing and the license review of distributing the providers stay open. The builder
+notes are Proposed.
 
 - **The workflow.** [`.github/workflows/build.yml`](../../.github/workflows/build.yml), named
   "Build", mirrors praenora-runtime-deps' workflow: it runs on each pull request to `main` and by
@@ -256,6 +262,16 @@ package's included, so a release could never carry a new version.
   value in what the destructor wrote, after the reader has stopped, counts the replacements that
   the writer reported refused (none may be refused off Windows) and expects no other error. Not yet
   verified on GitHub.
+- **The fifth and sixth runs passed.** The fifth run, on the pull request (run 45041491678, commit
+  `de4b0e8`, with the fourth run's fix), passed every job, and so did the sixth, the first with
+  `publish`, on `main` (run 45044102336, commit `bcc3775`, the merge of that pull request), whose
+  release job drafted v0.2.0; an administrator published it the same day (2026-11-22). The jobs,
+  their compilers and their tests are in [releasing.md](../releasing.md#what-the-runs-verified).
+  They verify what the notes above leave not yet verified on GitHub: the check of the archive's
+  libraries on every key; the Windows paths, which no job found too long, without `subst`; the
+  build of the tool, both providers, the Python extension and the tests on Linux and Windows; and
+  `StatusFile.AtomicReplaceAndParentCreation` in both Windows jobs. The macOS job got AppleClang
+  21.0.0, the major version that the bundle's name gives.
 
 ## Alternatives considered
 
@@ -282,7 +298,8 @@ package's included, so a release could never carry a new version.
   providers, and reports the checks `Prepare`, `linux-x64-release`, `macos-arm64-release`,
   `windows-x64-release` and `windows-x64-debug`, which the ruleset on `main` can require.
 - Linux and Windows get their first builds; the first runs are expected to need fixes. Until a run
-  passes, they stay not yet verified ([platforms.md](../platforms.md)).
+  passes, they stay not yet verified ([platforms.md](../platforms.md)). Later: the first four runs
+  needed fixes, and the fifth and sixth passed (builder notes).
 - Releases carry one archive per platform key with its `.sha256` file; wheels, manylinux and
   code signing stay open (OQ-13).
 - A job needs the network: it downloads the bundle and the sources of yaml-cpp, spdlog and

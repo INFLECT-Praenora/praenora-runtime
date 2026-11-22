@@ -155,7 +155,7 @@ schemas, catalog entries and this repository's modules included
 ([AGENTS.md](../../AGENTS.md#change-rules)). One version is exempt: the runtime package's,
 `project(VERSION)` in `CMakeLists.txt`, is raised when a release is made, by the maintainers'
 decision, following [releasing.md](../releasing.md#release-procedure) (the row "A runtime release"
-below); the first release, v0.2.0, is made at the current version without a raise. Every other
+below); the first release, v0.2.0, was made at the current version without a raise. Every other
 version stays frozen. Until versions are bumped again, only these rules wait:
 the pre-1.0 convention ([Semantic versions](#semantic-versions)), the "Version to bump" column
 below, the rule that a change to what a schema accepts is a new format version, the rule that a

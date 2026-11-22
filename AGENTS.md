@@ -26,9 +26,13 @@ outputs and message trace, metrics, status and health), the module SDK, the prot
 catalog, the C++ API, the `praenora` CLI, the Python bindings, the example modules and workflow,
 the contract checks, the install rules and CMake package, the performance probe, the tests and the
 documentation. It is verified on macOS arm64 with AppleClang (Debug, Release, AddressSanitizer
-and ThreadSanitizer builds, and a Python wheel built offline). Linux x86-64 and Windows x86-64 have
-presets and portable code but are not yet verified; neither are fetch-mode downloads and a wheel
-build that downloads its build requirements, on any platform.
+and ThreadSanitizer builds, and a Python wheel built offline), and by CI (below) with the CI
+presets: Release on Linux x86-64 with GCC 13.3, Release and Debug on Windows x86-64 with MSVC
+19.44, and Release on macOS arm64 with AppleClang 21, each with yaml-cpp, spdlog and GoogleTest
+downloaded in fetch mode. Not yet verified: the other Linux presets (Debug and the sanitizer
+builds), other compilers on Linux and Windows, the distributions' and vcpkg's packages,
+downloading nlohmann/json and json-schema-validator in fetch mode (CI takes them from the bundle),
+and a wheel build that downloads its build requirements, on any platform.
 
 Since the MVP: service providers (engines loaded on demand, one per process, listed by
 `praenora providers list`), module manifests 0.2 that declare the services a module requires, run
@@ -43,7 +47,8 @@ with libRoadRunner 2.11.0 and LLVM 13.0.1 (every test of a Debug build; the labe
 optional provider `antimony` (libAntimony) is built only with `PRAENORA_WITH_ANTIMONY=ON`; it is
 verified on macOS arm64 with libAntimony 3.3.0, built from source against libRoadRunner 2.11.0's
 dependencies (every test of a Debug build, alone and with the roadrunner provider; the labels
-`unit`, `contract` and `integration` of a ThreadSanitizer build). Compiling module code through
+`unit`, `contract` and `integration` of a ThreadSanitizer build). CI builds and tests both
+providers on every platform key, against the dependency bundles. Compiling module code through
 libRoadRunner (level C) is future work, and so are hierarchical SBML output, CellML and a
 WebAssembly build of the conversion engine.
 
@@ -55,10 +60,11 @@ module hosts can share compiled models through a store in the runtime's process
 itself (`sandbox: restricted`: its own process gets no network, no new processes and no writes
 outside its own temporary directory, which limits a module but is no boundary against one meant to
 do harm) ([docs/specs/process-isolation.md](docs/specs/process-isolation.md)). It is POSIX only and
-verified on macOS arm64; its Linux code is not yet verified, Windows refuses process mode in this
-version, and the Python wheel holds no module host. The tests of the restricted profile skip,
-saying "nested sandbox:", where the tests run in a sandbox already. The contract checks still run
-modules in the runtime's process (OQ-32), and process isolation and the profile on Linux and
+verified on macOS arm64 and, by CI, on Linux x86-64; Windows refuses process mode in this version,
+and the Python wheel holds no module host. The tests of the restricted profile skip, saying
+"nested sandbox:", where the tests run in a sandbox already; CI's macOS job runs them. The
+contract checks still run modules in the runtime's process (OQ-32), and process isolation and the
+profile on Linux and
 Windows are open questions (OQ-31).
 
 CI and releases: the GitHub Actions workflow `.github/workflows/build.yml` builds and tests every
@@ -66,8 +72,10 @@ pull request to `main` with the CI presets of the four platform keys, against th
 bundles that `cmake/PraenoraRuntimeDepsPin.cmake` pins, archives each installation and checks that
 the archive needs only the system's libraries and its own; run by hand on `main` with the input
 `publish`, it drafts a release `v<version>` with the archives, which an administrator publishes
-([docs/releasing.md](docs/releasing.md)). It is written but has not run yet: Linux and Windows stay
-not yet verified, and no release has been made.
+([docs/releasing.md](docs/releasing.md)). It first passed on all four keys on 2026-11-22, in its
+fifth and sixth runs; the sixth, on `main` with `publish`, drafted the first release, v0.2.0,
+which an administrator published the same day
+([docs/releasing.md](docs/releasing.md#what-the-runs-verified)).
 
 ## Setup and commands
 
@@ -111,8 +119,9 @@ Python bindings SWIG 4.0+ and Python 3.10+ with headers.
   prints `PRAENORA_RUNTIME_DEPS=<bundle>`, an absolute path (appended to the file that
   `GITHUB_ENV` names, when set); the local presets then list the bundle's directories
   ([docs/developer-guide.md](docs/developer-guide.md#using-a-dependency-bundle)). Build with the
-  bundle's compiler or a newer one of the same family. A download from the release is not yet
-  verified.
+  bundle's compiler or a newer one of the same family. A download from the release is verified by
+  CI, whose jobs download their bundles with it
+  ([docs/releasing.md](docs/releasing.md#what-the-runs-verified)).
 - Optional, for the AsyncAPI parser tests only: Node.js and `@asyncapi/parser` 3.6.6, installed
   with npm into a directory outside the checkout, never downloaded by the build;
   [docs/testing.md](docs/testing.md#the-official-asyncapi-parser) says how.
@@ -201,9 +210,9 @@ their key and build against the dependency bundle that the environment variable
 `PRAENORA_RUNTIME_DEPS` names, with both providers, the Python bindings and warnings as errors, and
 with yaml-cpp, spdlog and GoogleTest built from their pinned commits
 (`CMAKE_DISABLE_FIND_PACKAGE_{yaml-cpp,spdlog,googletest}`); a configuration stops when that
-variable names no bundle. They are not yet verified on Linux and Windows, nor with those three
-downloaded ([docs/developer-guide.md](docs/developer-guide.md#ci-presets)); the build jobs of
-`.github/workflows/build.yml` run them. Labels: `unit`, `protocol`, `contract`, `negative`,
+variable names no bundle ([docs/developer-guide.md](docs/developer-guide.md#ci-presets)). The build
+jobs of `.github/workflows/build.yml` run them, which verified each on its runner, with those three
+downloaded. Labels: `unit`, `protocol`, `contract`, `negative`,
 `lifecycle`, `isolation`, `integration`, `cli`, `python`, `install`, `perf`, `docs`, `ci`. The
 `isolation` label holds the white-box tests of process isolation, `ChildProcess.*` and
 `Isolation.*` (`praenora_isolation_tests`), which start module hosts
@@ -463,7 +472,8 @@ docs/                         index.md, the guides (architecture, user-guide, co
   to do now. One exemption, decided by the maintainer on 2026-11-21: the runtime package's version,
   `project(VERSION)` in `CMakeLists.txt`, is raised when a release is made, by the maintainers'
   decision, following [docs/releasing.md](docs/releasing.md#release-procedure); every other version
-  stays. The first release is v0.2.0, made at the current version without a raise.
+  stays. The first release, v0.2.0, was made at the current version without a raise; every later
+  release raises it.
 - **Dependency bundle pin.** `cmake/PraenoraRuntimeDepsPin.cmake` is changed only after the
   maintainer confirms the change, with every archive name and SHA-256 of the release it names, and
   together with the runner labels of `.github/workflows/build.yml` and
@@ -474,8 +484,11 @@ docs/                         index.md, the guides (architecture, user-guide, co
   again, it also bumps its version (ABI: `include/praenora/sdk/abi.h`; SDK, PMP and document
   formats: `cmake/PraenoraVersions.cmake`; runtime package: `project(VERSION)` in
   `CMakeLists.txt`).
-- Resolving an open question updates its row in `docs/open-questions.md` and adds or supersedes an
-  ADR. Calls made while building go into the relevant ADR as "Builder notes" (Proposed).
+- Resolving an open question needs an Accepted decision, which only the maintainer makes: the
+  linked ADR accepted, in full or in part, or an Accepted ADR that is new or supersedes the linked
+  one. Its row in `docs/open-questions.md` is then updated as the register's header says; an answer
+  that only a Proposed ADR records leaves the row open. Calls made while building go into the
+  relevant ADR as "Builder notes" (Proposed).
 - Golden files, and the committed AsyncAPI documents in `spec/asyncapi/`, are refreshed only with
   `PRAENORA_UPDATE_GOLDEN=1`, never implicitly; regenerate the AsyncAPI documents whenever a
   workflow definition, a message type or the envelope schema changes, and, with a local copy of

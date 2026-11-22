@@ -19,7 +19,7 @@ Some ADRs have a split status, for example "Accepted (shape) / Proposed (details
 - **Superseding an ADR.** Write a new ADR that states what it replaces, set `Supersedes:` in the new header, set the old header's status to Superseded and its `Superseded by:` to the new label. Do not delete or rewrite the old decision.
 - **Proposed decisions** stay open to maintainer review. Reviewing one means either changing its status to Accepted or superseding it.
 - **Builder notes.** Calls made while building that do not change what gets built are appended as a "Builder notes" subsection under Decision, with status Proposed.
-- **Open questions.** Questions that remain unresolved are tracked in [../open-questions.md](../open-questions.md) and link to the relevant ADRs.
+- **Open questions.** Questions that remain unresolved are tracked in [../open-questions.md](../open-questions.md) and link to the relevant ADRs. Only an Accepted decision resolves one: accepting a Proposed ADR, in full or in part, resolves the questions it answers, as does a new or superseding Accepted ADR. The deciding ADR says which questions it resolves, and their rows are updated as the register's header says.
 
 ## Index
 
@@ -45,13 +45,13 @@ Some ADRs have a split status, for example "Accepted (shape) / Proposed (details
 | [ADR-0018](ADR-0018-python-bindings-with-swig.md) | Python bindings with SWIG over a narrow facade; scikit-build-core; namespace package | Proposed | 2026-11-10 |
 | [ADR-0019](ADR-0019-platform-loading-rpath-dll-search.md) | Platform loading, RPATH and Windows DLL search policy | Proposed | 2026-11-10 |
 | [ADR-0020](ADR-0020-message-envelope-and-asyncapi.md) | Message envelope modeled on CloudEvents; AsyncAPI generated from workflow definitions | Proposed | 2026-11-10 |
-| [ADR-0021](ADR-0021-runtime-services-through-host-api.md) | Runtime services through the host API; libRoadRunner simulation service deferred | Proposed | 2026-11-10 |
+| [ADR-0021](ADR-0021-runtime-services-through-host-api.md) | Runtime services through the host API; libRoadRunner simulation service deferred | Accepted (mechanism) / plans amended by ADR-0026, ADR-0027, ADR-0035 | 2026-11-10 |
 | [ADR-0022](ADR-0022-target-data-intake.md) | Target data intake through runtime-provided replay and document sources | Proposed | 2026-11-10 |
 | [ADR-0023](ADR-0023-public-cpp-api.md) | Public C++ API: exceptions, pimpl, no third-party types in public headers | Proposed | 2026-11-10 |
 | [ADR-0024](ADR-0024-contract-checks-and-test-vectors.md) | Contract checks and test vectors as the module acceptance gate | Proposed | 2026-11-10 |
 | [ADR-0025](ADR-0025-webassembly-strategy.md) | WebAssembly strategy: separate runtime models, design only for the MVP | Proposed | 2026-11-10 |
-| [ADR-0026](ADR-0026-runtime-service-providers.md) | Runtime service providers: one engine per process, loaded on demand | Proposed | 2026-11-16 |
-| [ADR-0027](ADR-0027-simulation-service-v0.md) | Simulation service v0 and the libRoadRunner provider | Proposed | 2026-11-16 |
+| [ADR-0026](ADR-0026-runtime-service-providers.md) | Runtime service providers: one engine per process, loaded on demand | Accepted (providers) / Proposed (provider interface) | 2026-11-16 |
+| [ADR-0027](ADR-0027-simulation-service-v0.md) | Simulation service v0 and the libRoadRunner provider | Accepted (service) / Proposed (roadrunner provider) | 2026-11-16 |
 | [ADR-0028](ADR-0028-error-records-keep-location-and-details.md) | Error records keep the location and details of their error | Proposed | 2026-11-16 |
 | [ADR-0029](ADR-0029-run-record-says-where-manifests-were-found.md) | The run record says where each manifest was found, without an absolute path | Proposed | 2026-11-16 |
 | [ADR-0030](ADR-0030-library-gate-across-runs.md) | One gate per module library for the whole process | Proposed | 2026-11-16 |
@@ -61,8 +61,8 @@ Some ADRs have a split status, for example "Accepted (shape) / Proposed (details
 | [ADR-0034](ADR-0034-error-records-in-files-name-directories-by-placeholders.md) | Error records in the files of a run name known directories by placeholders | Proposed | 2026-11-17 |
 | [ADR-0035](ADR-0035-model-conversion-service-v0.md) | Model conversion service v0 and the libAntimony provider | Proposed | 2026-11-17 |
 | [ADR-0036](ADR-0036-describe-and-manifest-agree-on-every-field-they-share.md) | describe() and the manifest agree on every field they share | Proposed | 2026-11-18 |
-| [ADR-0037](ADR-0037-process-isolation-of-module-instances.md) | Process isolation of module instances | Proposed | 2026-11-19 |
-| [ADR-0038](ADR-0038-shared-compiled-models-between-module-hosts.md) | Shared compiled models between module hosts | Proposed | 2026-11-20 |
-| [ADR-0039](ADR-0039-restricted-sandbox-profile-for-module-hosts.md) | A restricted sandbox profile for module hosts | Proposed | 2026-11-20 |
+| [ADR-0037](ADR-0037-process-isolation-of-module-instances.md) | Process isolation of module instances | Accepted (module hosts per step) / Proposed (mechanism, platforms) | 2026-11-19 |
+| [ADR-0038](ADR-0038-shared-compiled-models-between-module-hosts.md) | Shared compiled models between module hosts | Accepted (opt-in store) / Proposed (interfaces, roadrunner) | 2026-11-20 |
+| [ADR-0039](ADR-0039-restricted-sandbox-profile-for-module-hosts.md) | A restricted sandbox profile for module hosts | Accepted (macOS profile) / Proposed (signed programs) | 2026-11-20 |
 | [ADR-0040](ADR-0040-mit-license.md) | MIT license | Accepted | 2026-11-21 |
-| [ADR-0041](ADR-0041-ci-and-releases-against-pinned-dependency-bundles.md) | CI and releases against pinned dependency bundles | Proposed | 2026-11-21 |
+| [ADR-0041](ADR-0041-ci-and-releases-against-pinned-dependency-bundles.md) | CI and releases against pinned dependency bundles | Accepted | 2026-11-21 |
