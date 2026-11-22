@@ -611,7 +611,10 @@ gate in every build that has them: the contract tests run the checks on them.
   provider is loaded once per process and never unloaded, so a test that needs a provider's first
   load, or a copy of one under its name, uses a provider no other test loads.
   `make_provider_context()` (`tests/support/validation_fixtures.hpp`) builds a runtime context over
-  fixture providers; `copy_fixture_provider()` and `copy_fixture_module()`
+  fixture providers and no others: like every test context of that header, it leaves out the
+  installation's provider directory, where a build tree builds the roadrunner and antimony
+  providers and where, on Windows, a white-box test executable beside the runtime DLL would find
+  them; `copy_fixture_provider()` and `copy_fixture_module()`
   (`tests/support/provider_fixtures.hpp`) copy one, manifest edited, into a scratch directory.
   `test-simulation` offers the simulation service for the toy model format `test-decay`
   ([specs/simulation-service.md](specs/simulation-service.md#the-test-provider-test-simulation)),

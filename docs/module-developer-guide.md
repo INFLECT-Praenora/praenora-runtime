@@ -504,8 +504,11 @@ The manifest it writes has format 0.2.0, which a runtime 0.2 or later reads. The
 `add_library(MODULE)` target, whatever `BUILD_SHARED_LIBS` says, compiled with hidden symbol
 visibility so that only the entry point is exported, and linked to `Praenora::ModuleSDK`. The target
 properties `PRAENORA_MODULE_DIR`, `PRAENORA_MODULE_MANIFEST` and `PRAENORA_MODULE_TEST_VECTORS_PATH`
-give the output directory, the manifest and the copied vectors for rules of your own. The helper's
-reference is the comment at the top of
+give the output directory, the manifest and the copied vectors for rules of your own. With a
+multi-config generator, such as Visual Studio's, they hold `$<CONFIG>`, which
+`$<TARGET_PROPERTY>` leaves as it is in a property of its own: read them with
+`$<GENEX_EVAL:$<TARGET_PROPERTY:<target>,PRAENORA_MODULE_MANIFEST>>`, in `add_test()` or a
+target's compile definitions, for example. The helper's reference is the comment at the top of
 [`cmake/PraenoraModule.cmake`](../cmake/PraenoraModule.cmake).
 
 ## Requiring services

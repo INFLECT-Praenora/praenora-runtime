@@ -269,8 +269,9 @@ TEST(Catalog, LocatesPointersInEntries) {
     EXPECT_GT(embedded.column, 0);
     // An entry read from a directory is named by its file.
     const auto read = catalog.locate("capability-definition", "test.echo", kV010, "/outputs");
-    EXPECT_EQ(read.file,
-              praenora::test::fixture_path("catalog/capabilities/test.echo/0.1.0.json").u8string());
+    EXPECT_EQ(praenora::test::utf8_path(read.file),
+              praenora::test::fixture_path("catalog/capabilities/test.echo/0.1.0.json"))
+        << read.file;
     EXPECT_GT(read.line, 0);
     // No such entry (of that kind): the pointer only.
     const auto none = catalog.locate("message-type", "test.echo", kV010, "/schema");

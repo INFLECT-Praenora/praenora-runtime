@@ -64,7 +64,7 @@ function(praenora_add_provider_file_tests name target print first second third)
         COMMAND "${CMAKE_COMMAND}"
             "-DPRINT=$<TARGET_FILE:${print}>"
             "-DTOOL=${print}"
-            "-DMANIFEST=$<TARGET_PROPERTY:${target},PRAENORA_PROVIDER_MANIFEST>"
+            "-DMANIFEST=$<GENEX_EVAL:$<TARGET_PROPERTY:${target},PRAENORA_PROVIDER_MANIFEST>>"
             "-DFORMAT=${first}"
             "-DMODEL=${second}"
             "-DEND=${third}"

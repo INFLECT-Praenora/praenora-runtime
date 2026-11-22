@@ -16,6 +16,7 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
@@ -30,6 +31,17 @@ namespace {
 
 std::string read_text(const fs::path& file) {
     std::ifstream in(file, std::ios::binary);
+    return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+}
+
+// The file's text, or nullopt when it cannot be opened: on Windows, while the writer replaces the
+// file, a reader may be refused it for a moment with a sharing violation, and sees no file then,
+// never part of one.
+std::optional<std::string> read_text_if_open(const fs::path& file) {
+    std::ifstream in(file, std::ios::binary);
+    if (!in.is_open()) {
+        return std::nullopt;
+    }
     return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
 }
 
@@ -64,13 +76,21 @@ TEST(StatusFile, AtomicReplaceAndParentCreation) {
         ASSERT_TRUE(fs::exists(file));
         EXPECT_EQ(nlohmann::json::parse(read_text(file)).at("n"), 0);
 
-        // A reader never sees a partial file while the writer keeps replacing it.
+        // A reader never sees a partial file while the writer keeps replacing it. On Windows a read
+        // that could not open the file, during a replacement, read nothing and is not counted;
+        // elsewhere rename() replaces the name at once, so a reader always finds the file.
         std::atomic<bool> done{false};
         std::atomic<int> torn{0}, reads{0};
         std::thread reader([&] {
             while (!done.load()) {
-                const std::string text = read_text(file);
-                if (!nlohmann::json::accept(text)) {
+                const std::optional<std::string> text = read_text_if_open(file);
+                if (!text) {
+#ifndef _WIN32
+                    ++torn;
+#endif
+                    continue;
+                }
+                if (!nlohmann::json::accept(*text)) {
                     ++torn;
                 }
                 ++reads;
@@ -81,8 +101,10 @@ TEST(StatusFile, AtomicReplaceAndParentCreation) {
             writer.notify();
             std::this_thread::sleep_for(200us);
         }
-        EXPECT_TRUE(
-            eventually([&] { return nlohmann::json::parse(read_text(file)).at("n") == 100; }));
+        EXPECT_TRUE(eventually([&] {
+            const std::optional<std::string> text = read_text_if_open(file);
+            return text && nlohmann::json::parse(*text).at("n") == 100;
+        }));
         done = true;
         reader.join();
         EXPECT_EQ(torn.load(), 0);

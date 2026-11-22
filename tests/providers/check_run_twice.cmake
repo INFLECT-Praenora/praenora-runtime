@@ -93,10 +93,11 @@ file(ARCHIVE_CREATE OUTPUT "${WORK}/empty.tar" PATHS "${WORK}/empty" FORMAT gnut
 file(SIZE "${WORK}/empty.tar" size)
 math(EXPR last "${size} - 1")
 file(READ "${WORK}/empty.tar" nul_byte OFFSET ${last} LIMIT 1)
-file(WRITE "${WORK}/nul" "${nul_byte}")
-file(READ "${WORK}/nul" written HEX)
+# Not a file named nul, which is a device on Windows, in every directory.
+file(WRITE "${WORK}/nul-byte" "${nul_byte}")
+file(READ "${WORK}/nul-byte" written HEX)
 if(NOT written STREQUAL "00")
-    message(FATAL_ERROR "check_run_twice.cmake: ${WORK}/nul holds the bytes ${written} "
+    message(FATAL_ERROR "check_run_twice.cmake: ${WORK}/nul-byte holds the bytes ${written} "
         "(hexadecimal), not one NUL byte")
 endif()
 

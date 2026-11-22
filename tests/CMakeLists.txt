@@ -347,7 +347,7 @@ if(PRAENORA_WITH_ROADRUNNER)
         contract/simulation_service_roadrunner_test.cpp
         contract/roadrunner_provider_test.cpp)
     set(_praenora_roadrunner_manifest
-        "$<TARGET_PROPERTY:praenora_provider_roadrunner,PRAENORA_PROVIDER_MANIFEST>")
+        "$<GENEX_EVAL:$<TARGET_PROPERTY:praenora_provider_roadrunner,PRAENORA_PROVIDER_MANIFEST>>")
     target_compile_definitions(praenora_contract_tests PRIVATE
         "PRAENORA_TEST_ROADRUNNER_MANIFEST=\"${_praenora_roadrunner_manifest}\"")
     add_dependencies(praenora_contract_tests praenora_provider_roadrunner)
@@ -375,7 +375,7 @@ if(PRAENORA_WITH_ANTIMONY)
         contract/model_conversion_service_antimony_test.cpp
         contract/antimony_provider_test.cpp)
     set(_praenora_antimony_manifest
-        "$<TARGET_PROPERTY:praenora_provider_antimony,PRAENORA_PROVIDER_MANIFEST>")
+        "$<GENEX_EVAL:$<TARGET_PROPERTY:praenora_provider_antimony,PRAENORA_PROVIDER_MANIFEST>>")
     target_compile_definitions(praenora_contract_tests PRIVATE
         "PRAENORA_TEST_ANTIMONY_MANIFEST=\"${_praenora_antimony_manifest}\""
         "PRAENORA_TEST_ANTIMONY_VERSION=\"${PRAENORA_ANTIMONY_VERSION}\""

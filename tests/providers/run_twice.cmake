@@ -90,7 +90,9 @@ if(NOT DEFINED TOOL)
     set(TOOL praenora_simulation_print)
 endif()
 if(TOOL STREQUAL "praenora_simulation_print")
-    set(shows_1 "\nsimulate rows 0x0p\\+0 ")
+    # The first time, 0.0: printf's %a writes 0x0p+0, and with the Microsoft C runtime, which
+    # writes every hexadecimal digit of a double's significand, 0x0.0000000000000p+0.
+    set(shows_1 "\nsimulate rows 0x0(\\.0+)?p\\+0 ")
     set(shows_2 "\nrun_batch outcomes 0 0 0\n")
     set(shows_nothing "no simulation and batch in the output")
 elseif(TOOL STREQUAL "praenora_conversion_print")

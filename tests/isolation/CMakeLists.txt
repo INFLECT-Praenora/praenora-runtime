@@ -84,7 +84,7 @@ add_dependencies(praenora_isolation_tests
 # (compiled_model_test.cpp). PRAENORA_TEST_ROADRUNNER_MANIFEST names its manifest.
 if(PRAENORA_WITH_ROADRUNNER)
     set(_praenora_roadrunner_manifest
-        "$<TARGET_PROPERTY:praenora_provider_roadrunner,PRAENORA_PROVIDER_MANIFEST>")
+        "$<GENEX_EVAL:$<TARGET_PROPERTY:praenora_provider_roadrunner,PRAENORA_PROVIDER_MANIFEST>>")
     target_compile_definitions(praenora_isolation_tests PRIVATE PRAENORA_TEST_WITH_ROADRUNNER
         "PRAENORA_TEST_ROADRUNNER_MANIFEST=\"${_praenora_roadrunner_manifest}\"")
     add_dependencies(praenora_isolation_tests praenora_provider_roadrunner)

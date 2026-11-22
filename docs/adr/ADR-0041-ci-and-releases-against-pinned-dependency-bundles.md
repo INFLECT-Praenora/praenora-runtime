@@ -162,6 +162,36 @@ package's included, so a release could never carry a new version.
   failures (the Linux job after 113 of its 435 steps; the Windows jobs before the tool, the tests
   and the Python extension), so more of the code has yet to be compiled there; not yet verified on
   GitHub.
+- **The second run's failures.** The second run built both Windows jobs, whose tests then failed 21
+  of 988 tests, the same in each, and stopped the Linux job's build after 296 of its 435 steps, at a
+  test program that used `std::int32_t` without `<cstdint>` (libstdc++ declares it there alone;
+  glibc's `<stdint.h>`, which the program does include, declares only `::int32_t`). Every Windows
+  failure was in the tests, none in the runtime. Most expected forward slashes where a path is
+  lexically normal, which on Windows means backslashes, or turned a UTF-8 string into a path with
+  the narrow constructor, which reads it in the ANSI code page; they now compare paths as paths, or
+  text with the lexically normal path the runtime reports, or the list of a directory's files by
+  their `'/'`-separated names, and the CLI tests accept either separator. Others: a Windows path
+  written into a double-quoted YAML scalar, where `\U` starts an escape (now single quotes); two
+  unit tests that validate steps in module hosts, which Windows refuses in this version (now
+  compiled only off Windows, like the other tests of process isolation); a reader of the status file
+  that counted a refused open, while the writer replaced the file, as a torn read (on Windows it now
+  counts only what it read); a scratch file named `nul`, a device in every directory on Windows; and
+  `printf`'s `%a`, which the Microsoft C runtime writes with every hexadecimal digit of the
+  significand (`0x0.0000000000000p+0` for zero), where `run_twice.cmake` expected `0x0p+0`. Two had
+  causes of their own. `$<TARGET_PROPERTY>` leaves a `$<CONFIG>` in a property of the project's own
+  as it is, so the manifest path that `PRAENORA_PROVIDER_MANIFEST` gives a multi-config generator
+  reached the tests unexpanded: the `processes` tests of the fixture providers found no manifest,
+  and those of the roadrunner and antimony providers, and the tests compiled with their manifests'
+  paths, found them only because `bin/$<CONFIG>/..` names `bin` wherever `..` is resolved by its
+  text. Every such use is now wrapped in `$<GENEX_EVAL>`. And a build tree builds its providers
+  where its runtime looks for an installation's, beside the runtime library; on Windows the
+  white-box test executables, which hold the runtime's objects, sit in the runtime DLL's directory,
+  so they found the roadrunner and antimony providers there, which the tests of a missing service
+  and of where discovery found each manifest did not expect. The test helpers' provider search paths
+  (`tests/support/validation_fixtures.hpp`), and that test's, leave out the installation's
+  directory, so that a white-box test sees only the providers it names. Not yet verified on GitHub:
+  the Linux job has yet to build the tool, both providers, the Python extension and the tests, and
+  only the macOS job has made its archive.
 
 ## Alternatives considered
 

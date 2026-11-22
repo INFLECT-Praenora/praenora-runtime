@@ -118,6 +118,9 @@ TEST(Fingerprint, IgnoresObservabilityAndOutputs) {
     EXPECT_EQ(validated(chain_config(), options).fingerprint, plain.fingerprint);
 }
 
+// Process isolation is not available on Windows in this version: validation refuses a step in a
+// module host there (docs/specs/process-isolation.md).
+#ifndef _WIN32
 TEST(Fingerprint, IgnoresIsolation) {
     // Results do not depend on where a module runs: the same configuration gives the same
     // reproducibility section, byte for byte, in either isolation mode, however the mode is set.
@@ -158,6 +161,7 @@ TEST(Fingerprint, IgnoresIsolation) {
                           R"("b":{"mode":"in-process","share_compiled_models":false,)"
                           R"("sandbox":"none"}})"));
 }
+#endif // _WIN32
 
 TEST(Fingerprint, ChangesWithTicks) {
     // Without run.ticks the run lasts until the replay input is exhausted.

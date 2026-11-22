@@ -25,10 +25,27 @@
 
 namespace praenora::test {
 
+// The provider search paths of `provider_paths` (UTF-8) without the environment, and without the
+// installation's directory: a build tree builds its providers (roadrunner, antimony) where its
+// runtime finds those of an installation, and on Windows a white-box test executable, which holds
+// the runtime's objects, sits beside the runtime DLL and so would find them too. A white-box test
+// sees only the providers it names.
+inline std::vector<detail::SearchPath>
+test_provider_search_paths(const std::vector<std::string>& provider_paths) {
+    std::vector<detail::SearchPath> paths = detail::provider_search_paths(provider_paths, false);
+    paths.erase(std::remove_if(paths.begin(), paths.end(),
+                               [](const detail::SearchPath& path) {
+                                   return path.origin == detail::SearchPathOrigin::installation;
+                               }),
+                paths.end());
+    return paths;
+}
+
 // A runtime context whose catalog is the built-in one plus tests/fixtures/catalog (and
 // `extra_catalogs`), whose module search path is `module_paths` (by default the fixture modules)
 // and whose provider search path is `provider_paths` (UTF-8; by default none), without the
-// environment. The installation's directories are searched last, as always.
+// environment. The installation's module directory is searched last, as always; its provider
+// directory is not searched (test_provider_search_paths()).
 inline std::unique_ptr<detail::RuntimeContext>
 make_test_context(std::vector<std::string> module_paths = {PRAENORA_TEST_MODULES_DIR},
                   std::vector<std::filesystem::path> extra_catalogs = {},
@@ -39,8 +56,7 @@ make_test_context(std::vector<std::string> module_paths = {PRAENORA_TEST_MODULES
     context->catalog = detail::Catalog::load(catalogs);
     context->modules =
         detail::ModuleIndex::scan(detail::module_search_paths(module_paths, {}, false));
-    context->providers =
-        detail::ProviderIndex::scan(detail::provider_search_paths(provider_paths, false));
+    context->providers = detail::ProviderIndex::scan(test_provider_search_paths(provider_paths));
     context->module_paths = std::move(module_paths);
     context->use_environment = false;
     return context;

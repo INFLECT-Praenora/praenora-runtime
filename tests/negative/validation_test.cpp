@@ -152,7 +152,7 @@ TEST(Validation, UnknownModuleListsSearchPaths) {
     EXPECT_EQ(error.location.line, 10);
     // The caller's module path is searched first, then the configuration's.
     const std::string explicit_path =
-        path_to_utf8(praenora::test::utf8_path(PRAENORA_TEST_MODULES_DIR));
+        path_to_utf8(praenora::test::utf8_path(PRAENORA_TEST_MODULES_DIR).lexically_normal());
     const std::string config_path = path_to_utf8(dir.path() / "extra mods");
     const auto first = error.message.find(explicit_path);
     const auto second = error.message.find(config_path);

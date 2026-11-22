@@ -177,12 +177,13 @@ std::vector<std::string> engine_events(const fs::path& file) {
     return events;
 }
 
-// Every file below `dir`, by its path relative to `dir`, with its contents.
+// Every file below `dir`, by its path relative to `dir`, '/'-separated, with its contents.
 std::map<std::string, std::string> directory_contents(const fs::path& dir) {
     std::map<std::string, std::string> contents;
     for (const auto& entry : fs::recursive_directory_iterator(dir)) {
         if (entry.is_regular_file()) {
-            contents[utf8(entry.path().lexically_relative(dir))] = read_text(entry.path());
+            const auto relative = entry.path().lexically_relative(dir).generic_u8string();
+            contents[std::string(relative.begin(), relative.end())] = read_text(entry.path());
         }
     }
     return contents;
@@ -351,7 +352,8 @@ TEST(Api, ListAndInspectModules) {
     ASSERT_NE(echo, modules.end());
     EXPECT_GE(modules.size(), 10u);
     EXPECT_EQ(echo->version, "0.1.0");
-    EXPECT_EQ(fs::path(echo->manifest_path), praenora::test::fixture_manifest("fx-echo"));
+    EXPECT_EQ(praenora::test::utf8_path(echo->manifest_path),
+              praenora::test::fixture_manifest("fx-echo"));
     EXPECT_TRUE(fs::is_regular_file(praenora::test::utf8_path(echo->library_path)))
         << echo->library_path;
     EXPECT_EQ(echo->os + "-" + echo->arch, PRAENORA_TEST_PLATFORM);
@@ -1067,7 +1069,7 @@ TEST(Api, LoggingResolvesEachSettingOnItsOwn) {
     // It names the search paths, the caller's first, and counts what the indexes hold.
     const json& attributes = ready.at("attributes");
     EXPECT_EQ(attributes.at("module_search_paths").at(0),
-              utf8(praenora::test::utf8_path(PRAENORA_TEST_MODULES_DIR)))
+              utf8(praenora::test::utf8_path(PRAENORA_TEST_MODULES_DIR).lexically_normal()))
         << runtime_log;
     EXPECT_EQ(attributes.at("provider_search_paths").at(0),
               utf8((dir.path() / "providers").lexically_normal()))
@@ -1288,7 +1290,8 @@ TEST(Api, ListProvidersDescribesEachProvider) {
     const praenora::ProviderInfo& echo = providers.front();
     EXPECT_EQ(echo.name, "test-echo");
     EXPECT_EQ(echo.version, "0.1.0");
-    EXPECT_EQ(fs::path(echo.manifest_path), praenora::test::fixture_provider_manifest("test-echo"));
+    EXPECT_EQ(praenora::test::utf8_path(echo.manifest_path),
+              praenora::test::fixture_provider_manifest("test-echo"));
     const fs::path library = praenora::test::utf8_path(echo.library_path);
     EXPECT_TRUE(fs::is_regular_file(library)) << echo.library_path;
     EXPECT_EQ(library.parent_path(), praenora::test::fixture_provider_dir("test-echo"));
@@ -1335,7 +1338,8 @@ TEST(Api, ListProvidersInSearchOrderWithShadowedManifests) {
         const auto& [name, directory, usable] = expected[i];
         const praenora::ProviderInfo& provider = providers[i];
         EXPECT_EQ(provider.name, name) << i;
-        EXPECT_EQ(fs::path(provider.manifest_path).parent_path(), directory.lexically_normal())
+        EXPECT_EQ(praenora::test::utf8_path(provider.manifest_path).parent_path(),
+                  directory.lexically_normal())
             << provider.manifest_path;
         EXPECT_EQ(provider.usable, usable) << provider.name << ": " << provider.problem;
         EXPECT_EQ(provider.problem.empty(), usable) << provider.name << ": " << provider.problem;

@@ -439,8 +439,8 @@ docs/                         index.md, the guides (architecture, user-guide, co
   the wheel). A third-party dependency linked statically brings its license files into the
   installation (`share/praenora/licenses/`): one built in the tree through the rules of
   `cmake/PraenoraInstall.cmake`, one found installed through `PRAENORA_THIRD_PARTY_LICENSE_DIRS`.
-- **Agent standards.** Use `AGENTS.md` (this file) and the `agentskills.io` standard for agent skills. 
-  Use local symlinks as necessary for support in non-supporting harnesses.
+- **Agent standards.** Use `AGENTS.md` (this file) and the `agentskills.io` standard for agent skills.
+  Use local symlinks as necessary for support in non-supporting agent tools.
 
 ## Change rules
 

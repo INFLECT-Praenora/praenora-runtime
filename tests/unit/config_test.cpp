@@ -199,8 +199,8 @@ TEST(Config, RelativePathsResolveAgainstFile) {
 format_version: "0.1.0"
 workflow: { name: test.single, version: "0.1.0" }
 modules:
-  search_paths: [mods, "../shared mods", ")" + path_to_utf8(elsewhere) +
-                                                R"("]
+  search_paths: [mods, "../shared mods", ')" + path_to_utf8(elsewhere) +
+                                                R"(']
 inputs:
   source: { source: observation-csv, path: data/obs.csv }
 steps:

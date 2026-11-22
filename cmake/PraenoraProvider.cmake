@@ -36,7 +36,9 @@
 # - With INSTALL_DESTINATION, the library and the manifest are installed there, together;
 #   INSTALL_COMPONENT names their install component (by default, CMake's default component).
 # - The target properties PRAENORA_PROVIDER_DIR and PRAENORA_PROVIDER_MANIFEST hold the output
-#   directory and the manifest path; each may contain $<CONFIG>.
+#   directory and the manifest path; each may contain $<CONFIG>, which $<TARGET_PROPERTY> leaves
+#   as it is in a property of its own: read them with
+#   $<GENEX_EVAL:$<TARGET_PROPERTY:<target>,PRAENORA_PROVIDER_MANIFEST>>.
 #
 # praenora_build_tree_provider_dir(<variable>)
 #

@@ -13,6 +13,9 @@ set(_praenora_fixtures "${PROJECT_SOURCE_DIR}/tests/fixtures")
 set(_praenora_cli_configs "${_praenora_fixtures}/configs/cli")
 set(_praenora_example_config
     "${PROJECT_SOURCE_DIR}/examples/workflows/estimate-predict/workflow.yaml")
+# A directory separator in a path that the tool prints, for a regular expression: '/', or '\' on
+# Windows, which a JSON document writes as '\\'.
+set(_praenora_separator "[/\\\\]+")
 # The fixture modules and the test catalog.
 set(_praenora_fixture_paths
     --module-path "${PRAENORA_TEST_MODULES_DIR}"
@@ -259,7 +262,8 @@ foreach(_praenora_command IN ITEMS validate run)
             CLEAN_DIR "${_praenora_unicode}"
             COPY_FILES ${_praenora_unicode_files}
             CMD run ${_praenora_unicode_paths} --output-dir "${_praenora_unicode}/öutput ñ"
-            EXPECT_STDOUT_REGEX "output directory +[^\n]*/öutput ñ\nstate +completed"
+            EXPECT_STDOUT_REGEX
+                "output directory +[^\n]*${_praenora_separator}öutput ñ\nstate +completed"
             EXPECT_FILE "${_praenora_unicode}/öutput ñ/run-record.json")
     endif()
 endforeach()
@@ -330,7 +334,8 @@ set(_praenora_no_providers "PRAENORA_PROVIDER_PATH=")
 
 # The text table: name, version, platform, services, manifest, and "usable" or why not.
 set(_praenora_listed_echo "^test-echo +0\\.1\\.0 +[a-z]+-[a-z0-9_]+ +test\\.echo@0\\.0 +")
-string(APPEND _praenora_listed_echo "[^\n]*/test-echo\\.provider\\.json +usable\n")
+string(APPEND _praenora_listed_echo
+    "[^\n]*${_praenora_separator}test-echo\\.provider\\.json +usable\n")
 praenora_add_cli_test(cli.providers.list
     CMD providers list ${_praenora_echo_provider}
     EXPECT_STDOUT_REGEX "${_praenora_listed_echo}")
@@ -355,8 +360,10 @@ praenora_add_cli_test(cli.providers.list_unusable_text
     CMD providers list --provider-path "${_praenora_cli_configs}/providers"
     EXPECT_STDOUT_REGEX "^test-old-runtime +0\\.1\\.0 +[^\n]* unusable: built for ")
 # A manifest shadowed by an earlier one of its name and platform is listed, unusable, naming it.
+set(_praenora_shadowing
+    "${_praenora_separator}providers${_praenora_separator}old-runtime\\.provider\\.json")
 set(_praenora_listed_shadowed "\ntest-old-runtime +0\\.2\\.0 +[^\n]* unusable: shadowed by ")
-string(APPEND _praenora_listed_shadowed "'[^'\n]*/providers/old-runtime\\.provider\\.json'")
+string(APPEND _praenora_listed_shadowed "'[^'\n]*${_praenora_shadowing}'")
 praenora_add_cli_test(cli.providers.list_shadowed
     CMD providers list --provider-path "${_praenora_cli_configs}/providers"
     EXPECT_STDOUT_REGEX "${_praenora_listed_shadowed}")
@@ -364,7 +371,7 @@ praenora_add_cli_test(cli.providers.list_shadowed_json
     CMD providers list --provider-path "${_praenora_cli_configs}/providers" --json
     EXPECT_JSON_PATH result.1.name result.1.version result.1.usable result.1.problem
     EXPECT_JSON_VALUE test-old-runtime 0.2.0 false *
-    EXPECT_STDOUT_REGEX "\"problem\":\"shadowed by '[^']*/providers/old-runtime\\.provider\\.json'")
+    EXPECT_STDOUT_REGEX "\"problem\":\"shadowed by '[^']*${_praenora_shadowing}'")
 # Nothing found: a note on standard error, an empty list and exit code 0. The build tree's
 # installation provider directory holds no provider, unless the build has the roadrunner provider
 # (PRAENORA_WITH_ROADRUNNER) or the antimony provider (PRAENORA_WITH_ANTIMONY).

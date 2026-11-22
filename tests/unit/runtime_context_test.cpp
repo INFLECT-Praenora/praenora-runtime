@@ -141,9 +141,9 @@ TEST(RuntimeContext, ModuleSearchOrderKeepsTheCallersPaths) {
     const auto errors = missing.errors();
     ASSERT_EQ(errors.size(), 1u) << missing.report.to_text();
     EXPECT_EQ(errors[0].code, ErrorCode::MODULE_NOT_FOUND);
-    std::vector<std::string> expected = {path_to_utf8(utf8_path(PRAENORA_TEST_MODULES_DIR)),
-                                         path_to_utf8(dir.path() / "config mods"),
-                                         path_to_utf8(environment_dir)};
+    std::vector<std::string> expected = {
+        path_to_utf8(utf8_path(PRAENORA_TEST_MODULES_DIR).lexically_normal()),
+        path_to_utf8(dir.path() / "config mods"), path_to_utf8(environment_dir)};
     if (const auto installation = praenora::detail::installation_module_dir()) {
         expected.push_back(path_to_utf8(installation->lexically_normal()));
     }

@@ -281,6 +281,9 @@ TEST(RunRecord, ValidatesAgainstSchema) {
     EXPECT_EQ(memory.current().at("execution").at("status"), "running");
 }
 
+// Process isolation is not available on Windows in this version: validation refuses a step in a
+// module host there (docs/specs/process-isolation.md).
+#ifndef _WIN32
 TEST(RunRecord, ListsEveryStepsIsolation) {
     ScratchDir dir;
     write_text_file(dir.path() / "source.json", "{\"value\": 1}");
@@ -336,6 +339,7 @@ TEST(RunRecord, ListsEveryStepsIsolation) {
               json({{"isolation", "process"}}));
     EXPECT_EQ(overridden.workflow->fingerprint, workflow.fingerprint);
 }
+#endif // _WIN32
 
 TEST(RunRecord, FingerprintMatchesReproducibilitySection) {
     ScratchDir dir;
@@ -560,7 +564,8 @@ TEST(RunRecord, SaysWhereEachManifestWasFoundWithoutAnAbsolutePath) {
     EXPECT_EQ(issues_of(record), "");
     EXPECT_EQ(record.at("execution").at("manifests"), workflow.manifest_locations);
 
-    const std::string modules = path_to_utf8(praenora::test::utf8_path(PRAENORA_TEST_MODULES_DIR));
+    const std::string modules =
+        path_to_utf8(praenora::test::utf8_path(PRAENORA_TEST_MODULES_DIR).lexically_normal());
     const std::string scratch = path_to_utf8(dir.path());
     for_each_string(record, "", [&](const std::string& where, const std::string& text) {
         EXPECT_FALSE(path_from_utf8(text).is_absolute()) << where << ": " << text;

@@ -50,7 +50,9 @@
 #   (cmake --install <build> --component <component>). Both need INSTALL_DESTINATION.
 # - The target properties PRAENORA_MODULE_DIR, PRAENORA_MODULE_MANIFEST and
 #   PRAENORA_MODULE_TEST_VECTORS_PATH hold the output directory, the manifest path and the path of
-#   the copied test vectors (empty without TEST_VECTORS); each may contain $<CONFIG>.
+#   the copied test vectors (empty without TEST_VECTORS); each may contain $<CONFIG>, which
+#   $<TARGET_PROPERTY> leaves as it is in a property of its own: read them with
+#   $<GENEX_EVAL:$<TARGET_PROPERTY:<target>,PRAENORA_MODULE_MANIFEST>>.
 #
 # The ABI, protocol, SDK and manifest format versions come from the variables
 # PRAENORA_ABI_MAJOR, PRAENORA_ABI_MINOR, PRAENORA_PMP_VERSION, PRAENORA_SDK_VERSION and

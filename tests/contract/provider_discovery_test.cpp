@@ -349,9 +349,18 @@ TEST(ProviderIndex, RecordsWhereEachManifestWasFound) {
     write_manifest(scratch.path() / "c" / "r.provider.json", usable_manifest("r", {"test.r@0.0"}));
     const ScopedEnvironment variable("PRAENORA_PROVIDER_PATH",
                                      path_list({"", utf8(scratch.path() / "c")}));
-    const ProviderIndex index = ProviderIndex::scan(provider_search_paths(
+    // Without the installation's directory: for a test executable beside the runtime DLL
+    // (Windows), it holds the providers that the build tree built, if any.
+    auto search_paths = provider_search_paths(
         {utf8(scratch.path() / "a"), utf8(scratch.path() / "a"), utf8(scratch.path() / "b")},
-        true));
+        true);
+    search_paths.erase(std::remove_if(search_paths.begin(), search_paths.end(),
+                                      [](const praenora::detail::SearchPath& path) {
+                                          return path.origin ==
+                                                 praenora::detail::SearchPathOrigin::installation;
+                                      }),
+                       search_paths.end());
+    const ProviderIndex index = ProviderIndex::scan(search_paths);
     ASSERT_EQ(names_of(index), (std::vector<std::string>{"p", "q", "r"}));
     using praenora::detail::SearchPathOrigin;
     const auto location = [&](std::size_t i) { return *index.entries().at(i).manifest.location; };
