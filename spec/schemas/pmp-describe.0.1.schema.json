@@ -1,0 +1,87 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:praenora:schema:pmp-describe:0.1",
+  "title": "PMP describe document",
+  "description": "The identity a module reports through describe().",
+  "type": "object",
+  "required": [
+    "name",
+    "version",
+    "abi",
+    "sdk_version",
+    "pmp_version",
+    "capabilities"
+  ],
+  "properties": {
+    "name": {
+      "$ref": "#/definitions/module_name"
+    },
+    "version": {
+      "$ref": "#/definitions/semver"
+    },
+    "abi": {
+      "type": "object",
+      "required": [
+        "major",
+        "minor"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "major": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "minor": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "sdk_version": {
+      "$ref": "#/definitions/semver"
+    },
+    "pmp_version": {
+      "$ref": "#/definitions/semver"
+    },
+    "capabilities": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/capability_ref"
+      }
+    }
+  },
+  "patternProperties": {
+    "^x-": {}
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "capability_ref": {
+      "type": "object",
+      "required": [
+        "id",
+        "version"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/catalog_id"
+        },
+        "version": {
+          "$ref": "#/definitions/semver"
+        }
+      }
+    },
+    "catalog_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)*$"
+    },
+    "module_name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)*$"
+    },
+    "semver": {
+      "type": "string",
+      "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$"
+    }
+  }
+}

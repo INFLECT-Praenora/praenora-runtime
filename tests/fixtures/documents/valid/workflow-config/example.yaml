@@ -1,0 +1,43 @@
+kind: workflow-config
+format_version: "0.1.0"
+
+workflow:
+  name: example.estimate-predict
+  version: "0.1.0"
+
+run:
+  seed: 20261110
+  ticks: 12
+  time: { unit: d, start: 0.0, period: 1.0 }
+  timeouts: { invoke: 30s, lifecycle: 10s, cancel_grace: 2s }
+
+modules:
+  search_paths: []
+
+inputs:
+  observations:
+    source: observation-csv
+    path: data/observations.csv
+    columns: { time: t, value: y }
+
+steps:
+  estimate:
+    module: { name: example-estimator, version: "0.1.0" }
+    parameters: { gain: 0.6 }
+  predict:
+    module: { name: example-predictor, version: "0.1.0" }
+    parameters: { growth_rate: 0.35, capacity: 100.0, horizon: 4.0, step_size: 0.05, output_interval: 0.5 }
+    timeouts: { invoke: 5s }
+    log_level: debug
+
+outputs:
+  directory: null
+  record: [predictions, state]
+  trace_messages: false
+
+observability:
+  log_level: info
+  log_format: text
+  log_file: null
+  status_file: null
+  status_interval: 1s

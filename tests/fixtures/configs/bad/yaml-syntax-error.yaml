@@ -1,0 +1,8 @@
+kind: workflow-config
+format_version: "0.1.0"
+workflow:
+  name: test.single
+  version: "0.1.0"
+  note: a: b
+steps:
+  a: { module: { name: fx-echo, version: "0.1.0" } }

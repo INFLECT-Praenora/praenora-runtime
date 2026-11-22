@@ -1,0 +1,61 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:praenora:schema:message-type:0.1",
+  "title": "Praenora message type",
+  "description": "A catalog entry: a message type and the draft-07 schema of its data.",
+  "type": "object",
+  "required": [
+    "kind",
+    "format_version",
+    "id",
+    "version",
+    "status",
+    "schema"
+  ],
+  "properties": {
+    "kind": {
+      "const": "message-type"
+    },
+    "format_version": {
+      "$ref": "#/definitions/semver"
+    },
+    "id": {
+      "$ref": "#/definitions/catalog_id"
+    },
+    "version": {
+      "$ref": "#/definitions/semver"
+    },
+    "status": {
+      "$ref": "#/definitions/status"
+    },
+    "summary": {
+      "type": "string"
+    },
+    "schema": {
+      "type": "object",
+      "description": "A draft-07 schema of the data."
+    }
+  },
+  "patternProperties": {
+    "^x-": {}
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "catalog_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)*$"
+    },
+    "semver": {
+      "type": "string",
+      "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "draft",
+        "stable",
+        "deprecated"
+      ]
+    }
+  }
+}

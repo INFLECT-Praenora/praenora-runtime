@@ -1,0 +1,12 @@
+// Events: a dose at a time, a delayed reset when x falls below a threshold, and priorities.
+model *events()
+  compartment cell = 1;
+  species x in cell;
+  decay: x => ; k * x;
+  x = 10;
+  k = 0.3;
+  threshold = 1;
+  dose: at time >= 5: x = x + 10;
+  reset: at x < threshold, t0 = false, priority = 1: x = 10, k = k * 2;
+  late: at time >= 8 after 0.5: k = 0.3;
+end

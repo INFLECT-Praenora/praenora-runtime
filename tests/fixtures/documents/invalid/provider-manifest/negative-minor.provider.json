@@ -1,0 +1,35 @@
+{
+  "kind": "provider-manifest",
+  "format_version": "0.1.0",
+  "provider": {
+    "name": "test-echo",
+    "version": "0.1.0"
+  },
+  "runtime_version": "0.2.0",
+  "abi": {
+    "major": 0,
+    "minor": 0
+  },
+  "library": {
+    "path": "test-echo.so",
+    "sha256": "abababababababababababababababababababababababababababababababab"
+  },
+  "platform": {
+    "os": "linux",
+    "arch": "x86_64"
+  },
+  "services": [
+    {
+      "name": "test.echo",
+      "major": 0,
+      "minor": -1
+    }
+  ],
+  "engine": {
+    "name": "echo",
+    "version": "1.0.0"
+  },
+  "x-build": {
+    "commit": "local"
+  }
+}

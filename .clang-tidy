@@ -1,0 +1,12 @@
+---
+Checks: >-
+  -*,
+  bugprone-*,
+  -bugprone-easily-*,
+  performance-*,
+  modernize-use-nullptr,
+  -readability-identifier-naming
+WarningsAsErrors: ''
+HeaderFilterRegex: '.*/(include/praenora|src|tests)/.*'
+FormatStyle: file
+...

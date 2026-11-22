@@ -1,0 +1,38 @@
+# The Python distribution praenora-runtime: the package praenora.runtime (praenora is a namespace
+# package), its SWIG extension and the runtime library, built with scikit-build-core from the
+# CMake project (src/python/CMakeLists.txt holds the wheel's install rules).
+
+[build-system]
+requires = ["scikit-build-core>=0.10", "swig>=4.2"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "praenora-runtime"
+dynamic = ["version"]
+description = "Python bindings of the Praenora runtime: validate, inspect and run workflows"
+requires-python = ">=3.10"
+# The table form, which every scikit-build-core version that build-system.requires accepts can
+# read. The SPDX string form of PEP 639 (license = "MIT") is read from scikit-build-core 0.11 on,
+# whose vendored pyproject-metadata (0.9 and newer) has PEP 639; the copy in 0.10 predates it (not
+# checked with 0.10 itself). With scikit-build-core 1.1.2 the wheel's metadata says
+# "License: MIT", and its default wheel.license-files patterns copy LICENSE into the wheel's
+# .dist-info/licenses/ (docs/adr/ADR-0040-mit-license.md).
+license = { text = "MIT" }
+
+[tool.scikit-build]
+# The defaults of scikit-build-core 0.10, the oldest version build-system.requires accepts, whatever
+# version builds the wheel.
+minimum-version = "0.10"
+cmake.version = ">=3.24"
+wheel.packages = ["python/praenora"]
+
+[tool.scikit-build.metadata.version]
+provider = "scikit_build_core.metadata.regex"
+input = "CMakeLists.txt"
+regex = 'project\(praenora_runtime\s+VERSION\s+(?P<value>[0-9.]+)'
+
+[tool.scikit-build.cmake.define]
+PRAENORA_BUILD_PYTHON = "ON"
+PRAENORA_BUILD_TESTS = "OFF"
+PRAENORA_BUILD_EXAMPLES = "OFF"
+PRAENORA_BUILD_CLI = "OFF"

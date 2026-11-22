@@ -1,0 +1,145 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:praenora:schema:workflow-definition:0.1",
+  "title": "Praenora workflow definition",
+  "description": "A catalog entry: the workflow's typed inputs and outputs, its steps (by capability) and the connections between them.",
+  "type": "object",
+  "required": [
+    "kind",
+    "format_version",
+    "name",
+    "version",
+    "status",
+    "steps",
+    "connections",
+    "outputs"
+  ],
+  "properties": {
+    "kind": {
+      "const": "workflow-definition"
+    },
+    "format_version": {
+      "$ref": "#/definitions/semver"
+    },
+    "name": {
+      "$ref": "#/definitions/catalog_id"
+    },
+    "version": {
+      "$ref": "#/definitions/semver"
+    },
+    "status": {
+      "$ref": "#/definitions/status"
+    },
+    "summary": {
+      "type": "string"
+    },
+    "inputs": {
+      "type": "object",
+      "patternProperties": {
+        "^(?!(inputs|outputs)$)[a-z][a-z0-9_]*$": {
+          "$ref": "#/definitions/port_type"
+        }
+      },
+      "additionalProperties": false
+    },
+    "outputs": {
+      "type": "object",
+      "patternProperties": {
+        "^(?!(inputs|outputs)$)[a-z][a-z0-9_]*$": {
+          "$ref": "#/definitions/port_type"
+        }
+      },
+      "additionalProperties": false
+    },
+    "steps": {
+      "type": "object",
+      "patternProperties": {
+        "^(?!(inputs|outputs)$)[a-z][a-z0-9_]*$": {
+          "type": "object",
+          "required": [
+            "capability",
+            "capability_version"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "capability": {
+              "$ref": "#/definitions/catalog_id"
+            },
+            "capability_version": {
+              "$ref": "#/definitions/semver"
+            }
+          }
+        }
+      },
+      "additionalProperties": false,
+      "minProperties": 1
+    },
+    "connections": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "from",
+          "to"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "from": {
+            "$ref": "#/definitions/endpoint"
+          },
+          "to": {
+            "$ref": "#/definitions/endpoint"
+          },
+          "delay": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2147483647,
+            "default": 0
+          }
+        }
+      }
+    }
+  },
+  "patternProperties": {
+    "^x-": {}
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "catalog_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)*$"
+    },
+    "endpoint": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$"
+    },
+    "port_type": {
+      "type": "object",
+      "required": [
+        "type",
+        "type_version"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "$ref": "#/definitions/catalog_id"
+        },
+        "type_version": {
+          "$ref": "#/definitions/semver"
+        }
+      }
+    },
+    "semver": {
+      "type": "string",
+      "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "draft",
+        "stable",
+        "deprecated"
+      ]
+    }
+  }
+}

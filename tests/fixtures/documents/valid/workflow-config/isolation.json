@@ -1,0 +1,54 @@
+{
+  "kind": "workflow-config",
+  "format_version": "0.1.0",
+  "workflow": {
+    "name": "example.estimate-predict",
+    "version": "0.1.0"
+  },
+  "run": {
+    "seed": 0,
+    "time": {
+      "unit": "d",
+      "start": 0.0,
+      "period": 1.0
+    },
+    "timeouts": {
+      "invoke": "none",
+      "lifecycle": 0,
+      "cancel_grace": "1.5s"
+    },
+    "isolation": {
+      "mode": "process",
+      "share_compiled_models": true,
+      "sandbox": "restricted"
+    }
+  },
+  "inputs": {
+    "observations": {
+      "source": "json-document",
+      "path": "data/observations.json"
+    }
+  },
+  "steps": {
+    "estimate": {
+      "module": {
+        "name": "example-estimator",
+        "version": "0.1.0"
+      },
+      "isolation": {
+        "mode": "in-process",
+        "share_compiled_models": false,
+        "sandbox": "none"
+      }
+    },
+    "predict": {
+      "module": {
+        "name": "example-predictor",
+        "version": "0.1.0"
+      },
+      "parameters": {},
+      "isolation": {}
+    }
+  },
+  "x-notes": "the predict step runs in a module host, as run.isolation says, and shares compiled models; estimate in the runtime's process, sharing none"
+}

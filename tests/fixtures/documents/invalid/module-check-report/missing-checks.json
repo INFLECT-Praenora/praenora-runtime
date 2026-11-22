@@ -1,0 +1,10 @@
+{
+  "kind": "module-check-report",
+  "format_version": "0.1.0",
+  "manifest": "modules/fx-echo/fx-echo.pmm.json",
+  "module": {
+    "name": "fx-echo",
+    "version": "0.1.0"
+  },
+  "passed": false
+}

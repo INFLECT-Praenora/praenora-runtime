@@ -1,0 +1,758 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:praenora:schema:run-record:0.2",
+  "title": "Praenora run record",
+  "description": "What a run used (the hashed reproducibility section) and how it went (execution).",
+  "type": "object",
+  "required": [
+    "kind",
+    "format_version",
+    "fingerprint",
+    "reproducibility",
+    "execution"
+  ],
+  "properties": {
+    "kind": {
+      "const": "run-record"
+    },
+    "format_version": {
+      "$ref": "#/definitions/semver"
+    },
+    "fingerprint": {
+      "$ref": "#/definitions/fingerprint"
+    },
+    "reproducibility": {
+      "type": "object",
+      "required": [
+        "versions",
+        "workflow",
+        "catalog",
+        "time",
+        "seed",
+        "ticks",
+        "timeouts",
+        "inputs",
+        "services",
+        "steps"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "versions": {
+          "type": "object",
+          "required": [
+            "runtime",
+            "abi",
+            "pmp"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "runtime": {
+              "$ref": "#/definitions/semver"
+            },
+            "abi": {
+              "type": "object",
+              "required": [
+                "major",
+                "minor"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "major": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "minor": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            },
+            "pmp": {
+              "$ref": "#/definitions/semver"
+            }
+          }
+        },
+        "workflow": {
+          "type": "object",
+          "required": [
+            "name",
+            "version",
+            "digest"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "$ref": "#/definitions/catalog_id"
+            },
+            "version": {
+              "$ref": "#/definitions/semver"
+            },
+            "digest": {
+              "$ref": "#/definitions/sha256"
+            }
+          }
+        },
+        "catalog": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/sha256"
+          },
+          "description": "Digest of every catalog entry used, by id@version."
+        },
+        "time": {
+          "$ref": "#/definitions/time_base"
+        },
+        "seed": {
+          "$ref": "#/definitions/seed"
+        },
+        "ticks": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/count"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The run's tick count; null when the run lasts until its replay inputs are exhausted."
+        },
+        "timeouts": {
+          "$ref": "#/definitions/timeouts"
+        },
+        "inputs": {
+          "type": "object",
+          "patternProperties": {
+            "^(?!(inputs|outputs)$)[a-z][a-z0-9_]*$": {
+              "type": "object",
+              "required": [
+                "source",
+                "digest"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "source": {
+                  "enum": [
+                    "observation-csv",
+                    "json-document"
+                  ]
+                },
+                "digest": {
+                  "$ref": "#/definitions/sha256"
+                },
+                "columns": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "services": {
+          "type": "object",
+          "propertyNames": {
+            "$ref": "#/definitions/service_key"
+          },
+          "additionalProperties": {
+            "$ref": "#/definitions/resolved_service"
+          },
+          "description": "Every runtime service a provider serves to the run, by <name>@<major>."
+        },
+        "steps": {
+          "type": "object",
+          "patternProperties": {
+            "^(?!(inputs|outputs)$)[a-z][a-z0-9_]*$": {
+              "type": "object",
+              "required": [
+                "capability",
+                "module",
+                "parameters",
+                "seed",
+                "services"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "capability": {
+                  "$ref": "#/definitions/capability_ref"
+                },
+                "module": {
+                  "type": "object",
+                  "required": [
+                    "name",
+                    "version",
+                    "manifest_sha256",
+                    "library_sha256",
+                    "sdk_version"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "name": {
+                      "$ref": "#/definitions/module_name"
+                    },
+                    "version": {
+                      "$ref": "#/definitions/semver"
+                    },
+                    "manifest_sha256": {
+                      "$ref": "#/definitions/sha256"
+                    },
+                    "library_sha256": {
+                      "$ref": "#/definitions/sha256"
+                    },
+                    "sdk_version": {
+                      "$ref": "#/definitions/semver"
+                    }
+                  }
+                },
+                "parameters": {
+                  "type": "object"
+                },
+                "seed": {
+                  "$ref": "#/definitions/seed"
+                },
+                "timeouts": {
+                  "$ref": "#/definitions/timeouts"
+                },
+                "services": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/service_key"
+                  },
+                  "uniqueItems": true,
+                  "description": "The keys of the top-level services that the step's module may use, sorted."
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    },
+    "execution": {
+      "type": "object",
+      "required": [
+        "status",
+        "ticks_completed",
+        "platform",
+        "overrides",
+        "validation",
+        "manifests",
+        "isolation"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "enum": [
+            "running",
+            "completed",
+            "stopped",
+            "failed"
+          ],
+          "description": "The run's status: running from its start, then how it ended."
+        },
+        "started_at": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/timestamp"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "finished_at": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/timestamp"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "final_status": {
+          "type": "object",
+          "description": "The final status snapshot (a status-snapshot document), written when the run ends. Its error records name the run's directories by placeholders, as execution.error does."
+        },
+        "ticks_completed": {
+          "$ref": "#/definitions/count"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/error_record"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "platform": {
+          "type": "object",
+          "required": [
+            "os",
+            "arch",
+            "compiler",
+            "build_type"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "os": {
+              "type": "string"
+            },
+            "arch": {
+              "type": "string"
+            },
+            "compiler": {
+              "type": "string"
+            },
+            "build_type": {
+              "type": "string"
+            }
+          }
+        },
+        "overrides": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "seed": {
+              "$ref": "#/definitions/seed"
+            },
+            "ticks": {
+              "$ref": "#/definitions/count"
+            },
+            "isolation": {
+              "$ref": "#/definitions/isolation_mode"
+            }
+          },
+          "description": "The run settings the caller overrode (CLI flags or API options); empty when none."
+        },
+        "validation": {
+          "enum": [
+            "strict",
+            "off"
+          ],
+          "description": "Whether payloads were validated against their message types (strict) or not (off, for performance measurements)."
+        },
+        "isolation": {
+          "type": "object",
+          "patternProperties": {
+            "^(?!(inputs|outputs)$)[a-z][a-z0-9_]*$": {
+              "type": "object",
+              "required": [
+                "mode",
+                "share_compiled_models",
+                "sandbox"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "mode": {
+                  "$ref": "#/definitions/isolation_mode"
+                },
+                "share_compiled_models": {
+                  "type": "boolean",
+                  "description": "Whether the step's module host shared compiled models with the other sharing steps' module hosts."
+                },
+                "sandbox": {
+                  "enum": [
+                    "none",
+                    "restricted"
+                  ],
+                  "description": "The sandbox profile of the step's module host: none, or restricted."
+                }
+              }
+            }
+          },
+          "additionalProperties": false,
+          "description": "How each step's module instance was isolated, by step, every field resolved: mode in-process (in the runtime's process) or process (in a module host), whether its module host shared compiled models, and its sandbox profile. Outside the hashed section: it does not change the fingerprint."
+        },
+        "manifests": {
+          "type": "object",
+          "required": [
+            "steps",
+            "services"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "steps": {
+              "type": "object",
+              "patternProperties": {
+                "^(?!(inputs|outputs)$)[a-z][a-z0-9_]*$": {
+                  "$ref": "#/definitions/manifest_location"
+                }
+              },
+              "additionalProperties": false,
+              "description": "Where the module manifest of each step was found, by step."
+            },
+            "services": {
+              "type": "object",
+              "propertyNames": {
+                "$ref": "#/definitions/service_key"
+              },
+              "additionalProperties": {
+                "$ref": "#/definitions/manifest_location"
+              },
+              "description": "Where the provider manifest of each runtime service of the run was found, by <name>@<major>."
+            }
+          },
+          "description": "Where each manifest of the run was found, relative to a search path named by its origin and index, never by an absolute path. Outside the hashed section: it does not change the fingerprint."
+        },
+        "outputs": {
+          "type": "object",
+          "patternProperties": {
+            "^(?!(inputs|outputs)$)[a-z][a-z0-9_]*$": {
+              "type": "object",
+              "required": [
+                "file",
+                "sha256",
+                "messages"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "file": {
+                  "type": "string"
+                },
+                "sha256": {
+                  "$ref": "#/definitions/sha256"
+                },
+                "messages": {
+                  "$ref": "#/definitions/count"
+                }
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "trace": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "file": {
+              "type": "string"
+            },
+            "sha256": {
+              "$ref": "#/definitions/sha256"
+            },
+            "messages": {
+              "$ref": "#/definitions/count"
+            }
+          }
+        }
+      }
+    }
+  },
+  "patternProperties": {
+    "^x-": {}
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "capability_ref": {
+      "type": "object",
+      "required": [
+        "id",
+        "version"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/catalog_id"
+        },
+        "version": {
+          "$ref": "#/definitions/semver"
+        }
+      }
+    },
+    "catalog_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)*$"
+    },
+    "count": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "duration": {
+      "$comment": "A duration is either a string <number><unit> with unit ns, us, ms, s, m or h (\"30s\", \"1.5m\"; \"0\" or \"none\" disables the timeout), or the integer 0, which also disables it. The pattern applies only to strings and minimum/maximum only to numbers, so every other number is rejected.",
+      "type": [
+        "string",
+        "integer"
+      ],
+      "pattern": "^(none|0|[0-9]+(\\.[0-9]+)?(ns|us|ms|s|m|h))$",
+      "minimum": 0,
+      "maximum": 0,
+      "description": "<number><unit> with unit ns|us|ms|s|m|h; 0 or none disables."
+    },
+    "error_record": {
+      "type": "object",
+      "description": "An error record of the run. Its strings (message, location.file, and every string of details and cause) name each directory the run knows by a placeholder, the rest of a path kept: <output>, <configuration>, <modules:ORIGIN:INDEX> or <modules:installation>, <providers:ORIGIN:INDEX> or <providers:installation>, <home>.",
+      "required": [
+        "code",
+        "name",
+        "message",
+        "location",
+        "details"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "type": "integer"
+        },
+        "name": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]*$"
+        },
+        "message": {
+          "type": "string"
+        },
+        "tick": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/count"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "at": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/timestamp"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "cause": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "location": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/source_location"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Where the error was found: the parts of its location that are set, or null when none is."
+        },
+        "details": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "minProperties": 1,
+          "description": "The error's code-specific details, or null when it has none."
+        }
+      }
+    },
+    "fingerprint": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "isolation_mode": {
+      "enum": [
+        "in-process",
+        "process"
+      ]
+    },
+    "manifest_location": {
+      "type": "object",
+      "required": [
+        "search_path",
+        "file"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "search_path": {
+          "type": "object",
+          "required": [
+            "origin"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "origin": {
+              "enum": [
+                "caller",
+                "configuration",
+                "environment",
+                "installation"
+              ],
+              "description": "Where the search path comes from: the caller's paths, the configuration's modules.search_paths, the environment variable (PRAENORA_MODULE_PATH or PRAENORA_PROVIDER_PATH), or the installation's directory."
+            },
+            "index": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "The search path's position among the non-empty entries of its origin, as given, from 0; an entry that repeats an earlier path still counts."
+            }
+          },
+          "if": {
+            "properties": {
+              "origin": {
+                "const": "installation"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "index": false
+            }
+          },
+          "else": {
+            "required": [
+              "index"
+            ]
+          },
+          "description": "The search path that reached the manifest first; the installation's directory has no index."
+        },
+        "file": {
+          "type": "string",
+          "pattern": "^(?![A-Za-z]:[/\\\\])(?!\\\\)(?!\\.\\.?(/|$))[^/]+(/(?!\\.\\.?$)[^/]+)?$",
+          "description": "The manifest file relative to the search path, '/'-separated: <file>, or <directory>/<file> for a manifest in an immediate subdirectory. Never absolute (no leading /, \\ or drive such as C:/), never with a . or .. segment."
+        }
+      },
+      "description": "Where discovery found a manifest, without an absolute path."
+    },
+    "module_name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)*$"
+    },
+    "resolved_service": {
+      "type": "object",
+      "required": [
+        "minor",
+        "provider",
+        "engine"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "minor": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The minor version the provider offers."
+        },
+        "provider": {
+          "type": "object",
+          "required": [
+            "name",
+            "version",
+            "manifest_sha256",
+            "library_sha256"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "$ref": "#/definitions/module_name"
+            },
+            "version": {
+              "$ref": "#/definitions/semver"
+            },
+            "manifest_sha256": {
+              "$ref": "#/definitions/sha256"
+            },
+            "library_sha256": {
+              "$ref": "#/definitions/sha256"
+            }
+          }
+        },
+        "engine": {
+          "type": "object",
+          "description": "The engine object of the provider's manifest."
+        }
+      }
+    },
+    "seed": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "service_key": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)*@(0|[1-9][0-9]*)$",
+      "description": "<name>@<major> of a runtime service."
+    },
+    "semver": {
+      "type": "string",
+      "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "source_location": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "properties": {
+        "file": {
+          "type": "string",
+          "minLength": 1
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "column": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "pointer": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "dependencies": {
+        "column": [
+          "line"
+        ]
+      },
+      "description": "A file (UTF-8 path), a 1-based line and column (columns count bytes; a column only with a line) and a JSON pointer into the document."
+    },
+    "time_base": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "unit": {
+          "type": "string",
+          "minLength": 1,
+          "default": "1"
+        },
+        "start": {
+          "type": "number",
+          "default": 0.0
+        },
+        "period": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "default": 1.0
+        }
+      }
+    },
+    "timeouts": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "invoke": {
+          "$ref": "#/definitions/duration"
+        },
+        "lifecycle": {
+          "$ref": "#/definitions/duration"
+        },
+        "cancel_grace": {
+          "$ref": "#/definitions/duration"
+        }
+      }
+    },
+    "timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{9}Z$",
+      "description": "RFC 3339 UTC time with exactly 9 fractional digits."
+    }
+  }
+}

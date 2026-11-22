@@ -1,0 +1,7 @@
+{
+  "code": 10001,
+  "message": "row 3: time is not a number",
+  "details": {
+    "row": 3
+  }
+}

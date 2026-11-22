@@ -1,0 +1,11 @@
+# The data file of input `source` does not exist: validation reports TARGET_DATA_UNAVAILABLE at
+# /inputs/source/path, and the tool exits with 3 like any validation failure (CLI tests
+# cli.validate.missing_data and cli.run.missing_data, and the Python tests).
+kind: workflow-config
+format_version: "0.1.0"
+workflow: { name: test.single, version: "0.1.0" }
+run: { ticks: 1 }
+inputs:
+  source: { source: json-document, path: no-such-source.json }
+steps:
+  a: { module: { name: fx-echo, version: "0.1.0" } }

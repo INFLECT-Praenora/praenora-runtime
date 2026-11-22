@@ -1,0 +1,12 @@
+# fx-echo in two ticks; the CLI tests cli.validate.unicode_paths and cli.run.unicode_paths copy
+# this file, source.json and the module into directories whose names hold spaces and non-ASCII
+# characters.
+kind: workflow-config
+format_version: "0.1.0"
+workflow: { name: test.single, version: "0.1.0" }
+run: { ticks: 2 }
+inputs:
+  source: { source: json-document, path: source.json }
+steps:
+  a:
+    module: { name: fx-echo, version: "0.1.0" }

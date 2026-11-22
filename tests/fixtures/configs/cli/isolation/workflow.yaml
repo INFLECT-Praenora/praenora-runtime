@@ -1,0 +1,13 @@
+# Two steps for module hosts: run with --isolation process, each runs in a module host of its own
+# (CLI test cli.run.isolation_process).
+kind: workflow-config
+format_version: "0.1.0"
+workflow: { name: test.chain, version: "0.1.0" }
+run: { ticks: 3 }
+inputs:
+  source: { source: json-document, path: ../source.json }
+steps:
+  a:
+    module: { name: fx-echo, version: "0.1.0" }
+  b:
+    module: { name: fx-lifecycle, version: "0.1.0" }

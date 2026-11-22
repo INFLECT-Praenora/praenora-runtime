@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- two-compartments.xml with a second dose at time 1.
+     A two-compartment model of a drug given as one dose (amounts): A1 in the central compartment
+     starts at the parameter dose (an initial assignment), A2 in the peripheral one at 0, and
+     dA1/dt = -(k12 + ke) * A1 + k21 * A2, dA2/dt = k12 * A1 - k21 * A2. -->
+<sbml xmlns="http://www.sbml.org/sbml/level3/version2/core" level="3" version="2">
+  <model id="two_compartments_with_event">
+    <listOfCompartments>
+      <compartment id="central" spatialDimensions="3" size="4" constant="true"/>
+      <compartment id="peripheral" spatialDimensions="3" size="10" constant="true"/>
+    </listOfCompartments>
+    <listOfSpecies>
+      <species id="A1" compartment="central" hasOnlySubstanceUnits="true"
+               boundaryCondition="false" constant="false"/>
+      <species id="A2" compartment="peripheral" initialAmount="0" hasOnlySubstanceUnits="true"
+               boundaryCondition="false" constant="false"/>
+    </listOfSpecies>
+    <listOfParameters>
+      <parameter id="dose" value="100" constant="true"/>
+      <parameter id="k12" value="0.35" constant="true"/>
+      <parameter id="k21" value="0.18" constant="true"/>
+      <parameter id="ke" value="0.12" constant="true"/>
+    </listOfParameters>
+    <listOfInitialAssignments>
+      <initialAssignment symbol="A1">
+        <math xmlns="http://www.w3.org/1998/Math/MathML"><ci> dose </ci></math>
+      </initialAssignment>
+    </listOfInitialAssignments>
+    <listOfReactions>
+      <reaction id="distribution" reversible="false">
+        <listOfReactants>
+          <speciesReference species="A1" stoichiometry="1" constant="true"/>
+        </listOfReactants>
+        <listOfProducts>
+          <speciesReference species="A2" stoichiometry="1" constant="true"/>
+        </listOfProducts>
+        <kineticLaw>
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply><times/><ci>k12</ci><ci>A1</ci></apply>
+          </math>
+        </kineticLaw>
+      </reaction>
+      <reaction id="redistribution" reversible="false">
+        <listOfReactants>
+          <speciesReference species="A2" stoichiometry="1" constant="true"/>
+        </listOfReactants>
+        <listOfProducts>
+          <speciesReference species="A1" stoichiometry="1" constant="true"/>
+        </listOfProducts>
+        <kineticLaw>
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply><times/><ci>k21</ci><ci>A2</ci></apply>
+          </math>
+        </kineticLaw>
+      </reaction>
+      <reaction id="elimination" reversible="false">
+        <listOfReactants>
+          <speciesReference species="A1" stoichiometry="1" constant="true"/>
+        </listOfReactants>
+        <kineticLaw>
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply><times/><ci>ke</ci><ci>A1</ci></apply>
+          </math>
+        </kineticLaw>
+      </reaction>
+    </listOfReactions>
+    <listOfEvents>
+      <event id="second_dose" useValuesFromTriggerTime="true">
+        <trigger initialValue="false" persistent="true">
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+              <geq/>
+              <csymbol encoding="text" definitionURL="http://www.sbml.org/sbml/symbols/time">
+                t </csymbol>
+              <cn> 1 </cn>
+            </apply>
+          </math>
+        </trigger>
+        <listOfEventAssignments>
+          <eventAssignment variable="A1">
+            <math xmlns="http://www.w3.org/1998/Math/MathML">
+              <apply><plus/><ci> A1 </ci><ci> dose </ci></apply>
+            </math>
+          </eventAssignment>
+        </listOfEventAssignments>
+      </event>
+    </listOfEvents>
+  </model>
+</sbml>

@@ -1,0 +1,99 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:praenora:schema:capability-definition:0.1",
+  "title": "Praenora capability definition",
+  "description": "A catalog entry: the typed input and output ports of a capability.",
+  "type": "object",
+  "required": [
+    "kind",
+    "format_version",
+    "id",
+    "version",
+    "status",
+    "inputs",
+    "outputs"
+  ],
+  "properties": {
+    "kind": {
+      "const": "capability-definition"
+    },
+    "format_version": {
+      "$ref": "#/definitions/semver"
+    },
+    "id": {
+      "$ref": "#/definitions/catalog_id"
+    },
+    "version": {
+      "$ref": "#/definitions/semver"
+    },
+    "status": {
+      "$ref": "#/definitions/status"
+    },
+    "summary": {
+      "type": "string"
+    },
+    "inputs": {
+      "type": "object",
+      "patternProperties": {
+        "^(?!(inputs|outputs)$)[a-z][a-z0-9_]*$": {
+          "$ref": "#/definitions/capability_port"
+        }
+      },
+      "additionalProperties": false
+    },
+    "outputs": {
+      "type": "object",
+      "patternProperties": {
+        "^(?!(inputs|outputs)$)[a-z][a-z0-9_]*$": {
+          "$ref": "#/definitions/capability_port"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "patternProperties": {
+    "^x-": {}
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "capability_port": {
+      "type": "object",
+      "required": [
+        "type",
+        "type_version",
+        "required"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "$ref": "#/definitions/catalog_id"
+        },
+        "type_version": {
+          "$ref": "#/definitions/semver"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "summary": {
+          "type": "string"
+        }
+      }
+    },
+    "catalog_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)*$"
+    },
+    "semver": {
+      "type": "string",
+      "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "draft",
+        "stable",
+        "deprecated"
+      ]
+    }
+  }
+}

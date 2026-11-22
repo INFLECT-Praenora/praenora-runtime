@@ -1,0 +1,27 @@
+{
+  "kind": "capability-definition",
+  "format_version": "0.1.0",
+  "id": "example.estimate",
+  "version": "0.1.0",
+  "status": "stable",
+  "summary": "Estimates the current state from observations and an optional prior prediction.",
+  "inputs": {
+    "observations": {
+      "type": "pmp.observation-batch",
+      "type_version": "0.1.0",
+      "required": true
+    },
+    "prior": {
+      "type": "pmp.prediction-set",
+      "type_version": "0.1.0",
+      "required": false
+    }
+  },
+  "outputs": {
+    "state": {
+      "type": "example.state-estimate",
+      "type_version": "0.1.0",
+      "required": true
+    }
+  }
+}

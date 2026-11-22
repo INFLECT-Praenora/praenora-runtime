@@ -1,0 +1,35 @@
+{
+  "kind": "workflow-definition",
+  "format_version": "0.1.0",
+  "name": "test.dangling",
+  "version": "0.1.0",
+  "status": "stable",
+  "inputs": {
+    "source": {
+      "type": "test.nowhere",
+      "type_version": "0.1.0"
+    }
+  },
+  "steps": {
+    "a": {
+      "capability": "test.nothing",
+      "capability_version": "0.1.0"
+    }
+  },
+  "connections": [
+    {
+      "from": "inputs.source",
+      "to": "a.in"
+    },
+    {
+      "from": "a.out",
+      "to": "outputs.result"
+    }
+  ],
+  "outputs": {
+    "result": {
+      "type": "test.void",
+      "type_version": "0.1.0"
+    }
+  }
+}

@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Created by libAntimony version v3.3.0 with libSBML version 5.21.2. -->
+<sbml xmlns="http://www.sbml.org/sbml/level3/version2/core" level="3" version="2">
+  <model metaid="pair" id="pair">
+    <listOfCompartments>
+      <compartment id="A_cell" spatialDimensions="3" size="1" constant="true"/>
+      <compartment id="B_cell" spatialDimensions="3" size="1" constant="true"/>
+    </listOfCompartments>
+    <listOfSpecies>
+      <species id="a" compartment="A_cell" initialConcentration="10" hasOnlySubstanceUnits="false" boundaryCondition="false" constant="false"/>
+      <species id="b" compartment="B_cell" initialConcentration="4" hasOnlySubstanceUnits="false" boundaryCondition="false" constant="false"/>
+    </listOfSpecies>
+    <listOfParameters>
+      <parameter id="k_a" value="0.5" constant="true"/>
+      <parameter id="k_b" value="1.5" constant="true"/>
+    </listOfParameters>
+    <listOfReactions>
+      <reaction id="A_J0" reversible="false">
+        <listOfReactants>
+          <speciesReference species="a" stoichiometry="1" constant="true"/>
+        </listOfReactants>
+        <kineticLaw>
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+              <times/>
+              <ci> k_a </ci>
+              <ci> a </ci>
+            </apply>
+          </math>
+        </kineticLaw>
+      </reaction>
+      <reaction id="B_J0" reversible="false">
+        <listOfReactants>
+          <speciesReference species="b" stoichiometry="1" constant="true"/>
+        </listOfReactants>
+        <kineticLaw>
+          <math xmlns="http://www.w3.org/1998/Math/MathML">
+            <apply>
+              <times/>
+              <ci> k_b </ci>
+              <ci> b </ci>
+            </apply>
+          </math>
+        </kineticLaw>
+      </reaction>
+    </listOfReactions>
+  </model>
+</sbml>

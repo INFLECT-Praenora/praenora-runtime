@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:praenora:schema:sample:0.2",
+  "title": "Sample document, format 0.2 (test fixture)",
+  "type": "object",
+  "required": ["name"],
+  "properties": {
+    "name": { "type": "string" },
+    "gain": { "$ref": "#/definitions/fraction" },
+    "mode": { "type": "string", "enum": ["fast", "exact"], "default": "exact" }
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "fraction": { "type": "number", "minimum": 0, "maximum": 1, "default": 0.5 }
+  }
+}

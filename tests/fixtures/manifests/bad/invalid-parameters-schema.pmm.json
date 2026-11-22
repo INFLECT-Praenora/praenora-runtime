@@ -1,0 +1,15 @@
+{
+  "kind": "module-manifest",
+  "format_version": "0.1.0",
+  "module": { "name": "fx-bad", "version": "0.1.0" },
+  "abi": { "major": 0, "minor": 0 },
+  "pmp_version": "0.1.0",
+  "sdk_version": "0.1.0",
+  "library": { "path": "fx-bad.so" },
+  "platform": { "os": "macos", "arch": "arm64" },
+  "capabilities": [{ "id": "test.echo", "version": "0.1.0" }],
+  "parameters_schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "objekt"
+  }
+}

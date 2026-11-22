@@ -1,0 +1,9 @@
+# The model of test-decay/two-states.json: two states that decay on their own, x from
+# the parameter x0.
+state x x0
+state y 4
+
+parameter x0 10
+parameter k_x 0.5    # x halves in about 1.39 time units
+parameter k_y 1.5
+hold 0

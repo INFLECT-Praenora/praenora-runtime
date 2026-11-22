@@ -1,0 +1,43 @@
+{
+  "kind": "workflow-definition",
+  "format_version": "0.1.0",
+  "name": "bad.optional-output-into-required",
+  "version": "0.1.0",
+  "status": "stable",
+  "inputs": {
+    "source": {
+      "type": "test.blob",
+      "type_version": "0.1.0"
+    }
+  },
+  "steps": {
+    "a": {
+      "capability": "test.maybe",
+      "capability_version": "0.1.0"
+    },
+    "b": {
+      "capability": "test.require",
+      "capability_version": "0.1.0"
+    }
+  },
+  "connections": [
+    {
+      "from": "inputs.source",
+      "to": "a.in"
+    },
+    {
+      "from": "a.out",
+      "to": "b.in"
+    },
+    {
+      "from": "b.out",
+      "to": "outputs.result"
+    }
+  ],
+  "outputs": {
+    "result": {
+      "type": "test.blob",
+      "type_version": "0.1.0"
+    }
+  }
+}

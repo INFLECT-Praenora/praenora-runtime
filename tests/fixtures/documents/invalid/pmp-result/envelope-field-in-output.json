@@ -1,0 +1,14 @@
+{
+  "outputs": {
+    "state": {
+      "data": {
+        "time_unit": "d",
+        "estimates": []
+      },
+      "tick": 3
+    }
+  },
+  "diagnostics": {
+    "updates": 2
+  }
+}

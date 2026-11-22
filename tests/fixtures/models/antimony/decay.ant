@@ -1,0 +1,12 @@
+// Two species that decay on their own in a compartment of size 1: dx/dt = -k_x * x and
+// dy/dt = -k_y * y, so x(t) = 10 exp(-0.5 t) and y(t) = 4 exp(-1.5 t).
+model *decay()
+  compartment cell = 1;
+  species x in cell, y in cell;
+  rx: x => ; k_x * x;
+  ry: y => ; k_y * y;
+  x = 10;
+  y = 4;
+  k_x = 0.5;
+  k_y = 1.5;
+end

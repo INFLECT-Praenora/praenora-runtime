@@ -1,0 +1,360 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:praenora:schema:status-snapshot:0.1",
+  "title": "Praenora status snapshot",
+  "description": "The state, health and per-step metrics of a workflow at one moment.",
+  "type": "object",
+  "required": [
+    "kind",
+    "format_version",
+    "generated_at",
+    "runtime_version",
+    "pid",
+    "workflow",
+    "steps"
+  ],
+  "properties": {
+    "kind": {
+      "const": "status-snapshot"
+    },
+    "format_version": {
+      "$ref": "#/definitions/semver"
+    },
+    "generated_at": {
+      "$ref": "#/definitions/timestamp"
+    },
+    "runtime_version": {
+      "$ref": "#/definitions/semver"
+    },
+    "pid": {
+      "type": "integer"
+    },
+    "workflow": {
+      "type": "object",
+      "required": [
+        "name",
+        "version",
+        "fingerprint",
+        "state",
+        "health",
+        "uptime_ns",
+        "ticks_completed"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "$ref": "#/definitions/catalog_id"
+        },
+        "version": {
+          "$ref": "#/definitions/semver"
+        },
+        "fingerprint": {
+          "type": "string",
+          "pattern": "^([0-9a-f]{64})?$"
+        },
+        "state": {
+          "enum": [
+            "created",
+            "starting",
+            "ready",
+            "running",
+            "stopping",
+            "completed",
+            "stopped",
+            "failed"
+          ]
+        },
+        "health": {
+          "enum": [
+            "unknown",
+            "healthy",
+            "degraded",
+            "unhealthy"
+          ]
+        },
+        "started_at": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/timestamp"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "uptime_ns": {
+          "$ref": "#/definitions/duration_ns"
+        },
+        "ticks_completed": {
+          "$ref": "#/definitions/count"
+        },
+        "current_tick": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/count"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "logical_time": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "last_tick_duration_ns": {
+          "$ref": "#/definitions/duration_ns"
+        },
+        "last_error": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/error_record"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "step",
+          "module_name",
+          "module_version",
+          "state",
+          "invocations",
+          "succeeded",
+          "failed",
+          "timed_out",
+          "cancelled"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "step": {
+            "$ref": "#/definitions/name"
+          },
+          "module_name": {
+            "$ref": "#/definitions/module_name"
+          },
+          "module_version": {
+            "$ref": "#/definitions/semver"
+          },
+          "state": {
+            "enum": [
+              "loaded",
+              "created",
+              "ready",
+              "busy",
+              "finalized",
+              "destroyed",
+              "failed",
+              "unresponsive",
+              "crashed"
+            ]
+          },
+          "invocations": {
+            "$ref": "#/definitions/count"
+          },
+          "succeeded": {
+            "$ref": "#/definitions/count"
+          },
+          "failed": {
+            "$ref": "#/definitions/count"
+          },
+          "timed_out": {
+            "$ref": "#/definitions/count"
+          },
+          "cancelled": {
+            "$ref": "#/definitions/count"
+          },
+          "last_duration_ns": {
+            "$ref": "#/definitions/duration_ns"
+          },
+          "total_duration_ns": {
+            "$ref": "#/definitions/duration_ns"
+          },
+          "min_duration_ns": {
+            "$ref": "#/definitions/duration_ns"
+          },
+          "max_duration_ns": {
+            "$ref": "#/definitions/duration_ns"
+          },
+          "mean_duration_ns": {
+            "type": "number",
+            "minimum": 0
+          },
+          "last_invocation_at": {
+            "anyOf": [
+              {
+                "$ref": "#/definitions/timestamp"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "last_success_at": {
+            "anyOf": [
+              {
+                "$ref": "#/definitions/timestamp"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "last_error": {
+            "anyOf": [
+              {
+                "$ref": "#/definitions/error_record"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      }
+    }
+  },
+  "patternProperties": {
+    "^x-": {}
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "catalog_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)*$"
+    },
+    "count": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "duration_ns": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "error_record": {
+      "type": "object",
+      "description": "The last error of the workflow or of a step. In a status file, its strings (message, location.file, and every string of details and cause) name each directory the run knows by a placeholder, the rest of a path kept: <output>, <configuration>, <modules:ORIGIN:INDEX> or <modules:installation>, <providers:ORIGIN:INDEX> or <providers:installation>, <home>; in a snapshot taken in the process they hold absolute paths.",
+      "required": [
+        "code",
+        "name",
+        "message",
+        "location",
+        "details"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "type": "integer"
+        },
+        "name": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]*$"
+        },
+        "message": {
+          "type": "string"
+        },
+        "tick": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/count"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "at": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/timestamp"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "cause": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "location": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/source_location"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Where the error was found: the parts of its location that are set, or null when none is."
+        },
+        "details": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "minProperties": 1,
+          "description": "The error's code-specific details, or null when it has none."
+        }
+      }
+    },
+    "module_name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)*$"
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^(?!(inputs|outputs)$)[a-z][a-z0-9_]*$"
+    },
+    "semver": {
+      "type": "string",
+      "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$"
+    },
+    "source_location": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "properties": {
+        "file": {
+          "type": "string",
+          "minLength": 1
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "column": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "pointer": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "dependencies": {
+        "column": [
+          "line"
+        ]
+      },
+      "description": "A file (UTF-8 path), a 1-based line and column (columns count bytes; a column only with a line) and a JSON pointer into the document."
+    },
+    "timestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{9}Z$",
+      "description": "RFC 3339 UTC time with exactly 9 fractional digits."
+    }
+  }
+}

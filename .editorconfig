@@ -1,0 +1,32 @@
+# https://editorconfig.org
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+[*.{c,h,cc,cpp,cxx,hpp,hxx,i,h.in}]
+indent_size = 4
+
+[{CMakeLists.txt,*.cmake,*.cmake.in}]
+indent_size = 4
+
+[*.py]
+indent_size = 4
+
+[*.{json,json.in,yaml,yml}]
+indent_size = 2
+
+[*.bat]
+end_of_line = crlf
+
+# Test data that deliberately carries a UTF-8 BOM and CRLF line endings.
+[tests/fixtures/**/bom-crlf/**]
+charset = unset
+end_of_line = unset
+insert_final_newline = unset
+trim_trailing_whitespace = unset

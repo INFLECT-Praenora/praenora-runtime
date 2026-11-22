@@ -1,0 +1,32 @@
+{
+  "kind": "capability-definition",
+  "format_version": "0.1.0",
+  "id": "pmp.curate",
+  "version": "0.1.0",
+  "status": "draft",
+  "summary": "Keeps the candidates that remain consistent with the data; may request more (draft).",
+  "inputs": {
+    "candidates": {
+      "type": "pmp.candidate-set",
+      "type_version": "0.1.0",
+      "required": true
+    },
+    "observations": {
+      "type": "pmp.observation-batch",
+      "type_version": "0.1.0",
+      "required": true
+    }
+  },
+  "outputs": {
+    "survivors": {
+      "type": "pmp.candidate-set",
+      "type_version": "0.1.0",
+      "required": true
+    },
+    "replenish": {
+      "type": "pmp.replenishment-request",
+      "type_version": "0.1.0",
+      "required": false
+    }
+  }
+}

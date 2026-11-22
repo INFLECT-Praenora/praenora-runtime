@@ -1,0 +1,30 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:praenora:schema:pmp-error:0.1",
+  "title": "PMP error document",
+  "description": "What a module writes to error_json when a call fails.",
+  "type": "object",
+  "required": [
+    "code",
+    "message"
+  ],
+  "properties": {
+    "code": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 2147483647,
+      "description": "A general status (1-99) or a module code (10000 and above)."
+    },
+    "message": {
+      "type": "string"
+    },
+    "details": {
+      "type": "object"
+    }
+  },
+  "patternProperties": {
+    "^x-": {}
+  },
+  "additionalProperties": false,
+  "definitions": {}
+}

@@ -1,0 +1,17 @@
+{
+  "kind": "module-manifest",
+  "format_version": "@PRAENORA_MODULE_MANIFEST_FORMAT_VERSION@",
+  "module": {
+    "name": "@PRAENORA_MODULE_NAME@",
+    "version": "@PRAENORA_MODULE_VERSION@",
+    "summary": "Test fixture: its self_test reports success."
+  },
+  "abi": { "major": @PRAENORA_ABI_MAJOR@, "minor": @PRAENORA_ABI_MINOR@ },
+  "pmp_version": "@PRAENORA_PMP_VERSION@",
+  "sdk_version": "@PRAENORA_SDK_VERSION@",
+  "library": { "path": "@PRAENORA_MODULE_LIBRARY_FILE@" },
+  "platform": { "os": "@PRAENORA_MODULE_OS@", "arch": "@PRAENORA_MODULE_ARCH@" },
+  "capabilities": @PRAENORA_MODULE_CAPABILITIES_JSON@,
+  "parameters_schema": { "type": "object" },
+  "features": { "self_test": true }
+}

@@ -1,0 +1,11 @@
+{
+  "kind": "provider-manifest",
+  "format_version": "0.1.0",
+  "provider": { "name": "test-bad", "version": "0.1.0" },
+  "runtime_version": "0.2.0",
+  "abi": { "major": 0, "minor": 0 },
+  "library": { "path": "/opt/praenora/providers/test-bad.so" },
+  "platform": { "os": "linux", "arch": "x86_64" },
+  "services": [{ "name": "test.echo", "major": 0, "minor": 0 }],
+  "engine": { "name": "echo", "version": "1.0.0" }
+}

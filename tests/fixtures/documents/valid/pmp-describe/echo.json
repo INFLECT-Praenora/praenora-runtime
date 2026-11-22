@@ -1,0 +1,16 @@
+{
+  "name": "fx-echo",
+  "version": "0.1.0",
+  "abi": {
+    "major": 0,
+    "minor": 0
+  },
+  "sdk_version": "0.1.0",
+  "pmp_version": "0.1.0",
+  "capabilities": [
+    {
+      "id": "test.echo",
+      "version": "0.1.0"
+    }
+  ]
+}

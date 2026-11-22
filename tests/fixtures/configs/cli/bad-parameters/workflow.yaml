@@ -1,0 +1,12 @@
+# fx-slow's sleep_ms has the minimum 0: validation reports PARAMETERS_INVALID at
+# /steps/a/parameters/sleep_ms (CLI test cli.validate.bad_parameters).
+kind: workflow-config
+format_version: "0.1.0"
+workflow: { name: test.single, version: "0.1.0" }
+run: { ticks: 1 }
+inputs:
+  source: { source: json-document, path: ../source.json }
+steps:
+  a:
+    module: { name: fx-slow, version: "0.1.0" }
+    parameters: { sleep_ms: -5 }

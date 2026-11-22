@@ -1,0 +1,29 @@
+// Created by libAntimony v3.3.0
+function hill(s, vmax, km, n)
+  vmax*s^n/(km^n + s^n);
+end
+
+
+model *functions()
+
+  // Compartments and Species:
+  compartment cell;
+  species S in cell, P in cell;
+
+  // Reactions:
+  J0: S => P; hill(S, vmax, km, 2);
+
+  // Species initializations:
+  S = 5;
+  P = 0;
+
+  // Compartment initializations:
+  cell = 1;
+
+  // Variable initializations:
+  vmax = 2;
+  km = 1.5;
+
+  // Other declarations:
+  const cell, vmax, km;
+end

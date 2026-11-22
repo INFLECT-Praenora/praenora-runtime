@@ -1,0 +1,10 @@
+// Two modules and a statement outside them: the main module is __main, which holds it.
+model a()
+  x = 1
+end
+
+w = 4
+
+model c()
+  z = 3
+end

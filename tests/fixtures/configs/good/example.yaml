@@ -1,0 +1,45 @@
+# A workflow configuration with every section present, shaped like the example workflow's.
+kind: workflow-config
+format_version: "0.1.0"
+
+workflow:                         # pins the workflow definition (topology comes from here)
+  name: example.estimate-predict
+  version: "0.1.0"
+
+run:
+  seed: 20261110                  # integer in [0, 2^53-1]; default 0; always recorded
+  ticks: 12                       # optional; default: until replay inputs are exhausted
+  time: { unit: d, start: 0.0, period: 1.0 }
+  timeouts: { invoke: 30s, lifecycle: 10s, cancel_grace: 2s }
+
+modules:
+  search_paths: []                # relative to this file; the caller's module paths come first
+
+inputs:                           # binds every workflow input of the definition
+  observations:
+    source: observation-csv       # or: json-document
+    path: data/observations.csv   # long-form CSV
+    # columns: { time: t, value: y }   # optional header remapping
+
+steps:                            # binds every step of the definition; no more, no fewer
+  estimate:
+    module: { name: example-estimator, version: "0.1.0" }
+    parameters: { gain: 0.6 }
+  predict:
+    module: { name: example-predictor, version: "0.1.0" }
+    parameters: { growth_rate: 0.35, capacity: 100.0, horizon: 4.0, step_size: 0.05,
+                  output_interval: 0.5 }
+    timeouts: { invoke: 5s }
+    log_level: debug
+
+outputs:
+  directory: null                 # the caller's output directory wins; null: nothing is written
+  record: [predictions, state]    # default: all workflow outputs
+  trace_messages: false           # true: every envelope in and out goes to trace/messages.jsonl
+
+observability:
+  log_level: info                 # trace|debug|info|warn|error|critical|off
+  log_format: text                # text|json
+  log_file: null
+  status_file: null               # for example runs/status.json (atomically replaced)
+  status_interval: 1s

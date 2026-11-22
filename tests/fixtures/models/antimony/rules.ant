@@ -1,0 +1,15 @@
+// Every kind of rule: assignment rules (the species P and the parameter v), a rate rule (z) and
+// an initial assignment (k2), declared in the order libAntimony writes them.
+model *rules()
+  compartment cell = 2;
+  species S in cell, P in cell;
+  P := base * S;
+  v := k2 * S;
+  z' = k;
+  r: S => ; k * S;
+  S = 2;
+  base = 1;
+  k = 0.3;
+  k2 = 2 * k;
+  z = 0;
+end

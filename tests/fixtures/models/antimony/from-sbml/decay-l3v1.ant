@@ -1,0 +1,25 @@
+// Created by libAntimony v3.3.0
+model *decay_l3v1()
+
+  // Compartments and Species:
+  compartment cell;
+  substanceOnly species x in cell, y in cell;
+
+  // Reactions:
+  rx: x => ; k_x*x;
+  ry: y => ; k_y*y;
+
+  // Species initializations:
+  x = 10;
+  y = 4;
+
+  // Compartment initializations:
+  cell = 2;
+
+  // Variable initializations:
+  k_x = 0.5;
+  k_y = 1.5;
+
+  // Other declarations:
+  const cell, k_x, k_y;
+end

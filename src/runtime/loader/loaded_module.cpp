@@ -1,0 +1,448 @@
+#include "loader/loaded_module.hpp"
+
+#include "isolation/child_module.hpp"
+
+#include "core/paths.hpp"
+#include "core/semver.hpp"
+#include "document/json_util.hpp"
+#include "document/schema_registry.hpp"
+#include "loader/library_file.hpp"
+#include "loader/output_sink.hpp"
+#include "platform/platform.hpp"
+
+#include <praenora/runtime/error.hpp>
+#include <praenora/sdk/status.h>
+
+#include <algorithm>
+#include <cstddef>
+#include <cstdint>
+#include <cstring>
+#include <optional>
+#include <string>
+#include <utility>
+#include <vector>
+
+namespace praenora::detail {
+
+namespace {
+
+// describe() documents are small; this bounds what a broken module can make the host keep.
+constexpr std::size_t kMaxDescribeBytes = std::size_t{1} << 20;
+
+// Raises errors about one manifest's module, located in the manifest.
+LocatedFailure module_failure(const ModuleManifest& manifest) {
+    return LocatedFailure("module " + manifest.name + "@" + to_string(manifest.version),
+                          manifest.manifest_path);
+}
+
+// The names of the required v0 functions that `api` lacks.
+std::vector<std::string> missing_functions(const praenora_module_api_v0& api) {
+    std::vector<std::string> missing;
+    const auto check = [&missing](bool present, const char* name) {
+        if (!present) {
+            missing.emplace_back(name);
+        }
+    };
+    check(api.describe != nullptr, "describe");
+    check(api.create != nullptr, "create");
+    check(api.initialize != nullptr, "initialize");
+    check(api.invoke != nullptr, "invoke");
+    check(api.finalize != nullptr, "finalize");
+    check(api.destroy != nullptr, "destroy");
+    return missing;
+}
+
+// The lease a call into an instance of `manifest`'s module takes (LoadedModule::call_access()).
+LibraryGate::Access access_of(const ModuleManifest& manifest) {
+    return manifest.features.concurrency == "instance" ? LibraryGate::Access::shared
+                                                       : LibraryGate::Access::exclusive;
+}
+
+std::string joined(const std::vector<std::string>& items) {
+    std::string text;
+    for (const auto& item : items) {
+        text += (text.empty() ? "" : ", ") + item;
+    }
+    return text;
+}
+
+// Capabilities in a canonical order, for comparing the manifest's with describe()'s.
+std::vector<CapabilityRef> sorted(std::vector<CapabilityRef> capabilities) {
+    std::sort(capabilities.begin(), capabilities.end(),
+              [](const CapabilityRef& a, const CapabilityRef& b) {
+                  return a.id != b.id ? a.id < b.id : a.version < b.version;
+              });
+    return capabilities;
+}
+
+std::string capability_list(const std::vector<CapabilityRef>& capabilities) {
+    std::vector<std::string> names;
+    for (const auto& capability : capabilities) {
+        names.push_back(capability.id + "@" + to_string(capability.version));
+    }
+    return "[" + joined(names) + "]";
+}
+
+bool same_capabilities(const std::vector<CapabilityRef>& a, const std::vector<CapabilityRef>& b) {
+    if (a.size() != b.size()) {
+        return false;
+    }
+    for (std::size_t i = 0; i < a.size(); ++i) {
+        if (a[i].id != b[i].id || a[i].version != b[i].version) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// Checks a describe() document against the pmp-describe schema.
+void check_describe_schema(const nlohmann::json& document, const LocatedFailure& fail) {
+    const auto& schema =
+        SchemaRegistry::builtin().for_kind("pmp-describe", parse_semver(kPmpVersion));
+    const auto issues = schema.validate(document);
+    if (!issues.empty()) {
+        nlohmann::json list = nlohmann::json::array();
+        for (const auto& issue : issues) {
+            list.push_back({{"pointer", issue.pointer}, {"message", issue.message}});
+        }
+        const auto& first = issues.front();
+        fail(ErrorCode::MODULE_IDENTITY_MISMATCH,
+             "describe() wrote a document that violates the pmp-describe schema: " +
+                 (first.pointer.empty() ? std::string("(root)") : first.pointer) + ": " +
+                 first.message,
+             "", nlohmann::json{{"issues", std::move(list)}}.dump());
+    }
+}
+
+// Runs describe() and checks its document against the pmp-describe schema.
+nlohmann::json describe_document(const praenora_module_api_v0& api, const LocatedFailure& fail) {
+    OutputSink out(kMaxDescribeBytes);
+    const praenora_status status = api.describe(out.sink());
+    if (status != PRAENORA_STATUS_OK) {
+        fail(ErrorCode::MODULE_IDENTITY_MISMATCH,
+             "describe() failed with status " + status_text(status) +
+                 (out.refused()
+                      ? "; its output exceeded " + std::to_string(kMaxDescribeBytes) + " bytes"
+                      : std::string()));
+    }
+    nlohmann::json document;
+    try {
+        document = parse_json_text(out.text(), "describe()");
+    } catch (const Error& error) {
+        fail(ErrorCode::MODULE_IDENTITY_MISMATCH,
+             std::string("describe() did not write JSON: ") + error.what());
+    }
+    check_describe_schema(document, fail);
+    return document;
+}
+
+// A version describe() reports. The schema's pattern admits numbers that do not fit in 64 bits,
+// which cannot be compared: such a describe() gives no usable identity either.
+SemVer describe_version(const std::string& text, const std::string& what,
+                        const LocatedFailure& fail) {
+    try {
+        return parse_semver(text);
+    } catch (const Error& error) {
+        fail(ErrorCode::MODULE_IDENTITY_MISMATCH,
+             "describe() reports " + what + " '" + text +
+                 "', which is not a usable semantic version: " + error.what());
+    }
+}
+
+// Compares describe()'s identity with the manifest's.
+void check_identity(const ModuleManifest& manifest, const nlohmann::json& describe,
+                    const LocatedFailure& fail) {
+    std::vector<std::string> differences;
+    nlohmann::json details = nlohmann::json::array();
+    const auto differ = [&](const char* field, const std::string& in_manifest,
+                            const std::string& in_describe) {
+        differences.push_back(std::string(field) + " (manifest " + in_manifest + ", describe() " +
+                              in_describe + ")");
+        details.push_back({{"field", field}, {"manifest", in_manifest}, {"describe", in_describe}});
+    };
+
+    const std::string name = describe.at("name").get<std::string>();
+    if (name != manifest.name) {
+        differ("name", manifest.name, name);
+    }
+    const SemVer version =
+        describe_version(describe.at("version").get<std::string>(), "version", fail);
+    if (version != manifest.version) {
+        differ("version", to_string(manifest.version), to_string(version));
+    }
+    // By value: a describe() that writes -0 reports 0. A value that is not an integer from 0 to
+    // 4294967295 differs from every manifest's.
+    const auto differ_abi = [&](const char* field, const nlohmann::json& in_describe,
+                                std::uint32_t in_manifest) {
+        if (uint32_of(in_describe) != in_manifest) {
+            differ(field, std::to_string(in_manifest), in_describe.dump());
+        }
+    };
+    differ_abi("abi.major", describe.at("abi").at("major"), manifest.abi_major);
+    differ_abi("abi.minor", describe.at("abi").at("minor"), manifest.abi_minor);
+    const SemVer sdk_version =
+        describe_version(describe.at("sdk_version").get<std::string>(), "sdk_version", fail);
+    if (sdk_version != manifest.sdk_version) {
+        differ("sdk_version", to_string(manifest.sdk_version), to_string(sdk_version));
+    }
+    // The manifest's PMP version decided compatibility before the library was loaded; equal by
+    // precedence, the library's is compatible too.
+    const SemVer pmp_version =
+        describe_version(describe.at("pmp_version").get<std::string>(), "pmp_version", fail);
+    if (pmp_version != manifest.pmp_version) {
+        differ("pmp_version", to_string(manifest.pmp_version), to_string(pmp_version));
+    }
+    std::vector<CapabilityRef> described;
+    for (const auto& capability : describe.at("capabilities")) {
+        const std::string id = capability.at("id").get<std::string>();
+        described.push_back({id, describe_version(capability.at("version").get<std::string>(),
+                                                  "the version of capability " + id, fail)});
+    }
+    const auto expected = sorted(manifest.capabilities);
+    described = sorted(std::move(described));
+    if (!same_capabilities(expected, described)) {
+        differ("capabilities", capability_list(expected), capability_list(described));
+    }
+
+    if (!differences.empty()) {
+        fail(ErrorCode::MODULE_IDENTITY_MISMATCH,
+             "describe() disagrees with the manifest: " + joined(differences), "",
+             nlohmann::json{{"differences", std::move(details)}}.dump());
+    }
+}
+
+// The code of a module loaded in this process: its function table, called directly.
+class InProcessCode final : public ModuleCode {
+public:
+    explicit InProcessCode(const praenora_module_api_v0& api) noexcept : api_(api) {}
+
+    bool has_diagnostics() const noexcept override { return api_.diagnostics != nullptr; }
+    bool has_self_test() const noexcept override { return api_.self_test != nullptr; }
+
+    CodeStatus create(const std::shared_ptr<InstanceHost>& host, praenora_bytes create_json,
+                      praenora_instance** out_instance, OutputSink& error) override {
+        return {api_.create(host->host_api(), create_json, out_instance, error.sink()), {}};
+    }
+    CodeStatus initialize(praenora_instance* instance, praenora_bytes initialize_json,
+                          OutputSink& error) override {
+        return {api_.initialize(instance, initialize_json, error.sink()), {}};
+    }
+    CodeStatus invoke(praenora_instance* instance, praenora_bytes invocation_json,
+                      OutputSink& result, OutputSink& error) override {
+        return {api_.invoke(instance, invocation_json, result.sink(), error.sink()), {}};
+    }
+    CodeStatus finalize(praenora_instance* instance, OutputSink& error) override {
+        return {api_.finalize(instance, error.sink()), {}};
+    }
+    CodeStatus destroy(praenora_instance* instance) override {
+        api_.destroy(instance);
+        return {PRAENORA_STATUS_OK, {}};
+    }
+    CodeStatus diagnostics(praenora_instance* instance, OutputSink& out) override {
+        if (api_.diagnostics == nullptr) {
+            return {PRAENORA_STATUS_UNSUPPORTED, {}};
+        }
+        return {api_.diagnostics(instance, out.sink()), {}};
+    }
+    CodeStatus self_test(const praenora_host_api* host, OutputSink& report) override {
+        if (api_.self_test == nullptr) {
+            return {PRAENORA_STATUS_UNSUPPORTED, {}};
+        }
+        return {api_.self_test(host, report.sink()), {}};
+    }
+
+private:
+    praenora_module_api_v0 api_;
+};
+
+} // namespace
+
+void check_describe_document(const ModuleManifest& manifest, const nlohmann::json& describe) {
+    const LocatedFailure fail = module_failure(manifest);
+    check_describe_schema(describe, fail);
+    check_identity(manifest, describe, fail);
+}
+
+LoadedModule::LoadedModule(ModuleManifest manifest, std::optional<SharedLibrary> library,
+                           std::shared_ptr<LibraryGate> gate, const praenora_module_api_v0& api,
+                           nlohmann::json describe, std::string library_sha256,
+                           std::unique_ptr<ModuleCode> code, bool child)
+    : manifest_(std::move(manifest)), library_(std::move(library)), gate_(std::move(gate)),
+      api_(api), describe_(std::move(describe)), library_sha256_(std::move(library_sha256)),
+      child_(child), code_(std::move(code)) {}
+
+std::string check_library_file(const ModuleManifest& manifest) {
+    LibraryFile file;
+    file.owner = "module " + manifest.name + "@" + to_string(manifest.version);
+    file.kind = "module";
+    file.manifest_path = manifest.manifest_path;
+    file.library_path = manifest.library_path;
+    file.pinned_sha256 = manifest.library_sha256;
+    return check_library_file(file);
+}
+
+praenora_module_api_v0 copy_module_table(const praenora_api_header& header) noexcept {
+    // After the required part, the table holds only function pointers, all of one size.
+    constexpr std::size_t kBase = PRAENORA_MODULE_API_V0_BASE_SIZE;
+    constexpr std::size_t kFunction = sizeof(praenora_module_api_v0::diagnostics);
+    static_assert(offsetof(praenora_module_api_v0, diagnostics) == kBase &&
+                      offsetof(praenora_module_api_v0, self_test) == kBase + kFunction &&
+                      sizeof(praenora_module_api_v0) == kBase + 2 * kFunction,
+                  "the optional part of the table is whole function pointers");
+    const std::size_t covered =
+        std::min<std::size_t>(header.struct_size, sizeof(praenora_module_api_v0));
+    const std::size_t size =
+        covered <= kBase ? covered : kBase + (covered - kBase) / kFunction * kFunction;
+    praenora_module_api_v0 api{};
+    std::memcpy(&api, &header, size);
+    return api;
+}
+
+std::shared_ptr<LoadedModule> LoadedModule::load(const ModuleManifest& manifest) {
+    return load(manifest, nullptr);
+}
+
+std::shared_ptr<LoadedModule> LoadedModule::load(const ModuleManifest& manifest, Check* reached) {
+    return load(manifest, reached, std::nullopt);
+}
+
+std::shared_ptr<LoadedModule>
+LoadedModule::load(const ModuleManifest& manifest, Check* reached,
+                   const std::optional<std::string>& expected_sha256) {
+    const LocatedFailure fail = module_failure(manifest);
+    const std::string library_file = path_to_utf8(manifest.library_path);
+    const auto reach = [reached](Check check) {
+        if (reached != nullptr) {
+            *reached = check;
+        }
+    };
+
+    // 1. The file and its digest, before any of its code runs.
+    reach(Check::library_file);
+    const std::string digest = check_library_file(manifest);
+    if (expected_sha256 && *expected_sha256 != digest) {
+        fail(ErrorCode::LIBRARY_DIGEST_MISMATCH,
+             "the module library '" + library_file +
+                 "' changed after validation: its SHA-256 is now " + digest + ", it was " +
+                 *expected_sha256,
+             "/library/path");
+    }
+
+    // 2. The library.
+    reach(Check::library_open);
+    std::optional<SharedLibrary> opened;
+    try {
+        opened.emplace(SharedLibrary::open(manifest.library_path, manifest.dependency_paths));
+    } catch (const Error& error) {
+        SourceLocation location;
+        location.file = path_to_utf8(manifest.manifest_path);
+        location.pointer = "/library/path";
+        throw Error(error.code(), error.what(), std::move(location), error.details_json());
+    }
+    SharedLibrary library = std::move(*opened);
+    if (const auto keep = environment_variable("PRAENORA_DEBUG_KEEP_LIBRARIES");
+        keep && *keep == "1") {
+        library.pin();
+    }
+    // Opening a library that is loaded already runs none of its code, so the gate can still keep
+    // the module from being called while an abandoned call may be running in it.
+    std::shared_ptr<LibraryGate> gate = LibraryGate::of(library.image());
+    if (const auto blocker = gate->refusal(access_of(manifest))) {
+        fail(ErrorCode::MODULE_UNRESPONSIVE,
+             "its library cannot be used now: " + refusal_reason(*blocker), "/library/path",
+             nlohmann::json{{"abandoned_call", to_json(*blocker)}}.dump());
+    }
+
+    // 3.-4. The entry point and the table it returns for ABI major 0.
+    reach(Check::entry_point);
+    void* const entry = library.symbol(PRAENORA_MODULE_ENTRY_POINT);
+    if (entry == nullptr) {
+        fail(ErrorCode::ENTRY_POINT_MISSING,
+             "the library '" + library_file + "' does not export " + PRAENORA_MODULE_ENTRY_POINT);
+    }
+    praenora_module_get_api_fn get_api = nullptr;
+    static_assert(sizeof(get_api) == sizeof(entry), "code and data pointers have one size");
+    std::memcpy(&get_api, &entry, sizeof get_api);
+    reach(Check::table);
+    const praenora_api_header* header = get_api(PRAENORA_ABI_MAJOR);
+    if (header == nullptr) {
+        fail(ErrorCode::API_TABLE_INVALID,
+             std::string(PRAENORA_MODULE_ENTRY_POINT) + "(" + std::to_string(PRAENORA_ABI_MAJOR) +
+                 ") returned NULL: the module has no function table for ABI major " +
+                 std::to_string(PRAENORA_ABI_MAJOR));
+    }
+
+    // 5.-7. The header, then the required functions.
+    if (header->abi_major != PRAENORA_ABI_MAJOR) {
+        fail(ErrorCode::ABI_INCOMPATIBLE,
+             "the function table reports ABI major " + std::to_string(header->abi_major) +
+                 "; this runtime implements ABI major " + std::to_string(PRAENORA_ABI_MAJOR));
+    }
+    if (header->reserved != 0) {
+        fail(ErrorCode::API_TABLE_INVALID, "the function table's header.reserved is " +
+                                               std::to_string(header->reserved) + "; it must be 0");
+    }
+    if (header->struct_size < PRAENORA_MODULE_API_V0_BASE_SIZE) {
+        fail(ErrorCode::API_TABLE_INVALID, "the function table's struct_size " +
+                                               std::to_string(header->struct_size) + " is below " +
+                                               std::to_string(PRAENORA_MODULE_API_V0_BASE_SIZE) +
+                                               ", the size of the ABI v0 required functions");
+    }
+    const praenora_module_api_v0 api = copy_module_table(*header);
+    reach(Check::required_functions);
+    const auto missing = missing_functions(api);
+    if (!missing.empty()) {
+        fail(ErrorCode::API_TABLE_INVALID, std::string("the function table's required function") +
+                                               (missing.size() > 1 ? "s " : " ") + joined(missing) +
+                                               (missing.size() > 1 ? " are" : " is") + " NULL");
+    }
+
+    // 8.-9. The identity.
+    reach(Check::describe);
+    nlohmann::json describe = describe_document(api, fail);
+    reach(Check::identity);
+    check_identity(manifest, describe, fail);
+
+    auto code = std::make_unique<InProcessCode>(api);
+    return std::shared_ptr<LoadedModule>(new LoadedModule(manifest, std::move(library),
+                                                          std::move(gate), api, std::move(describe),
+                                                          digest, std::move(code), false));
+}
+
+std::shared_ptr<LoadedModule> LoadedModule::load_in_child(const ModuleManifest& manifest,
+                                                          ChildSettings settings) {
+    ChildModule::Loaded loaded;
+    std::unique_ptr<ChildModule> child = ChildModule::start(manifest, settings, loaded);
+    // Nothing of this module is shared in this process: its gate is its own.
+    return std::shared_ptr<LoadedModule>(new LoadedModule(
+        manifest, std::nullopt, std::make_shared<LibraryGate>(), praenora_module_api_v0{},
+        std::move(loaded.describe), std::move(loaded.library_sha256), std::move(child), true));
+}
+
+const praenora_module_api_v0& LoadedModule::api() const noexcept { return api_; }
+
+ModuleCode& LoadedModule::code() const noexcept { return *code_; }
+
+bool LoadedModule::runs_in_child() const noexcept { return child_; }
+
+const nlohmann::json& LoadedModule::describe() const noexcept { return describe_; }
+
+const std::string& LoadedModule::library_sha256() const noexcept { return library_sha256_; }
+
+const ModuleManifest& LoadedModule::manifest() const noexcept { return manifest_; }
+
+LibraryGate& LoadedModule::gate() const noexcept { return *gate_; }
+
+LibraryGate::Access LoadedModule::call_access() const noexcept {
+    return child_ ? LibraryGate::Access::exclusive : access_of(manifest_);
+}
+
+void LoadedModule::pin() noexcept {
+    if (library_) {
+        library_->pin();
+    }
+}
+
+bool LoadedModule::pinned() const noexcept { return library_ && library_->pinned(); }
+
+} // namespace praenora::detail

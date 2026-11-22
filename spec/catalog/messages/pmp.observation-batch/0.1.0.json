@@ -1,0 +1,192 @@
+{
+  "kind": "message-type",
+  "format_version": "0.1.0",
+  "id": "pmp.observation-batch",
+  "version": "0.1.0",
+  "status": "stable",
+  "summary": "Target observations in one tick window (long form).",
+  "schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "required": [
+      "window",
+      "time_unit",
+      "observations"
+    ],
+    "properties": {
+      "window": {
+        "type": "object",
+        "required": [
+          "start",
+          "end"
+        ],
+        "properties": {
+          "start": {
+            "type": "number"
+          },
+          "end": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": false
+      },
+      "time_unit": {
+        "type": "string",
+        "minLength": 1
+      },
+      "observations": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": [
+            "series_id",
+            "variable_id",
+            "time",
+            "value"
+          ],
+          "properties": {
+            "series_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "variable_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "time": {
+              "type": "number",
+              "description": "In the batch's time_unit."
+            },
+            "value": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "observation_id": {
+              "type": "string"
+            },
+            "unit": {
+              "type": "string",
+              "description": "A label; units are not converted."
+            },
+            "missing": {
+              "type": "boolean",
+              "default": false
+            },
+            "censoring": {
+              "enum": [
+                "none",
+                "left",
+                "right",
+                "interval"
+              ],
+              "default": "none"
+            },
+            "lower_limit": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "upper_limit": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "weight": {
+              "type": "number",
+              "minimum": 0,
+              "default": 1
+            },
+            "group_id": {
+              "type": "string"
+            },
+            "batch_id": {
+              "type": "string"
+            }
+          },
+          "patternProperties": {
+            "^x-": {}
+          },
+          "additionalProperties": false,
+          "if": {
+            "properties": {
+              "value": {
+                "type": "null"
+              }
+            },
+            "required": [
+              "value"
+            ]
+          },
+          "then": {
+            "anyOf": [
+              {
+                "properties": {
+                  "missing": {
+                    "const": true
+                  }
+                },
+                "required": [
+                  "missing"
+                ]
+              },
+              {
+                "properties": {
+                  "censoring": {
+                    "const": "left"
+                  },
+                  "upper_limit": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "censoring",
+                  "upper_limit"
+                ]
+              },
+              {
+                "properties": {
+                  "censoring": {
+                    "const": "right"
+                  },
+                  "lower_limit": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "censoring",
+                  "lower_limit"
+                ]
+              },
+              {
+                "properties": {
+                  "censoring": {
+                    "const": "interval"
+                  },
+                  "lower_limit": {
+                    "type": "number"
+                  },
+                  "upper_limit": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "censoring",
+                  "lower_limit",
+                  "upper_limit"
+                ]
+              }
+            ]
+          }
+        }
+      }
+    },
+    "patternProperties": {
+      "^x-": {}
+    },
+    "additionalProperties": false
+  }
+}

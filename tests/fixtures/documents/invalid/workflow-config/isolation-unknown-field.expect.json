@@ -1,0 +1,4 @@
+{
+  "code": "SCHEMA_VIOLATION",
+  "pointer": "/steps/predict/isolation/priority"
+}

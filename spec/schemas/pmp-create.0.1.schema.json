@@ -1,0 +1,85 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "urn:praenora:schema:pmp-create:0.1",
+  "title": "PMP create document",
+  "description": "What create() receives: the step, its capability and module, and the resolved parameters (validated, defaults applied).",
+  "type": "object",
+  "required": [
+    "pmp_version",
+    "step",
+    "capability",
+    "module",
+    "parameters"
+  ],
+  "properties": {
+    "pmp_version": {
+      "$ref": "#/definitions/semver"
+    },
+    "step": {
+      "$ref": "#/definitions/name"
+    },
+    "capability": {
+      "$ref": "#/definitions/capability_ref"
+    },
+    "module": {
+      "$ref": "#/definitions/module_ref"
+    },
+    "parameters": {
+      "type": "object"
+    }
+  },
+  "patternProperties": {
+    "^x-": {}
+  },
+  "additionalProperties": false,
+  "definitions": {
+    "capability_ref": {
+      "type": "object",
+      "required": [
+        "id",
+        "version"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/catalog_id"
+        },
+        "version": {
+          "$ref": "#/definitions/semver"
+        }
+      }
+    },
+    "catalog_id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)*$"
+    },
+    "module_name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)*$"
+    },
+    "module_ref": {
+      "type": "object",
+      "required": [
+        "name",
+        "version"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "$ref": "#/definitions/module_name"
+        },
+        "version": {
+          "$ref": "#/definitions/semver"
+        }
+      }
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^(?!(inputs|outputs)$)[a-z][a-z0-9_]*$"
+    },
+    "semver": {
+      "type": "string",
+      "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$"
+    }
+  }
+}

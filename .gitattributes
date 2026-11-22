@@ -1,0 +1,4 @@
+* text=auto eol=lf
+*.bat text eol=crlf
+*.png binary
+tests/fixtures/**/bom-crlf/** -text

@@ -1,0 +1,13 @@
+{
+  "pmp_version": "0.1.0",
+  "id": "9f2c4e1a7b3d5e60:0:inputs.observations",
+  "type": "pmp.observation-batch",
+  "type_version": "0.1.0",
+  "source": "inputs.observations",
+  "tick": 0,
+  "logical_time": 4.0,
+  "data": {
+    "time_unit": "d",
+    "estimates": []
+  }
+}

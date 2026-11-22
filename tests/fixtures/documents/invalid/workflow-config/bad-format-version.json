@@ -1,0 +1,43 @@
+{
+  "kind": "workflow-config",
+  "format_version": "0.1",
+  "workflow": {
+    "name": "example.estimate-predict",
+    "version": "0.1.0"
+  },
+  "run": {
+    "seed": 0,
+    "time": {
+      "unit": "d",
+      "start": 0.0,
+      "period": 1.0
+    },
+    "timeouts": {
+      "invoke": "none",
+      "lifecycle": 0,
+      "cancel_grace": "1.5s"
+    }
+  },
+  "inputs": {
+    "observations": {
+      "source": "json-document",
+      "path": "data/observations.json"
+    }
+  },
+  "steps": {
+    "estimate": {
+      "module": {
+        "name": "example-estimator",
+        "version": "0.1.0"
+      }
+    },
+    "predict": {
+      "module": {
+        "name": "example-predictor",
+        "version": "0.1.0"
+      },
+      "parameters": {}
+    }
+  },
+  "x-notes": "minimal configuration; run until the replay input is exhausted"
+}

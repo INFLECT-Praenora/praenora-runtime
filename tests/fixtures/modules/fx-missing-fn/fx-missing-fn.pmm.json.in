@@ -1,0 +1,19 @@
+{
+  "kind": "module-manifest",
+  "format_version": "@PRAENORA_MODULE_MANIFEST_FORMAT_VERSION@",
+  "module": {
+    "name": "@PRAENORA_MODULE_NAME@",
+    "version": "@PRAENORA_MODULE_VERSION@",
+    "summary": "Test fixture: its function table lacks the required function create."
+  },
+  "abi": { "major": @PRAENORA_ABI_MAJOR@, "minor": @PRAENORA_ABI_MINOR@ },
+  "pmp_version": "@PRAENORA_PMP_VERSION@",
+  "sdk_version": "@PRAENORA_SDK_VERSION@",
+  "library": { "path": "@PRAENORA_MODULE_LIBRARY_FILE@" },
+  "platform": { "os": "@PRAENORA_MODULE_OS@", "arch": "@PRAENORA_MODULE_ARCH@" },
+  "capabilities": @PRAENORA_MODULE_CAPABILITIES_JSON@,
+  "parameters_schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object"
+  }
+}

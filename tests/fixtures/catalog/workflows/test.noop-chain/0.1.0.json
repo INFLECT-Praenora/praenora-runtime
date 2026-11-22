@@ -1,0 +1,50 @@
+{
+  "kind": "workflow-definition",
+  "format_version": "0.1.0",
+  "name": "test.noop-chain",
+  "version": "0.1.0",
+  "status": "stable",
+  "summary": "Four echo steps in a chain, without workflow inputs (performance tests).",
+  "steps": {
+    "a": {
+      "capability": "test.echo",
+      "capability_version": "0.1.0"
+    },
+    "b": {
+      "capability": "test.echo",
+      "capability_version": "0.1.0"
+    },
+    "c": {
+      "capability": "test.echo",
+      "capability_version": "0.1.0"
+    },
+    "d": {
+      "capability": "test.echo",
+      "capability_version": "0.1.0"
+    }
+  },
+  "connections": [
+    {
+      "from": "a.out",
+      "to": "b.in"
+    },
+    {
+      "from": "b.out",
+      "to": "c.in"
+    },
+    {
+      "from": "c.out",
+      "to": "d.in"
+    },
+    {
+      "from": "d.out",
+      "to": "outputs.result"
+    }
+  ],
+  "outputs": {
+    "result": {
+      "type": "test.blob",
+      "type_version": "0.1.0"
+    }
+  }
+}

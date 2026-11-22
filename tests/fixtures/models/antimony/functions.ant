@@ -1,0 +1,14 @@
+// A function definition used by a reaction rate: SBML to Antimony keeps it as a function.
+function hill(s, vmax, km, n)
+  vmax * s^n / (km^n + s^n)
+end
+
+model *functions()
+  compartment cell = 1;
+  species S in cell, P in cell;
+  J0: S => P; hill(S, vmax, km, 2);
+  S = 5;
+  P = 0;
+  vmax = 2;
+  km = 1.5;
+end

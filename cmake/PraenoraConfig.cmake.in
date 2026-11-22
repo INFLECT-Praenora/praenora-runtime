@@ -1,0 +1,66 @@
+@PACKAGE_INIT@
+
+# The CMake package of Praenora, installed by praenora-runtime:
+#
+#   find_package(Praenora [<version>] [REQUIRED] [COMPONENTS <component>...])
+#
+# Components (both, when none is named):
+#   ModuleSDK  the target Praenora::ModuleSDK (the headers of the module SDK: the C ABI, the C++
+#              adapter and the in-process test kit) and praenora_add_module()
+#              (PraenoraModule.cmake). It needs no other package: a module takes only a C or C++
+#              compiler.
+#   Runtime    the target Praenora::Runtime: the shared runtime library and its headers.
+# Any other component is not found. PRAENORA_SDK_VERSION, PRAENORA_PMP_VERSION,
+# PRAENORA_ABI_MAJOR and PRAENORA_ABI_MINOR give the versions this package was built with, and
+# PRAENORA_MODULE_MANIFEST_FORMAT_VERSION the module manifest format it writes;
+# praenora_add_module() writes them into the manifests it generates. PraenoraConfigVersion.cmake
+# accepts requests for the same major and minor version.
+
+set(PRAENORA_SDK_VERSION "@PRAENORA_SDK_VERSION@")
+set(PRAENORA_PMP_VERSION "@PRAENORA_PMP_VERSION@")
+set(PRAENORA_ABI_MAJOR "@PRAENORA_ABI_MAJOR@")
+set(PRAENORA_ABI_MINOR "@PRAENORA_ABI_MINOR@")
+set(PRAENORA_MODULE_MANIFEST_FORMAT_VERSION "@PRAENORA_MODULE_MANIFEST_FORMAT_VERSION@")
+
+# Component names come from the caller, and if() reads a variable that holds a CMake false
+# constant (such as No, Off, N, 0, IGNORE or a value that ends in -NOTFOUND) as false; it also
+# takes an argument that ends in -NOTFOUND for a false constant, without reading the variable that
+# it names. So no condition below hands if() a list of component names, or the name of a variable
+# named after a component, to read as true or false: lists are compared with "", and
+# Praenora_FIND_REQUIRED_<component> is read by its value, 1 or 0, in quotes. For the same reason
+# this file decides Praenora_FOUND itself; its package is configured without
+# check_required_components(), which hands if() that name.
+if(NOT Praenora_FIND_COMPONENTS STREQUAL "")
+    set(_praenora_components ${Praenora_FIND_COMPONENTS})
+else()
+    set(_praenora_components Runtime ModuleSDK)
+endif()
+set(_praenora_unknown "")
+foreach(_praenora_component IN LISTS _praenora_components)
+    if(_praenora_component STREQUAL "ModuleSDK")
+        include("${CMAKE_CURRENT_LIST_DIR}/PraenoraModuleSDKTargets.cmake")
+        include("${CMAKE_CURRENT_LIST_DIR}/PraenoraModule.cmake")
+        set(Praenora_ModuleSDK_FOUND TRUE)
+    elseif(_praenora_component STREQUAL "Runtime")
+        # No find_dependency(): the runtime links its third-party libraries privately, and its
+        # exported target names none of them.
+        include("${CMAKE_CURRENT_LIST_DIR}/PraenoraRuntimeTargets.cmake")
+        set(Praenora_Runtime_FOUND TRUE)
+    else()
+        # An unknown component is not found, and when it is required, neither is the package.
+        set(Praenora_${_praenora_component}_FOUND FALSE)
+        if("${Praenora_FIND_REQUIRED_${_praenora_component}}")
+            set(Praenora_FOUND FALSE)
+        endif()
+        list(APPEND _praenora_unknown "${_praenora_component}")
+    endif()
+endforeach()
+# The reason find_package() gives when a required component is unknown.
+if(NOT _praenora_unknown STREQUAL "")
+    list(JOIN _praenora_unknown ", " _praenora_unknown)
+    set(Praenora_NOT_FOUND_MESSAGE
+        "Praenora has no component ${_praenora_unknown}; its components are Runtime and ModuleSDK.")
+endif()
+unset(_praenora_unknown)
+unset(_praenora_component)
+unset(_praenora_components)

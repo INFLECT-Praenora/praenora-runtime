@@ -1,0 +1,291 @@
+{
+  "kind": "module-test-vectors",
+  "format_version": "0.1.0",
+  "cases": [
+    {
+      "name": "estimate-two-ticks",
+      "capability": {
+        "id": "example.estimate",
+        "version": "0.1.0"
+      },
+      "parameters": {
+        "gain": 0.6
+      },
+      "seed": 20261110,
+      "time": {
+        "unit": "d",
+        "start": 0.0,
+        "period": 1.0
+      },
+      "ticks": [
+        {
+          "inputs": {
+            "observations": {
+              "observations": [
+                {
+                  "censoring": "none",
+                  "missing": false,
+                  "observation_id": "S01-00",
+                  "series_id": "S01",
+                  "time": 0.0,
+                  "unit": "count",
+                  "value": 10.0,
+                  "variable_id": "population",
+                  "weight": 1.0
+                },
+                {
+                  "censoring": "none",
+                  "missing": false,
+                  "observation_id": "S02-00",
+                  "series_id": "S02",
+                  "time": 0.54,
+                  "unit": "count",
+                  "value": 28.191,
+                  "variable_id": "population",
+                  "weight": 1.0
+                }
+              ],
+              "time_unit": "d",
+              "window": {
+                "end": 1.0,
+                "start": 0.0
+              }
+            }
+          },
+          "expect": {
+            "outputs": {
+              "state": {
+                "estimates": [
+                  {
+                    "basis": "observation",
+                    "series_id": "S01",
+                    "time": 0.0,
+                    "value": 10.0,
+                    "variable_id": "population"
+                  },
+                  {
+                    "basis": "observation",
+                    "series_id": "S02",
+                    "time": 0.54,
+                    "value": 28.191,
+                    "variable_id": "population"
+                  }
+                ],
+                "time_unit": "d"
+              }
+            },
+            "tolerance": {
+              "relative": 1e-09,
+              "absolute": 1e-12
+            }
+          }
+        },
+        {
+          "inputs": {
+            "observations": {
+              "observations": [
+                {
+                  "censoring": "none",
+                  "missing": false,
+                  "observation_id": "S02-01",
+                  "series_id": "S02",
+                  "time": 1.17,
+                  "unit": "count",
+                  "value": 30.047,
+                  "variable_id": "population",
+                  "weight": 1.0
+                },
+                {
+                  "censoring": "none",
+                  "missing": false,
+                  "observation_id": "S01-01",
+                  "series_id": "S01",
+                  "time": 1.48,
+                  "unit": "count",
+                  "value": 14.354,
+                  "variable_id": "population",
+                  "weight": 1.0
+                },
+                {
+                  "censoring": "none",
+                  "missing": false,
+                  "observation_id": "S01-02",
+                  "series_id": "S01",
+                  "time": 1.6,
+                  "unit": "count",
+                  "value": 15.449,
+                  "variable_id": "population",
+                  "weight": 1.0
+                }
+              ],
+              "time_unit": "d",
+              "window": {
+                "end": 2.0,
+                "start": 1.0
+              }
+            },
+            "prior": {
+              "issued_at": 1.0,
+              "predictions": [
+                {
+                  "prediction_kind": "latent_mean",
+                  "series_id": "S01",
+                  "time": 1.0,
+                  "value": 13.61990928455869,
+                  "variable_id": "population"
+                },
+                {
+                  "prediction_kind": "latent_mean",
+                  "series_id": "S01",
+                  "time": 1.5,
+                  "value": 15.812781023348307,
+                  "variable_id": "population"
+                },
+                {
+                  "prediction_kind": "latent_mean",
+                  "series_id": "S01",
+                  "time": 2.0,
+                  "value": 18.28398331185601,
+                  "variable_id": "population"
+                },
+                {
+                  "prediction_kind": "latent_mean",
+                  "series_id": "S01",
+                  "time": 2.5,
+                  "value": 21.044841982422295,
+                  "variable_id": "population"
+                },
+                {
+                  "prediction_kind": "latent_mean",
+                  "series_id": "S01",
+                  "time": 3.0,
+                  "value": 24.099639033613087,
+                  "variable_id": "population"
+                },
+                {
+                  "prediction_kind": "latent_mean",
+                  "series_id": "S01",
+                  "time": 3.5,
+                  "value": 27.443731881251857,
+                  "variable_id": "population"
+                },
+                {
+                  "prediction_kind": "latent_mean",
+                  "series_id": "S01",
+                  "time": 4.0,
+                  "value": 31.061952141891883,
+                  "variable_id": "population"
+                },
+                {
+                  "prediction_kind": "latent_mean",
+                  "series_id": "S01",
+                  "time": 4.5,
+                  "value": 34.92756751721062,
+                  "variable_id": "population"
+                },
+                {
+                  "prediction_kind": "latent_mean",
+                  "series_id": "S01",
+                  "time": 5.0,
+                  "value": 39.00208498223701,
+                  "variable_id": "population"
+                },
+                {
+                  "prediction_kind": "latent_mean",
+                  "series_id": "S02",
+                  "time": 1.0,
+                  "value": 31.561294151814874,
+                  "variable_id": "population"
+                },
+                {
+                  "prediction_kind": "latent_mean",
+                  "series_id": "S02",
+                  "time": 1.5,
+                  "value": 35.457090059159704,
+                  "variable_id": "population"
+                },
+                {
+                  "prediction_kind": "latent_mean",
+                  "series_id": "S02",
+                  "time": 2.0,
+                  "value": 39.55582997612178,
+                  "variable_id": "population"
+                },
+                {
+                  "prediction_kind": "latent_mean",
+                  "series_id": "S02",
+                  "time": 2.5,
+                  "value": 43.806791588068606,
+                  "variable_id": "population"
+                },
+                {
+                  "prediction_kind": "latent_mean",
+                  "series_id": "S02",
+                  "time": 3.0,
+                  "value": 48.150668035492565,
+                  "variable_id": "population"
+                },
+                {
+                  "prediction_kind": "latent_mean",
+                  "series_id": "S02",
+                  "time": 3.5,
+                  "value": 52.52268021483444,
+                  "variable_id": "population"
+                },
+                {
+                  "prediction_kind": "latent_mean",
+                  "series_id": "S02",
+                  "time": 4.0,
+                  "value": 56.85635725630731,
+                  "variable_id": "population"
+                },
+                {
+                  "prediction_kind": "latent_mean",
+                  "series_id": "S02",
+                  "time": 4.5,
+                  "value": 61.08752935081035,
+                  "variable_id": "population"
+                },
+                {
+                  "prediction_kind": "latent_mean",
+                  "series_id": "S02",
+                  "time": 5.0,
+                  "value": 65.15803240975733,
+                  "variable_id": "population"
+                }
+              ],
+              "time_unit": "d"
+            }
+          },
+          "expect": {
+            "outputs": {
+              "state": {
+                "estimates": [
+                  {
+                    "basis": "blend",
+                    "series_id": "S01",
+                    "time": 1.6,
+                    "value": 15.79220859241994,
+                    "variable_id": "population"
+                  },
+                  {
+                    "basis": "blend",
+                    "series_id": "S02",
+                    "time": 1.17,
+                    "value": 31.182545904124847,
+                    "variable_id": "population"
+                  }
+                ],
+                "time_unit": "d"
+              }
+            },
+            "tolerance": {
+              "relative": 1e-09,
+              "absolute": 1e-12
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

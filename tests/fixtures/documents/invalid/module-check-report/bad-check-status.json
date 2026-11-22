@@ -1,0 +1,32 @@
+{
+  "kind": "module-check-report",
+  "format_version": "0.1.0",
+  "manifest": "modules/fx-echo/fx-echo.pmm.json",
+  "module": {
+    "name": "fx-echo",
+    "version": "0.1.0"
+  },
+  "passed": false,
+  "checks": [
+    {
+      "id": "manifest.schema",
+      "status": "pass",
+      "message": ""
+    },
+    {
+      "id": "library.digest",
+      "status": "skipped",
+      "message": "no library.sha256 in manifest"
+    },
+    {
+      "id": "invoke.determinism",
+      "status": "fail",
+      "message": "repeated invocation produced different bytes"
+    },
+    {
+      "id": "self_test",
+      "status": "skip",
+      "message": "no self_test function"
+    }
+  ]
+}

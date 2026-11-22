@@ -1,0 +1,54 @@
+{
+  "kind": "message-type",
+  "format_version": "0.1.0",
+  "id": "pmp.assessment",
+  "version": "0.1.0",
+  "status": "draft",
+  "summary": "Scores of predictions against known values (draft).",
+  "schema": {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "required": [
+      "scores"
+    ],
+    "properties": {
+      "scores": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": [
+            "series_id",
+            "variable_id",
+            "metric",
+            "value"
+          ],
+          "properties": {
+            "series_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "variable_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "metric": {
+              "type": "string",
+              "minLength": 1
+            },
+            "value": {
+              "type": "number"
+            }
+          },
+          "patternProperties": {
+            "^x-": {}
+          },
+          "additionalProperties": false
+        }
+      }
+    },
+    "patternProperties": {
+      "^x-": {}
+    },
+    "additionalProperties": false
+  }
+}

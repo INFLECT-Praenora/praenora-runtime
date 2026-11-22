@@ -1,0 +1,25 @@
+{
+  "kind": "module-test-vectors",
+  "format_version": "0.1.0",
+  "cases": [
+    {
+      "name": "two-invocations",
+      "capability": {
+        "id": "test.echo",
+        "version": "0.1.0"
+      },
+      "ticks": [
+        {
+          "inputs": {
+            "in": {
+              "value": 1
+            }
+          }
+        },
+        {
+          "inputs": {}
+        }
+      ]
+    }
+  ]
+}

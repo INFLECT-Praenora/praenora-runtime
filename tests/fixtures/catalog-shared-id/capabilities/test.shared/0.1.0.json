@@ -1,0 +1,16 @@
+{
+  "kind": "capability-definition",
+  "format_version": "0.1.0",
+  "id": "test.shared",
+  "version": "0.1.0",
+  "status": "stable",
+  "summary": "A capability whose id a message type also uses (tests).",
+  "inputs": {},
+  "outputs": {
+    "out": {
+      "type": "test.shared",
+      "type_version": "0.1.0",
+      "required": true
+    }
+  }
+}
