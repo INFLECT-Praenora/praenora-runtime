@@ -163,8 +163,8 @@ struct EngineFixture {
         for (const json& event : logs.events()) {
             const std::string body = event.value("body", std::string());
             if (body.rfind("lifecycle:", 0) == 0) {
-                calls.push_back(event.at("attributes").at("step").get<std::string>() + ":" +
-                                body.substr(10));
+                calls.push_back(event.at("attributes").at("praenora.step").get<std::string>() +
+                                ":" + body.substr(10));
             }
         }
         return calls;
@@ -226,9 +226,10 @@ std::map<std::string, std::string> skipped_in_teardown(const EngineFixture& fixt
     std::map<std::string, std::string> skipped;
     for (const json& event : fixture.logs.events()) {
         const json& attributes = event.at("attributes");
-        if (attributes.value("event", std::string()) == "teardown.skipped") {
+        if (attributes.value("praenora.event", std::string()) == "teardown.skipped") {
             EXPECT_EQ(event.at("severity_text"), "WARN") << event.dump();
-            skipped[attributes.value("step", std::string())] = event.value("body", std::string());
+            skipped[attributes.value("praenora.step", std::string())] =
+                event.value("body", std::string());
         }
     }
     return skipped;
@@ -1188,8 +1189,8 @@ TEST(Engine, RunStopsCallingALibraryThatAnotherRunAbandoned) {
     int refusals = 0;
     for (const json& event : first.logs.events()) {
         const json& attributes = event.at("attributes");
-        if (attributes.value("event", std::string()) == "library.refused" &&
-            attributes.value("step", std::string()) == "a") {
+        if (attributes.value("praenora.event", std::string()) == "library.refused" &&
+            attributes.value("praenora.step", std::string()) == "a") {
             ++refusals;
         }
     }
@@ -1353,7 +1354,8 @@ TEST(Engine, InstanceConcurrencyTearsDownOtherInstances) {
     EXPECT_EQ(fixture.step_status(status, "a").state, StepState::unresponsive);
     EXPECT_EQ(fixture.step_status(status, "b").state, StepState::destroyed);
     for (const json& event : fixture.logs.events()) {
-        EXPECT_NE(event.at("attributes").value("event", std::string()), "teardown.skipped");
+        EXPECT_NE(event.at("attributes").value("praenora.event", std::string()),
+                  "teardown.skipped");
     }
     // Let the abandoned call end before the test does.
     std::this_thread::sleep_until(start + milliseconds(500));
@@ -1467,11 +1469,11 @@ TEST(Engine, ADestroyThatNeverReturnsIsItsStepsLastError) {
     std::vector<std::string> warnings;
     for (const json& event : fixture.logs.events()) {
         const json& attributes = event.at("attributes");
-        EXPECT_NE(attributes.value("event", std::string()), "teardown.finalize_failed")
+        EXPECT_NE(attributes.value("praenora.event", std::string()), "teardown.finalize_failed")
             << event.dump();
-        if (attributes.value("event", std::string()) == "teardown.destroy_failed") {
+        if (attributes.value("praenora.event", std::string()) == "teardown.destroy_failed") {
             EXPECT_EQ(event.at("severity_text"), "WARN") << event.dump();
-            EXPECT_EQ(attributes.value("step", std::string()), "a") << event.dump();
+            EXPECT_EQ(attributes.value("praenora.step", std::string()), "a") << event.dump();
             warnings.push_back(event.value("body", std::string()));
         }
     }
@@ -1512,7 +1514,7 @@ TEST(Engine, ADestroyThatReturnsWithinTheGraceLeavesOnlyItsWarning) {
                                   {}, &services);
     const auto destroy_is_late = [&fixture] {
         for (const json& event : fixture.logs.events()) {
-            if (event.at("attributes").value("event", std::string()) == "call.deadline" &&
+            if (event.at("attributes").value("praenora.event", std::string()) == "call.deadline" &&
                 contains(event.value("body", std::string()), "destroy did not return")) {
                 return true;
             }
@@ -1544,7 +1546,7 @@ TEST(Engine, ADestroyThatReturnsWithinTheGraceLeavesOnlyItsWarning) {
     EXPECT_FALSE(a.last_error.has_value()) << a.last_error->message;
     std::size_t deadlines = 0;
     for (const json& event : fixture.logs.events()) {
-        const std::string name = event.at("attributes").value("event", std::string());
+        const std::string name = event.at("attributes").value("praenora.event", std::string());
         EXPECT_NE(name, "teardown.finalize_failed") << event.dump();
         EXPECT_NE(name, "teardown.destroy_failed") << event.dump();
         EXPECT_NE(name, "instance.unresponsive") << event.dump();

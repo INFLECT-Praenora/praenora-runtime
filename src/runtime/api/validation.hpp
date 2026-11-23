@@ -32,6 +32,7 @@
 namespace praenora::detail {
 
 class LogHub;
+class OtlpExporter;
 
 // A step of the workflow with everything needed to run it.
 struct ResolvedStep {
@@ -117,7 +118,8 @@ struct ValidatedWorkflow {
 };
 
 // What validation runs against: the catalog, the index of the module search paths, the index of
-// the provider search paths, and the runtime's built-in services.
+// the provider search paths, and the runtime's built-in services; and, beside them, the
+// Runtime's OTLP exporter, which every workflow of the Runtime shares through this context.
 //
 // Invariant: `modules` is ModuleIndex::scan(module_search_paths(module_paths, {},
 // use_environment)). validate_workflow() relies on it: when a configuration names module search
@@ -132,6 +134,10 @@ struct RuntimeContext {
     ServiceRegistry services; // built in: served to every module, whatever its manifest declares
     std::vector<std::string> module_paths;
     bool use_environment = true;
+    // The Runtime's OTLP exporter (observability/otlp/exporter.hpp), when a signal has an
+    // endpoint; none otherwise. The Runtime and its workflows share this context, so the exporter
+    // lives until the last of them is gone. make_runtime_context() leaves it empty.
+    std::shared_ptr<OtlpExporter> exporter;
 };
 
 // The runtime context for `options`:

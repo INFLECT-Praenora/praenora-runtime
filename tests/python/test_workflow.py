@@ -32,9 +32,10 @@ def step(name, module, parameters="{}"):
             f"    parameters: {parameters}\n")
 
 
-def write_config(directory, workflow, run, steps):
+def write_config(directory, workflow, run, steps, extra=""):
     """Writes <directory>/source.json and <directory>/workflow.yaml, a configuration of the test
-    workflow `workflow` with the YAML blocks `run` and `steps`, and returns its path."""
+    workflow `workflow` with the YAML blocks `run` and `steps`, then `extra`, and returns its
+    path."""
     directory = pathlib.Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     (directory / "source.json").write_text('{"value": 42}\n', encoding="utf-8", newline="\n")
@@ -45,7 +46,7 @@ def write_config(directory, workflow, run, steps):
                       f"{run}"
                       "inputs:\n"
                       "  source: { source: json-document, path: source.json }\n"
-                      f"steps:\n{steps}",
+                      f"steps:\n{steps}{extra}",
                       encoding="utf-8", newline="\n")
     return config
 
@@ -124,12 +125,16 @@ class ExampleWorkflowTest(WorkflowTestCase):
             self.assertEqual(set(metrics), {"metrics"})
             for point in metrics["metrics"]:
                 self.assertTrue({"name", "unit", "kind", "attributes"} <= set(point), point)
+                # Every attribute key carries the prefix praenora.
+                self.assertTrue(all(key.startswith("praenora.") for key in point["attributes"]),
+                                point)
             values = {point["name"]: point["value"] for point in metrics["metrics"]
-                      if point["kind"] == "counter" and "outcome" not in point["attributes"]}
+                      if point["kind"] == "counter"
+                      and "praenora.outcome" not in point["attributes"]}
             self.assertEqual(values, {"praenora.workflow.ticks": 2})
-            succeeded = sorted((point["attributes"]["step"], point["value"])
+            succeeded = sorted((point["attributes"]["praenora.step"], point["value"])
                                for point in metrics["metrics"]
-                               if point["attributes"].get("outcome") == "succeeded")
+                               if point["attributes"].get("praenora.outcome") == "succeeded")
             self.assertEqual(succeeded, [("estimate", 2), ("predict", 2)])
 
             summary = workflow.run()
@@ -184,7 +189,7 @@ class ExampleWorkflowTest(WorkflowTestCase):
                    if line.startswith("{")]
         self.assertIn(("DEBUG", "praenora.engine", "tick.completed"),
                       {(record["severity_text"], record["attributes"].get("logger"),
-                        record["attributes"].get("event")) for record in records})
+                        record["attributes"].get("praenora.event")) for record in records})
 
         # An output directory that holds an earlier run is refused, unless the run may
         # overwrite it.
@@ -390,6 +395,82 @@ class WorkflowErrorTest(WorkflowTestCase):
             self.assertEqual(json.load(file)["execution"]["error"], recorded)
         # So does the status file, written for the last time when the workflow was closed.
         self.assertEqual(pr.read_status(status_file)["workflow"]["last_error"], recorded)
+
+
+class WorkflowTest(WorkflowTestCase):
+    """The status in either path form, the run number and the empty status-file override."""
+
+    def test_status_path_forms(self):
+        # A file where the run's outputs directory goes: the run fails with an error that names
+        # the output directory.
+        out = self.directory / "out"
+        out.mkdir()
+        (out / "outputs").write_text("a file, not a directory\n", encoding="utf-8")
+        status_file = self.directory / "status.json"
+        config = write_config(self.directory / "config", "test.single", "run: { ticks: 1 }\n",
+                              step("a", "fx-echo"))
+        outputs = str(out / "outputs")
+        named = "<output>" + outputs[len(str(out)):]
+        with pr.Workflow(config, **FIXTURE_PATHS, output_dir=out,
+                         status_file=status_file) as workflow:
+            with self.assertRaises(pr.PraenoraError) as caught:
+                workflow.run()
+            self.assertEqual(caught.exception.name, "IO_ERROR")
+        # Closed: the status file was written for the last time, and the snapshots show the same
+        # final state; they differ from it only in when they were generated.
+        from_file = pr.read_status(status_file)
+        placeholders = workflow.status(path_form="placeholders")
+        absolute = workflow.status(path_form="absolute")
+        plain = workflow.status()
+        for document in (from_file, placeholders, absolute, plain):
+            del document["generated_at"]
+        self.assertEqual(placeholders, from_file)
+        self.assertEqual(plain, absolute)
+        self.assertEqual(placeholders["workflow"]["last_error"]["location"]["file"], named)
+        self.assertEqual(absolute["workflow"]["last_error"]["location"]["file"], outputs)
+        self.assertNotIn(str(self.directory), json.dumps(placeholders))
+
+        # Another name raises PraenoraError INVALID_ARGUMENT, naming the forms; another type
+        # TypeError.
+        for name in ("relative", "Placeholders", ""):
+            with self.subTest(path_form=name):
+                with self.assertRaises(pr.PraenoraError) as caught:
+                    workflow.status(path_form=name)
+                self.assertEqual((caught.exception.name, caught.exception.category),
+                                 ("INVALID_ARGUMENT", "usage"))
+                self.assertIn("absolute or placeholders", caught.exception.message)
+        with self.assertRaises(TypeError):
+            workflow.status(path_form=1)
+
+    def test_run_number(self):
+        config = write_config(self.directory, "test.single", "run: { ticks: 1 }\n",
+                              step("a", "fx-echo"))
+        # Each Workflow opens its run with a runtime of its own: the first, and only, run of that
+        # runtime.
+        with pr.Workflow(config, **FIXTURE_PATHS) as first:
+            with pr.Workflow(config, **FIXTURE_PATHS) as second:
+                self.assertEqual((first.run_number, second.run_number), (1, 1))
+            self.assertIs(type(first.run_number), int)
+            with self.assertRaises(AttributeError):
+                first.run_number = 2
+            first.run()
+        self.assertEqual(first.run_number, 1)
+
+    def test_empty_status_file(self):
+        directory = self.directory / "config"
+        config = write_config(directory, "test.single", "run: { ticks: 1 }\n",
+                              step("a", "fx-echo"), "observability: { status_file: status.json }\n")
+        status_file = directory / "status.json"
+        # Without the argument, the configuration's status file is kept.
+        with pr.Workflow(config, **FIXTURE_PATHS) as workflow:
+            self.assertEqual(workflow.run()["state"], "completed")
+        self.assertEqual(pr.read_status(status_file)["workflow"]["state"], "completed")
+        status_file.unlink()
+        # status_file="" means none, in place of the configuration's.
+        with pr.Workflow(config, **FIXTURE_PATHS, status_file="") as workflow:
+            self.assertEqual(workflow.run()["state"], "completed")
+        self.assertEqual(sorted(path.name for path in directory.iterdir()),
+                         ["source.json", "workflow.yaml"])
 
 
 class SecondThreadTest(WorkflowTestCase):

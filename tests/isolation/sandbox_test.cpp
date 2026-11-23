@@ -173,7 +173,7 @@ int own_open_stderr() {
 std::vector<json> events_named(const CapturedLogs& logs, const std::string& event) {
     std::vector<json> found;
     for (const json& record : logs.events()) {
-        if (record.at("attributes").value("event", std::string()) == event) {
+        if (record.at("attributes").value("praenora.event", std::string()) == event) {
             found.push_back(record);
         }
     }

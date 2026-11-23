@@ -1,15 +1,18 @@
 // fx-slow: sleeps in invoke, then returns {"outputs":{"out":{"data":{}}}}. Parameters (defaults
 // in brackets): sleep_ms, the time to sleep in invoke [100]; finalize_sleep_ms, the time to sleep
-// in finalize [0]; cooperative [true]. A cooperative instance polls cancel_requested every
-// millisecond while it sleeps and fails with CANCELLED once it is set; otherwise it sleeps the
-// whole time, ignoring cancellation. diagnostics() reports {"invocations":N}, the invocations
-// received so far. Its instances share nothing, so its manifest declares concurrency "instance".
+// in finalize [0]; cooperative [true]; entered_file [none], a file that invoke writes (its
+// invocation count) as it starts to sleep, so a test can see the step inside its call. A
+// cooperative instance polls cancel_requested every millisecond while it sleeps and fails with
+// CANCELLED once it is set; otherwise it sleeps the whole time, ignoring cancellation.
+// diagnostics() reports {"invocations":N}, the invocations received so far. Its instances share
+// nothing, so its manifest declares concurrency "instance".
 #include <praenora/sdk/module.hpp>
 
 #include <nlohmann/json.hpp>
 
 #include <chrono>
 #include <cstdint>
+#include <fstream>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -26,6 +29,10 @@ public:
 
     std::string invoke(std::string_view) override {
         ++invocations_;
+        if (!entered_file_.empty()) {
+            std::ofstream entered(entered_file_, std::ios::binary | std::ios::trunc);
+            entered << invocations_ << '\n';
+        }
         sleep("invoke", sleep_ms_);
         return R"({"outputs":{"out":{"data":{}}}})";
     }
@@ -86,6 +93,13 @@ private:
             }
             cooperative_ = cooperative.get<bool>();
         }
+        if (parameters.contains("entered_file")) {
+            const auto& entered = parameters.at("entered_file");
+            if (!entered.is_string() || entered.get_ref<const std::string&>().empty()) {
+                invalid("entered_file must be a file name");
+            }
+            entered_file_ = entered.get<std::string>();
+        }
     }
 
     static std::int64_t milliseconds_parameter(const nlohmann::json& parameters, const char* name,
@@ -104,6 +118,7 @@ private:
     std::int64_t sleep_ms_ = 100;
     std::int64_t finalize_sleep_ms_ = 0;
     bool cooperative_ = true;
+    std::string entered_file_;
     std::int64_t invocations_ = 0;
 };
 

@@ -155,11 +155,25 @@ std::vector<json> log_records(const fs::path& file) {
 }
 
 std::string event_of(const json& record) {
-    return record.at("attributes").value("event", std::string());
+    return record.at("attributes").value("praenora.event", std::string());
 }
 
 std::string logger_of(const json& record) {
     return record.at("attributes").value("logger", std::string());
+}
+
+// The log records of `file`, after checking that every attribute key of each carries the prefix
+// praenora. (but logger, the logger's name).
+std::vector<json> expect_prefixed_keys(const fs::path& file) {
+    std::vector<json> records = log_records(file);
+    for (const json& record : records) {
+        for (const auto& attribute : record.at("attributes").items()) {
+            if (attribute.key() != "logger") {
+                EXPECT_EQ(attribute.key().rfind("praenora.", 0), 0u) << record.dump();
+            }
+        }
+    }
+    return records;
 }
 
 // The process ids of the module hosts that the records of `file` say were started, by logger.
@@ -168,7 +182,7 @@ std::vector<std::pair<std::string, std::int64_t>> started_module_hosts(const fs:
     for (const json& record : log_records(file)) {
         if (event_of(record) == "module_host.started") {
             started.emplace_back(logger_of(record),
-                                 record.at("attributes").at("pid").get<std::int64_t>());
+                                 record.at("attributes").at("praenora.pid").get<std::int64_t>());
         }
     }
     return started;
@@ -452,6 +466,22 @@ TEST(IsolationRun, ACrashMidRunFailsItsStepWhileTheOthersEndNormally) {
     EXPECT_EQ(final_status.at("steps").at(1).at("step"), "b");
     EXPECT_EQ(final_status.at("steps").at(1).at("state"), "crashed");
     expect_module_hosts_gone(log);
+    // The records of the failure carry the prefix too: run.failed names the error's code, and
+    // module_host.crashed the module and the process.
+    std::size_t failed = 0, crashed = 0;
+    for (const json& entry : expect_prefixed_keys(log)) {
+        const json& attributes = entry.at("attributes");
+        if (event_of(entry) == "run.failed") {
+            ++failed;
+            EXPECT_EQ(attributes.at("praenora.code"), "MODULE_CRASHED") << entry;
+        } else if (event_of(entry) == "module_host.crashed") {
+            ++crashed;
+            EXPECT_EQ(attributes.at("praenora.module"), "fx-crash@0.1.0") << entry;
+            EXPECT_TRUE(attributes.at("praenora.pid").is_number_integer()) << entry;
+        }
+    }
+    EXPECT_EQ(failed, 1u);
+    EXPECT_EQ(crashed, 1u);
 }
 
 namespace {
@@ -1075,6 +1105,7 @@ fs::path expect_the_results_of_the_runtimes_process(
         EXPECT_EQ(started_module_hosts(logs[mode]).size(),
                   mode == IsolationMode::process ? 1u : 0u);
         expect_module_hosts_gone(logs[mode]);
+        expect_prefixed_keys(logs[mode]); // the providers' records, relayed or not, included
     }
     const fs::path& in_process = outs.at(IsolationMode::in_process);
     const fs::path& process = outs.at(IsolationMode::process);
@@ -1133,9 +1164,10 @@ TEST_P(IsolationRunProviders, GiveTheResultsOfTheRuntimesProcess) {
         SCOPED_TRACE(provider);
         bool started = false;
         for (const json& record : log_records(log)) {
-            started = started || (logger_of(record) == "provider." + provider &&
-                                  record.at("body") == provider + " started" &&
-                                  record.at("attributes").at("provider") == provider + "@0.1.0");
+            started =
+                started || (logger_of(record) == "provider." + provider &&
+                            record.at("body") == provider + " started" &&
+                            record.at("attributes").at("praenora.provider") == provider + "@0.1.0");
         }
         EXPECT_TRUE(started) << "no record '" << provider << " started'";
     }
@@ -1224,6 +1256,7 @@ void expect_sharing_to_change_no_result(
         ASSERT_EQ(summary.final_state, WorkflowState::completed)
             << (summary.error ? summary.error->message : std::string());
         expect_module_hosts_gone(logs.back());
+        expect_prefixed_keys(logs.back()); // the store's records included
     }
     // The results.
     const auto files = result_files(outs[0]);
@@ -1257,6 +1290,23 @@ void expect_sharing_to_change_no_result(
     EXPECT_EQ(store_events(logs[0], "a"),
               (Events{"compiled_models.miss", "compiled_models.saved"}));
     EXPECT_EQ(store_events(logs[0], "b"), (Events{"compiled_models.hit"}));
+    // What compiled_models.saved carries: the module host's attributes (praenora.module,
+    // praenora.pid), the provider and key that every record of the store names, and its own size
+    // and count of evicted entries.
+    std::size_t saved = 0;
+    for (const json& record : log_records(logs[0])) {
+        if (logger_of(record) == "module.a" && event_of(record) == "compiled_models.saved") {
+            ++saved;
+            const json& attributes = record.at("attributes");
+            EXPECT_TRUE(attributes.at("praenora.module").is_string()) << record;
+            EXPECT_TRUE(attributes.at("praenora.pid").is_number_integer()) << record;
+            EXPECT_TRUE(attributes.at("praenora.provider").is_string()) << record;
+            EXPECT_TRUE(attributes.at("praenora.key").is_string()) << record;
+            EXPECT_TRUE(attributes.at("praenora.size").is_number_unsigned()) << record;
+            EXPECT_TRUE(attributes.at("praenora.evicted").is_number_unsigned()) << record;
+        }
+    }
+    EXPECT_EQ(saved, 1u);
     EXPECT_TRUE(logged(logs[0], "a", words.compiled));
     EXPECT_FALSE(logged(logs[0], "a", words.loaded));
     EXPECT_TRUE(logged(logs[0], "b", words.loaded));

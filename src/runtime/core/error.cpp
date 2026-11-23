@@ -68,7 +68,7 @@ constexpr std::array kTable = {
     row(E::TIMEOUT, "TIMEOUT", C::timeout, "module", retry,
         "The operation did not finish before its deadline."),
     row(E::IO_ERROR, "IO_ERROR", C::environment, "environment", retry,
-        "Reading or writing a file failed."),
+        "Reading or writing a file or a connection failed."),
     row(E::INTERNAL, "INTERNAL", C::internal, "runtime/module", no_retry,
         "An internal invariant was violated."),
     row(E::FAILED, "FAILED", C::execution, "module", no_retry, "The operation failed."),
@@ -167,6 +167,12 @@ constexpr std::array kTable = {
     // Found by validation only, so the CLI reports 3.
     row(E::TARGET_DATA_UNAVAILABLE, "TARGET_DATA_UNAVAILABLE", C::data, "environment", retry,
         "Target data could not be read, for example because its file does not exist."),
+    // The control API's: a request without valid credentials, and credentials that do not allow
+    // the operation.
+    row(E::UNAUTHENTICATED, "UNAUTHENTICATED", C::usage, "caller", no_retry,
+        "The request carries no valid credentials."),
+    row(E::PERMISSION_DENIED, "PERMISSION_DENIED", C::usage, "caller", no_retry,
+        "The credentials do not allow the operation."),
 };
 
 constexpr bool table_is_sorted() {

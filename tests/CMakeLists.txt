@@ -57,8 +57,8 @@ foreach(_praenora_template IN LISTS _praenora_layout_templates)
         NEWLINE_STYLE UNIX)
 endforeach()
 
-# praenora_add_gtest(<name> LABEL <label> [WHITEBOX] [SANDBOX_SKIP] SOURCES <source>...
-#                    [LINK <library>...])
+# praenora_add_gtest(<name> LABEL <label> [WHITEBOX] [SANDBOX_SKIP] [LISTENER_SKIP]
+#                    SOURCES <source>... [LINK <library>...])
 # praenora_add_gtest(<name> NO_TESTS [WHITEBOX] SOURCES <source>... [LINK <library>...])
 #
 # Adds a GoogleTest executable whose tests are discovered when CTest runs (CTest names
@@ -71,7 +71,10 @@ endforeach()
 #   internal headers (praenora::detail). PRAENORA_RUNTIME_STATIC_DEFINE is defined because the
 #   objects are linked into the executable rather than imported from the shared library.
 # - SANDBOX_SKIP: its tests of the restricted sandbox profile skip, saying so, in a process that
-#   runs in a sandbox already; CTest shows them as skipped (_praenora_sandbox_skip below).
+#   runs in a sandbox already; CTest shows them as skipped (_praenora_sandbox_skip_text below).
+# - LISTENER_SKIP: its tests open local listeners (tests/support/listener_support.hpp) and skip,
+#   saying so, where a listener is refused; CTest shows them as skipped
+#   (_praenora_listener_skip_text below).
 # - Otherwise the executable links only the shared library Praenora::Runtime.
 # Either way it links praenora_test_support, GTest::gtest_main and the LINK libraries. An
 # executable never links both the object library and the shared library, so LINK cannot add the
@@ -89,11 +92,24 @@ endif()
 # skipped GoogleTest's skips (its own expression) and, by the full start of its message, a test of
 # the profile in a process that runs in a sandbox already, where macOS applies no second one
 # (kNestedSandboxSkip, tests/support/sandbox_support.hpp).
-set(_praenora_sandbox_skip SKIP_REGULAR_EXPRESSION
-    "\\[  SKIPPED \\]|nested sandbox: this process runs in a sandbox already, and macOS applies")
+set(_praenora_sandbox_skip_text
+    "nested sandbox: this process runs in a sandbox already, and macOS applies")
+# For executables with listener tests (LISTENER_SKIP): a test where a local listener is refused, as
+# in a sandbox that allows none, skips with the start of this message (kListenerRefused,
+# tests/support/listener_support.hpp); with PRAENORA_TESTS_REQUIRE_LISTENERS=1 it fails in other
+# words instead, which this expression does not match.
+set(_praenora_listener_skip_text "local listener refused: ")
+# No test exports telemetry to a collector that the caller's environment names: OTLP export is
+# off (OTEL_SDK_DISABLED) for every test that can run the runtime with the environment, also
+# without a test preset: the GoogleTest tests here, the CLI, install and perf tests
+# (tests/cli, tests/install, tests/perf) and python.unittest. The test presets of
+# CMakePresets.json set it for every test. A test of the export sets the variables it reads
+# itself.
+set(_praenora_no_telemetry ENVIRONMENT_MODIFICATION "OTEL_SDK_DISABLED=set:true")
 
 function(praenora_add_gtest name)
-    cmake_parse_arguments(PARSE_ARGV 1 arg "WHITEBOX;NO_TESTS;SANDBOX_SKIP" "LABEL" "SOURCES;LINK")
+    cmake_parse_arguments(PARSE_ARGV 1 arg "WHITEBOX;NO_TESTS;SANDBOX_SKIP;LISTENER_SKIP" "LABEL"
+        "SOURCES;LINK")
     if(arg_UNPARSED_ARGUMENTS)
         message(FATAL_ERROR
             "praenora_add_gtest(${name}): unexpected arguments: ${arg_UNPARSED_ARGUMENTS}")
@@ -136,14 +152,23 @@ function(praenora_add_gtest name)
     praenora_target_warnings(${name})
     praenora_copy_runtime_dlls(${name})
 
-    set(skip "")
+    # GoogleTest's own skips, and the messages of the skips the options name; one value.
+    set(skip_texts "\\[  SKIPPED \\]")
     if(arg_SANDBOX_SKIP)
-        set(skip ${_praenora_sandbox_skip})
+        string(APPEND skip_texts "|${_praenora_sandbox_skip_text}")
+    endif()
+    if(arg_LISTENER_SKIP)
+        string(APPEND skip_texts "|${_praenora_listener_skip_text}")
+    endif()
+    set(skip "")
+    if(arg_SANDBOX_SKIP OR arg_LISTENER_SKIP)
+        set(skip SKIP_REGULAR_EXPRESSION "${skip_texts}")
     endif()
     if(NOT arg_NO_TESTS)
         gtest_discover_tests(${name}
             DISCOVERY_MODE PRE_TEST
-            PROPERTIES LABELS ${arg_LABEL} ${_praenora_test_environment} ${skip})
+            PROPERTIES LABELS ${arg_LABEL} ${_praenora_test_environment} ${skip}
+                ${_praenora_no_telemetry})
     endif()
 endfunction()
 
@@ -184,6 +209,10 @@ praenora_add_gtest(praenora_unit_tests LABEL unit WHITEBOX
         unit/compiled_model_store_test.cpp
         unit/output_sink_test.cpp
         unit/sandbox_test.cpp
+        unit/otlp_settings_test.cpp
+        unit/otlp_json_test.cpp
+        unit/otlp_exporter_test.cpp
+        unit/otlp_runtime_test.cpp
     LINK Praenora::ModuleSDK)
 # sdk_abi_c99_check.c, simulation_c99_check.c, model_conversion_c99_check.c and
 # provider_abi_c99_check.c prove that the SDK's C headers (those of the simulation and model
@@ -435,6 +464,82 @@ endif()
 if(PRAENORA_WITH_ANTIMONY)
     target_compile_definitions(praenora_integration_tests PRIVATE PRAENORA_TEST_WITH_ANTIMONY)
     add_dependencies(praenora_integration_tests praenora_provider_antimony)
+endif()
+
+# The control API's server core (src/server), through the shared library: addresses, scopes,
+# tokens and the Host check, every route's answer over a fake run source, the HTTP statuses of
+# errors, the Prometheus text, and the runs of both modes with the fixture modules (the output
+# and configuration roots, deleting, shutdown, queries racing them, and the results of a run as
+# `praenora run` gives them, with the example workflow when the examples are built), all without
+# sockets (label unit). The OpenAPI document and its committed copy spec/openapi/ have an
+# executable of their own (label protocol).
+if(TARGET praenora_server)
+    praenora_add_gtest(praenora_server_tests LABEL unit
+        SOURCES
+            server/server_fixtures.hpp
+            server/address_test.cpp
+            server/tokens_test.cpp
+            server/prometheus_test.cpp
+            server/control_api_test.cpp
+            server/run_registry_test.cpp
+        LINK praenora_server nlohmann_json::nlohmann_json)
+    add_dependencies(praenora_server_tests praenora_test_modules)
+    if(PRAENORA_BUILD_EXAMPLES)
+        set(_praenora_example_workflow "${PROJECT_SOURCE_DIR}/examples/workflows/estimate-predict")
+        target_compile_definitions(praenora_server_tests PRIVATE
+            "PRAENORA_TEST_EXAMPLE_WORKFLOW_DIR=\"${_praenora_example_workflow}\"")
+        add_dependencies(praenora_server_tests praenora_example_modules)
+    endif()
+    praenora_add_gtest(praenora_openapi_tests LABEL protocol
+        SOURCES protocol/openapi_test.cpp
+        LINK praenora_server nlohmann_json::nlohmann_json)
+endif()
+
+# Listener tests (label server): tests that open local listeners, under the rules of
+# docs/testing.md#listeners, and skip where one is refused (LISTENER_SKIP). The OTLP export against
+# a fake collector of the test's own (tests/telemetry): the HTTP client (statuses, headers,
+# Retry-After, a refused port, a collector that never answers), the exporter's retry with it, and
+# runs that export, the example workflow's when the examples are built (with a step in a module
+# host where there are module hosts), a collector that fails or never answers, and the same results
+# with and without the export.
+praenora_add_gtest(praenora_otlp_listener_tests LABEL server WHITEBOX LISTENER_SKIP
+    SOURCES telemetry/otlp_listener_test.cpp
+    LINK praenora_httplib)
+add_dependencies(praenora_otlp_listener_tests praenora_test_modules)
+if(PRAENORA_BUILD_EXAMPLES)
+    set(_praenora_example_workflow "${PROJECT_SOURCE_DIR}/examples/workflows/estimate-predict")
+    target_compile_definitions(praenora_otlp_listener_tests PRIVATE
+        "PRAENORA_TEST_EXAMPLE_WORKFLOW_DIR=\"${_praenora_example_workflow}\"")
+    add_dependencies(praenora_otlp_listener_tests praenora_example_modules)
+endif()
+if(TARGET praenora_module_host)
+    add_dependencies(praenora_otlp_listener_tests praenora_module_host)
+endif()
+
+# The control API's listener and client (src/server) over real connections, in the test's own
+# process (server/listener_test.cpp: TCP and, on POSIX, Unix sockets, the limits, stopping, queries
+# racing a DELETE and a shutdown, the client), and, on POSIX, the praenora tool as a server, end to
+# end, started by the test (server/tool_listener_test.cpp: run --listen, serve, status --server,
+# signals, and the same results with and without a listener, the example workflow's when the
+# examples are built). Label server, as listener tests are.
+if(TARGET praenora_server AND TARGET praenora_cli)
+    set(_praenora_server_listener_sources
+        server/server_fixtures.hpp server/listener_fixtures.hpp server/listener_test.cpp)
+    if(NOT WIN32)
+        list(APPEND _praenora_server_listener_sources server/tool_listener_test.cpp)
+    endif()
+    praenora_add_gtest(praenora_server_listener_tests LABEL server LISTENER_SKIP
+        SOURCES ${_praenora_server_listener_sources}
+        LINK praenora_server praenora_httplib nlohmann_json::nlohmann_json)
+    target_compile_definitions(praenora_server_listener_tests PRIVATE
+        "PRAENORA_TEST_TOOL=\"$<TARGET_FILE:praenora_cli>\"")
+    add_dependencies(praenora_server_listener_tests praenora_cli praenora_test_modules)
+    if(PRAENORA_BUILD_EXAMPLES)
+        set(_praenora_example_workflow "${PROJECT_SOURCE_DIR}/examples/workflows/estimate-predict")
+        target_compile_definitions(praenora_server_listener_tests PRIVATE
+            "PRAENORA_TEST_EXAMPLE_WORKFLOW_DIR=\"${_praenora_example_workflow}\"")
+        add_dependencies(praenora_server_listener_tests praenora_example_modules)
+    endif()
 endif()
 
 # CLI tests (label cli): the praenora tool, run through tests/cli/run_cli.cmake, and that driver

@@ -146,6 +146,15 @@ void StopOnSignal::watch(Workflow* workflow) {
     }
 }
 
+void StopOnSignal::wait_for_signal() {
+    // The handler only sets the flag, which no condition variable can be told of from there: it is
+    // looked at every 50 ms, as the watcher does.
+    std::unique_lock<std::mutex> lock(mutex_);
+    while (signalled.load() == 0) {
+        wake_.wait_for(lock, std::chrono::milliseconds(50));
+    }
+}
+
 void StopOnSignal::loop() {
     std::unique_lock<std::mutex> lock(mutex_);
     while (!quit_) {

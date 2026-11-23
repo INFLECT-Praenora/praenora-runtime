@@ -18,7 +18,7 @@ Some ADRs have a split status, for example "Accepted (shape) / Proposed (details
 - **Writing an ADR.** Copy the template, take the next free label, fill every section, and add a row to the index below.
 - **Superseding an ADR.** Write a new ADR that states what it replaces, set `Supersedes:` in the new header, set the old header's status to Superseded and its `Superseded by:` to the new label. Do not delete or rewrite the old decision.
 - **Proposed decisions** stay open to maintainer review. Reviewing one means either changing its status to Accepted or superseding it.
-- **Builder notes.** Calls made while building that do not change what gets built are appended as a "Builder notes" subsection under Decision, with status Proposed.
+- **Builder notes.** Calls made while building that do not change what gets built are appended as a "Builder notes" subsection under Decision, with status Proposed. A note records a call and its reasons, not events: no account of CI runs, their failures or the fixes they needed, which belong in commit messages, and no verification status, which belongs in the document that tracks it ([../releasing.md](../releasing.md#what-the-runs-verified), [../platforms.md](../platforms.md#verification-status)). When a later fact makes a note stale, rewrite that note rather than appending another.
 - **Open questions.** Questions that remain unresolved are tracked in [../open-questions.md](../open-questions.md) and link to the relevant ADRs. Only an Accepted decision resolves one: accepting a Proposed ADR, in full or in part, resolves the questions it answers, as does a new or superseding Accepted ADR. The deciding ADR says which questions it resolves, and their rows are updated as the register's header says.
 
 ## Index
@@ -66,3 +66,5 @@ Some ADRs have a split status, for example "Accepted (shape) / Proposed (details
 | [ADR-0039](ADR-0039-restricted-sandbox-profile-for-module-hosts.md) | A restricted sandbox profile for module hosts | Accepted (macOS profile) / Proposed (signed programs) | 2026-11-20 |
 | [ADR-0040](ADR-0040-mit-license.md) | MIT license | Accepted | 2026-11-21 |
 | [ADR-0041](ADR-0041-ci-and-releases-against-pinned-dependency-bundles.md) | CI and releases against pinned dependency bundles | Accepted | 2026-11-21 |
+| [ADR-0042](ADR-0042-control-and-status-api-over-http.md) | Control and status API over HTTP | Accepted | 2026-11-22 |
+| [ADR-0043](ADR-0043-otlp-export-of-metrics-and-logs.md) | OTLP export of metrics and logs | Accepted | 2026-11-22 |

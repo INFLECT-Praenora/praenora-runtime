@@ -272,6 +272,9 @@ Proposed.
   [ADR-0038](ADR-0038-shared-compiled-models-between-module-hosts.md) appends `load_compiled` and
   `save_compiled` to `praenora_provider_host`, NULL in the runtime's process, within interface
   version 0.0.
+- Later: [ADR-0043](ADR-0043-otlp-export-of-metrics-and-logs.md) gives the attribute keys of the
+  logs the prefix `praenora.`: a provider's records carry `praenora.provider`, and `provider.loaded`
+  also carries `praenora.event` and `praenora.library_sha256`.
 
 ## Alternatives considered
 

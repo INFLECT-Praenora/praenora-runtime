@@ -81,13 +81,23 @@ public:
     // directories by placeholders (<output>, <configuration>, <modules:caller:0>, <home>, ...;
     // docs/specs/observability.md).
     StatusSnapshot status() const;
+    // status_json(PathForm::absolute).
     std::string status_json() const;
+    // A snapshot taken now as a status-snapshot document, its error records in `form`: absolute,
+    // as status().to_json() writes them, or placeholders, as the status file does (through the
+    // same code: a status file written at the same moment holds the same document).
+    std::string status_json(PathForm form) const;
     std::string metrics_json() const;        // OpenTelemetry-style metric points of status()
     std::string latest_outputs_json() const; // {"<output>": its newest envelope}; {} at first
     // The run record as last written, the same document as run-record.json, its error records
     // naming the run's directories by placeholders like the status file's; null before start.
     std::string run_record_json() const;
     const std::string& fingerprint() const noexcept; // the run fingerprint (SHA-256, hex)
+    // The workflow's number in the Runtime that opened it: 1 for the first workflow that
+    // Runtime::open() returned, then 2, 3, ..., one sequence shared by every copy of that Runtime.
+    // An open() that throws takes no number. It never changes, and never enters the run's
+    // fingerprint, run record or status.
+    std::uint64_t run_number() const noexcept;
     // The run's output directory as an absolute UTF-8 path (WorkflowOptions::output_dir, else the
     // configuration's outputs.directory), or empty when the run writes no files.
     const std::string& output_dir() const noexcept;

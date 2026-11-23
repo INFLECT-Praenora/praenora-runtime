@@ -18,7 +18,7 @@ to look when one appears.
 |---|---|---|
 | 0 | `OK`: success. | Everyone. |
 | 1 to 99 | General codes; 1 to 12 are defined in this version, in `status.h` as `PRAENORA_STATUS_*` and in C++ as `praenora::ErrorCode`. | Modules (as call statuses) and the runtime. |
-| 100 to 999 | Runtime codes, by component: 1xx documents, 2xx configuration, 3xx manifests and libraries, 4xx compatibility and catalog, 5xx loading, 6xx workflow graphs, 7xx execution, 8xx target data. | The runtime only. |
+| 100 to 999 | Runtime codes, by component: 1xx documents, 2xx configuration, 3xx manifests and libraries, 4xx compatibility and catalog, 5xx loading, 6xx workflow graphs, 7xx execution, 8xx target data, 9xx control API. | The runtime only. |
 | 1000 to 9999 | Unassigned. | Nobody. |
 | 10000 and up | Module-defined codes (`PRAENORA_STATUS_MODULE_BASE`). | Modules. They are reported verbatim as the `cause` of a runtime error, never as an `ErrorCode` of their own. |
 
@@ -62,7 +62,7 @@ as `a/b` names both parties that commonly own the fix; `none` marks codes that r
 | 6 | `RESOURCE_EXHAUSTED` | environment | 74 | environment | yes | A resource limit was reached, for example memory or an output size limit. |
 | 7 | `CANCELLED` | cancelled | 130 | none | no | The operation was cancelled. |
 | 8 | `TIMEOUT` | timeout | 5 | module | yes | The operation did not finish before its deadline. |
-| 9 | `IO_ERROR` | environment | 74 | environment | yes | Reading or writing a file failed. |
+| 9 | `IO_ERROR` | environment | 74 | environment | yes | Reading or writing a file or a connection failed. |
 | 10 | `INTERNAL` | internal | 70 | runtime/module | no | An internal invariant was violated. |
 | 11 | `FAILED` | execution | 1 | module | no | The operation failed. |
 | 12 | `DATA_INVALID` | data | 1 | user data/module | no | Data does not have the expected form or values. |
@@ -106,6 +106,8 @@ as `a/b` names both parties that commonly own the fix; `none` marks codes that r
 | 706 | `MODULE_CRASHED` | execution | 1 | module | no | A module host ended (a signal or an exit) or broke its channel's protocol during a load or a call into its module. |
 | 800 | `TARGET_DATA_INVALID` | data | 1 | user data | no | Target data is malformed or breaks the observation rules. |
 | 801 | `TARGET_DATA_UNAVAILABLE` | data | 1 | environment | yes | Target data could not be read, for example because its file does not exist. |
+| 900 | `UNAUTHENTICATED` | usage | 2 | caller | no | The request carries no valid credentials. |
+| 901 | `PERMISSION_DENIED` | usage | 2 | caller | no | The credentials do not allow the operation. |
 
 Notes on the table:
 
@@ -164,6 +166,13 @@ Notes on the table:
   `MODULE_CRASHED` of the step, with `phase` `load` when it ends during the load (its `start()`
   included), the call that was running when it ends during a call, and the next call when it ends
   between calls.
+- `UNAUTHENTICATED` and `PERMISSION_DENIED` belong to the control API, the HTTP interface of
+  [ADR-0042](../adr/ADR-0042-control-and-status-api-over-http.md) and
+  [control-api.md](control-api.md): a request that carries no valid credentials (HTTP 401), and
+  credentials, or a `Host` header, that do not allow the operation it asks for (HTTP 403). Their
+  category is `usage`, as `INVALID_ARGUMENT`'s is; unlike `INVALID_ARGUMENT`, which is also a
+  module status, they are runtime codes only: `status.h` does not define them. The runtime
+  library raises neither; the control API's server (`src/server`) raises both.
 - `TARGET_DATA_INVALID` exits with 1 when a run meets it and with 3 when validation finds it, like
   every error of a validation report. `TARGET_DATA_UNAVAILABLE` is found only by validation, so the
   CLI exits with 3 for it.
@@ -252,17 +261,19 @@ error.
 | `MODULE_HOST_UNAVAILABLE` | `details.reason`: `missing` (the installation lacks `libexec/praenora/praenora-module-host`, or the runtime came from a Python wheel, which has none), `spawn` (`details.system`: for example an executable that is not executable; or Windows), `handshake`, `build` (a module host of another runtime version or channel protocol: reinstall) or `sandbox` (the restricted profile cannot be applied, `details.system`: "Operation not permitted" when the runtime itself runs in a sandbox; or not on this platform) ([process-isolation.md](process-isolation.md#the-module-host)). |
 | `RUN_STOPPED` | A stop was requested (Ctrl+C, SIGTERM, `request_stop()`, `close()`). Not a fault. |
 | `IO_ERROR` | The path in the message: permissions, free space; an output directory that already holds a run record (pass `--overwrite`). |
+| `UNAUTHENTICATED`, `PERMISSION_DENIED` | The credentials that the request carries, and whether they allow the operation it asks for ([ADR-0042](../adr/ADR-0042-control-and-status-api-over-http.md)): the `Authorization: Bearer` header and the tokens of `--token-file` and `--read-token-file`; for `PERMISSION_DENIED`, `details.reason`: `scope` (a read token, or a TCP listener without tokens, on a control route) or `host` (a `Host` header that names no address of the server) ([control-api.md](control-api.md#security-rules)). |
 | `INVALID_ARGUMENT`, `INVALID_STATE` | The calling code or command line: argument values, and the order of calls (for example `tick()` before `start()`, or two control calls at once). |
 | `UNSUPPORTED` | A version or feature this runtime does not offer, named in the message; for a step in process mode, located at the `isolation.mode` that set it: process isolation on Windows; for a step in process mode with `sandbox: restricted`, located at the `isolation.sandbox` that set it: the restricted sandbox profile anywhere but on macOS ([process-isolation.md](process-isolation.md#configuration)). |
-| `RESOURCE_EXHAUSTED` | Memory, or a module output beyond the 256 MiB sink limit. |
-| `NOT_FOUND` | A module search path that is not a directory, or a configured one that does not exist (warnings). |
+| `RESOURCE_EXHAUSTED` | Memory, or a module output beyond the 256 MiB sink limit; from the control API, a server that holds `--max-runs` runs (delete a finished one). |
+| `NOT_FOUND` | A module search path that is not a directory, or a configured one that does not exist (warnings); from the control API, a path, a run or a configuration under the configuration root that does not exist. |
 | `INPUT_MISSING`, `INTERNAL`, `UNKNOWN` | A defect, usually of the runtime: keep the run record and the log, and report it. An envelope that fails its schema is `INTERNAL` and blames neither the module nor the data. |
 | `FAILED` | Contract checks that failed (`praenora modules check`); the check report is in the details. |
 | `DATA_INVALID` | Text that is not valid UTF-8 where the runtime writes canonical JSON. |
 
-By exit code: 1 points at a step and its module or at the data, 2 at the command line, 3 at the
-printed diagnostics, 4 at a module library, 5 at a step's timeouts, 70 at a defect, 74 at files and
-the environment, and 130 at a stop.
+By exit code: 1 points at a step and its module or at the data, 2 at the command line or, for
+`UNAUTHENTICATED` (900) and `PERMISSION_DENIED` (901), at the credentials a request to the control
+API carried, 3 at the printed diagnostics, 4 at a module library, 5 at a step's timeouts, 70 at a
+defect, 74 at files and the environment, and 130 at a stop.
 
 ## Adding a code
 

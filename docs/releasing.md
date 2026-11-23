@@ -10,6 +10,10 @@ your own machine is in [developer-guide.md](developer-guide.md#ci-presets), what
 
 ## What the runs verified
 
+This section says what the workflow's runs have verified, and is updated in place when a run
+verifies more. Runs that failed, and the fixes they needed, are for commit messages, not for this
+section or [ADR-0041](adr/ADR-0041-ci-and-releases-against-pinned-dependency-bundles.md).
+
 The workflow first passed on 2026-11-22, in two runs: on the pull request that brought it to
 `main` (run 45041491678, head commit `de4b0e8`), and on `main` with `publish` (run 45044102336,
 commit `bcc3775`), which drafted the first release, v0.2.0; an administrator published it the same
@@ -37,6 +41,14 @@ the tools of the macOS and Windows archives, which no job runs; whether a provid
 the same on other machines of one architecture, or the same across platforms beyond the tests'
 committed expected outputs; and the license review of distributing the providers (OQ-27, OQ-29)
 ([platforms.md](platforms.md)).
+
+These runs came before the control API and the OTLP export
+([ADR-0042](adr/ADR-0042-control-and-status-api-over-http.md),
+[ADR-0043](adr/ADR-0043-otlp-export-of-metrics-and-logs.md)), so the test counts above are those
+of the tree before them. Run 45165537866, by hand on `feature/server`, built and tested every
+platform key with them: cpp-httplib downloaded at its pinned commit, its license installed, and the
+listener tests run with `PRAENORA_TESTS_REQUIRE_LISTENERS=1`; its test counts are not recorded
+here.
 
 ## The workflow
 
@@ -96,8 +108,12 @@ Its jobs:
    ```
 
    The presets are those of [developer-guide.md](developer-guide.md#ci-presets): both providers,
-   the Python bindings and the tests, with warnings as errors, and yaml-cpp, spdlog and GoogleTest
-   built from their pinned commits. `ctest` runs every test of the tree.
+   the Python bindings and the tests, with warnings as errors, and yaml-cpp, spdlog, GoogleTest and
+   cpp-httplib (header-only) built from their pinned commits. `ctest` runs every test of the tree.
+   Its test preset sets `PRAENORA_TESTS_REQUIRE_LISTENERS=1`, so the tests that open local
+   listeners (label `server`, and the Python test of the OTLP export) fail, instead of skipping,
+   should the runner refuse a listener on `127.0.0.1`, `::1` or a Unix socket
+   ([testing.md](testing.md#listeners)); a job's run never passes without them.
 
    **The archive's libraries.** The job then checks that the archive needs only the system's
    libraries and its own, as the presets' static third-party libraries should make it. No test of
@@ -279,7 +295,10 @@ The release procedure relies on these settings:
    - Check that the archives may be published under the licenses of what they hold
      ([developer-guide.md](developer-guide.md#license-files)): for the NLEQ1 and NLEQ2 solvers
      that libRoadRunner links, this is open (OQ-27), and libSBML (LGPL-2.1) is linked statically
-     by both providers (OQ-27, OQ-29) ([open-questions.md](open-questions.md)).
+     by both providers (OQ-27, OQ-29) ([open-questions.md](open-questions.md)). cpp-httplib (MIT)
+     is compiled in from its header (into the runtime library, the tool and the module host) and
+     taken from its pinned commit, so its license is in `share/praenora/licenses/httplib/`, as
+     yaml-cpp's and spdlog's are (not yet verified in an archive of the workflow).
 5. **Publish** the release, after editing its notes if needed. Publishing creates the tag
    `v<version>` on the built commit; the release then cannot change.
 

@@ -351,6 +351,10 @@ The specification is [process-isolation.md](../specs/process-isolation.md).
   that does not exit after `destroy` waits 1 s instead of 200 ms; and the margins of the tests of
   a crash as the grace ends (a grace of 1.5 s, with the crash's record held 4 s) and of stops and
   deadlines (5 s, with the module sleeping 20 s) are wider.
+- Later: [ADR-0043](ADR-0043-otlp-export-of-metrics-and-logs.md) gives the attribute keys of the
+  logs the prefix `praenora.`; a provider's records cross the channel with the keys its module
+  host's provider host wrote (`praenora.provider`, and for `provider.loaded` `praenora.event` and
+  `praenora.library_sha256`), and a module host's events carry `praenora.module` and `praenora.pid`.
 
 ## Alternatives considered
 

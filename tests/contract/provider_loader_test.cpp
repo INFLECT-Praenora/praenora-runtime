@@ -548,9 +548,9 @@ TEST(ProviderLoader, LogsThroughTheProvidersOwnLogger) {
         EXPECT_EQ(started.size(), 1u);
         ASSERT_EQ(loaded.size(), 1u);
         const json& attributes = loaded.front().at("attributes");
-        EXPECT_EQ(attributes.at("event"), "provider.loaded");
-        EXPECT_EQ(attributes.at("provider"), "test-echo@0.1.0");
-        EXPECT_EQ(attributes.at("library_sha256"),
+        EXPECT_EQ(attributes.at("praenora.event"), "provider.loaded");
+        EXPECT_EQ(attributes.at("praenora.provider"), "test-echo@0.1.0");
+        EXPECT_EQ(attributes.at("praenora.library_sha256"),
                   praenora::detail::sha256_file_hex(fixture("test-echo").library_path));
         EXPECT_EQ(loaded.front().at("severity_text"), "INFO");
     } else {

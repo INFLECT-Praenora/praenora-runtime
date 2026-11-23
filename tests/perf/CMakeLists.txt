@@ -47,5 +47,6 @@ foreach(_praenora_run IN LISTS _praenora_perf_runs)
     set_tests_properties(${_praenora_test} PROPERTIES
         LABELS perf
         TIMEOUT 600
-        ${_praenora_test_environment})
+        ${_praenora_test_environment}
+        ${_praenora_no_telemetry})
 endforeach()

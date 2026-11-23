@@ -283,7 +283,8 @@ class Workflow:
         trace_messages: whether every message, and the runtime services each call into a
             module looks up, are traced to <output_dir>/trace/messages.jsonl; None keeps the
             configuration's setting.
-        status_file: keep a status file there (read_status() reads it).
+        status_file: keep a status file there (read_status() reads it), in place of the
+            configuration's observability.status_file; "" for none.
         isolation: where every step's module instance runs, in place of the configuration's
             (run.isolation and steps.<id>.isolation): "in-process" (in the Python process) or
             "process" (in a module host, a process of its own, so that a crash of the module ends
@@ -292,8 +293,8 @@ class Workflow:
             MODULE_HOST_UNAVAILABLE.
 
     The control calls (start, tick, run and close) are made one at a time. The queries (state,
-    fingerprint, status, metrics, latest_outputs and run_record) and request_stop() may be called
-    from any thread at any time, also while a control call runs.
+    fingerprint, run_number, status, metrics, latest_outputs and run_record) and request_stop()
+    may be called from any thread at any time, also while a control call runs.
     """
 
     def __init__(self, config, module_paths=None, output_dir=None, seed=None, log_level=None, *,
@@ -346,10 +347,15 @@ class Workflow:
         max_ticks = -1 if ticks is None else _count(ticks, "ticks")
         return _decoded(self._handle.run, max_ticks)
 
-    def status(self):
-        """The run's status: the status-snapshot document, its error records with absolute
-        paths."""
-        return _decoded(self._handle.status)
+    def status(self, path_form="absolute"):
+        """The run's status: the status-snapshot document. path_form says how its error records
+        name files: "absolute", with absolute paths, or "placeholders", naming the run's
+        directories by placeholders such as <output> and <home>, as the status file does
+        (read_status()). Another name raises PraenoraError INVALID_ARGUMENT, another type
+        TypeError."""
+        if not isinstance(path_form, str):
+            raise TypeError(f"path_form must be a str, not {type(path_form).__name__}")
+        return _decoded(self._handle.status, path_form)
 
     def metrics(self):
         """The run's metric points: {"metrics": [{"name", "unit", "kind", "attributes", ...}]}."""
@@ -386,3 +392,9 @@ class Workflow:
     def fingerprint(self):
         """The run fingerprint (SHA-256, 64 hex digits)."""
         return _call(self._handle.fingerprint)
+
+    @property
+    def run_number(self):
+        """The run's number in the runtime that opened it (int; read-only): each Workflow opens
+        its run with a runtime of its own, so it is 1."""
+        return _call(self._handle.run_number)

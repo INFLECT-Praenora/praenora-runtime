@@ -41,6 +41,12 @@ enum class StepState {
 
 enum class Health { unknown, healthy, degraded, unhealthy };
 
+// How the error records of a status-snapshot document name files (Workflow::status_json()):
+// absolute: with absolute paths, as the snapshot holds them in the process;
+// placeholders: naming the run's directories by placeholders (<output>, <configuration>,
+// <modules:caller:0>, <home>, ...), as the status file does (docs/specs/observability.md).
+enum class PathForm { absolute, placeholders };
+
 // The last error of a step or of the workflow. `cause_json` holds the module's own error document
 // when a module call failed, otherwise it is empty. `location` and `details_json` are those of the
 // error (Error::location() and Error::details_json(), "{}" when it has no details); a record that

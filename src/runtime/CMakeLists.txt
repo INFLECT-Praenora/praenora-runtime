@@ -11,6 +11,10 @@ include(GenerateExportHeader)
 # json-schema-validator comes before nlohmann/json, so its include directory comes first too: when
 # the runtime links a validator built in the tree (PRAENORA_FETCH_JSON_SCHEMA_VALIDATOR), it must
 # not compile against an installed nlohmann/json-schema.hpp in nlohmann/json's include directory.
+# cpp-httplib comes through praenora_httplib, its include directory (header-only), ws2_32 on
+# Windows and, on other POSIX systems than macOS, CPPHTTPLIB_SEND_FLAGS (MSG_NOSIGNAL): the OTLP
+# exporter's HTTP client (observability/otlp/http_client.cpp) is the only source of the runtime
+# that includes httplib.h.
 find_package(Threads REQUIRED)
 add_library(praenora_runtime_deps INTERFACE)
 target_link_libraries(praenora_runtime_deps INTERFACE
@@ -18,6 +22,7 @@ target_link_libraries(praenora_runtime_deps INTERFACE
     nlohmann_json::nlohmann_json
     yaml-cpp::yaml-cpp
     ${PRAENORA_SPDLOG_TARGET}
+    praenora_httplib
     Threads::Threads
     ${CMAKE_DL_LIBS})
 
@@ -75,6 +80,11 @@ add_library(praenora_runtime_objects OBJECT
     observability/path_anchors.cpp
     observability/status_file.cpp
     observability/status_json.cpp
+    observability/otlp/exporter.cpp
+    observability/otlp/http_client.cpp
+    observability/otlp/log_sink.cpp
+    observability/otlp/otlp_json.cpp
+    observability/otlp/otlp_settings.cpp
     provider/provider_index.cpp
     provider/provider_loader.cpp
     provider/provider_manifest.cpp)

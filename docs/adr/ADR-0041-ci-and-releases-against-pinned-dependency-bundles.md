@@ -28,11 +28,11 @@ package's included, so a release could never carry a new version.
 
 ## Decision
 
-Accepted by the maintainer on 2026-11-22, after the workflow's fifth and sixth runs passed and the
-first release, v0.2.0, was published (builder notes). It answers how CI builds and how releases are
-made, the release-archive part of OQ-13, OQ-27 and OQ-29, and resolves none of them: wheels,
-manylinux, signing and the license review of distributing the providers stay open. The builder
-notes are Proposed.
+Accepted by the maintainer on 2026-11-22, after the workflow passed on every platform key and the
+first release, v0.2.0, was published ([releasing.md](../releasing.md#what-the-runs-verified)). It
+answers how CI builds and how releases are made, the release-archive part of OQ-13, OQ-27 and
+OQ-29, and resolves none of them: wheels, manylinux, signing and the license review of
+distributing the providers stay open. The builder notes are Proposed.
 
 - **The workflow.** [`.github/workflows/build.yml`](../../.github/workflows/build.yml), named
   "Build", mirrors praenora-runtime-deps' workflow: it runs on each pull request to `main` and by
@@ -98,22 +98,21 @@ notes are Proposed.
   `%SystemRoot%\System32` on Windows) and those the archive holds (on Windows only
   `praenora_runtime.dll`) ([releasing.md](../releasing.md#the-workflow)). Windows
   is checked too rather than left out: CMake searches the prefixes of the directories on `PATH`
-  on every platform, and a runner image can have other software's libraries in some of them. The
-  script fails, as it should, on a local macOS archive built with Homebrew's yaml-cpp and spdlog;
-  its Linux and Windows parts ran only on hand-made archives; not yet verified on GitHub.
+  on every platform, and a runner image can have other software's libraries in some of them.
 - **The runners follow praenora-runtime-deps.** A bundle holds static libraries built with the
   compiler of its runner image, and the runtime must be built with that compiler or a newer one of
   the same family; the same fixed labels give the same images, so the runtime's jobs use exactly
   the labels of praenora-runtime-deps' jobs, never `-latest`. The macOS bundle of 0.1.1 is named
   `appleclang21`, although praenora-runtime-deps' documentation expects AppleClang 17 on
-  `macos-26`; the runtime's macOS job, on the same label, is expected to build with AppleClang 21.
+  `macos-26`: the name, not that documentation, gives the compiler of the image
+  ([releasing.md](../releasing.md#the-dependency-bundles)).
 - **Windows** uses the Visual Studio 2022 generator of the project's Windows presets, which finds
   MSVC itself, so the jobs need neither Ninja nor the developer environment that
   praenora-runtime-deps' jobs enter; the archive's target is `PACKAGE` there. No step shortens the
   checkout's path with `subst`, as praenora-runtime-deps' does for its object files: the longest
   path of a Windows job is estimated at 235 characters (a license file in CPack's staging
   directory) and the longest object file path at 172, below the limit of 259
-  ([releasing.md](../releasing.md#the-workflow)); not yet verified.
+  ([releasing.md](../releasing.md#the-workflow)).
 - **Python** comes from `actions/setup-python` (3.12), whose `python-path` is passed as
   `Python3_EXECUTABLE`; the CI presets do not set it. The build step passes `--parallel`, so that
   MSBuild builds projects side by side (`/m`); Ninja builds in parallel without it.
@@ -140,138 +139,32 @@ notes are Proposed.
   `uses: <owner>/<name>@<commit> # v<version>`, each value on the line of its key), and the test
   refuses a key whose value is on a later line. It replaces `\`, `;`, `[` and `]` before it
   splits the text into lines, so that no line joins the next or splits into two.
-- **The first run's warnings.** The first run of the workflow, on a pull request to `main`,
-  passed the macOS job and failed the build of the Linux and Windows jobs on warnings that
-  AppleClang does not give. Most were fixed in the code: a parameter that only the POSIX branch of
-  a fixture used, a local variable that hid a member, the result of `write()` that a cast to
-  `void` does not discard for GCC (glibc declares it `warn_unused_result`), and `getenv()` calls,
-  which MSVC deprecates (one more is in a test support header that no job had reached). Those
-  calls, and the three that the tests had marked before with
-  `#pragma warning(suppress : 4996)`, which no MSVC build had compiled yet, now turn C4996 off
-  with `push`, `disable` and `pop` around the call alone, which does not depend on what MSVC takes
-  for the line after the pragma (here an `#endif`). Two are calls on the warnings themselves
-  ([platforms.md](../platforms.md#common-to-every-platform)). GCC 13's `-Wdangling-reference` is
-  turned off for C++ (`cmake/PraenoraWarnings.cmake`): it reports every reference bound to the
-  result of a call that was given a temporary, whatever the reference refers to, and here these
-  are a provider that `load_provider()` keeps loaded for the life of the process and the entries
-  that test helpers look up by a string literal; rewriting each such call would have fixed
-  nothing, since none of these references dangles. MSVC's C4702 (unreachable code) is turned off
-  for the targets that compile libRoadRunner's headers, through the interface target
-  `praenora_roadrunner_engine` (`cmake/PraenoraRoadrunner.cmake`): its `rr/Setting.h` returns after
-  a `throw` in templates, and the code generator reports that where they are instantiated, out of
-  reach of the warning level of external headers. A third is made ahead of the next run, since no
-  job compiled the Python extension: the wrapper that SWIG generates is compiled with the
-  compiler's default warnings and never as errors. It is not this project's code, and its overload
-  dispatch redeclares variables in nested blocks (Clang's `-Wshadow` shows them), which MSVC's
-  `/W4` would report as C4456; the facade it wraps is compiled with the project's warnings, as an
-  object library of its own (`src/python/CMakeLists.txt`). Those builds stopped at their first
-  failures (the Linux job after 113 of its 435 steps; the Windows jobs before the tool, the tests
-  and the Python extension), so more of the code has yet to be compiled there; not yet verified on
-  GitHub.
-- **The second run's failures.** The second run built both Windows jobs, whose tests then failed 21
-  of 988 tests, the same in each, and stopped the Linux job's build after 296 of its 435 steps, at a
-  test program that used `std::int32_t` without `<cstdint>` (libstdc++ declares it there alone;
-  glibc's `<stdint.h>`, which the program does include, declares only `::int32_t`). Every Windows
-  failure was in the tests, none in the runtime. Most expected forward slashes where a path is
-  lexically normal, which on Windows means backslashes, or turned a UTF-8 string into a path with
-  the narrow constructor, which reads it in the ANSI code page; they now compare paths as paths, or
-  text with the lexically normal path the runtime reports, or the list of a directory's files by
-  their `'/'`-separated names, and the CLI tests accept either separator. Others: a Windows path
-  written into a double-quoted YAML scalar, where `\U` starts an escape (now single quotes); two
-  unit tests that validate steps in module hosts, which Windows refuses in this version (now
-  compiled only off Windows, like the other tests of process isolation); a reader of the status file
-  that counted a refused open, while the writer replaced the file, as a torn read (on Windows it now
-  counts only what it read); a scratch file named `nul`, a device in every directory on Windows; and
-  `printf`'s `%a`, which the Microsoft C runtime writes with every hexadecimal digit of the
-  significand (`0x0.0000000000000p+0` for zero), where `run_twice.cmake` expected `0x0p+0`. Two had
-  causes of their own. `$<TARGET_PROPERTY>` leaves a `$<CONFIG>` in a property of the project's own
-  as it is, so the manifest path that `PRAENORA_PROVIDER_MANIFEST` gives a multi-config generator
-  reached the tests unexpanded: the `processes` tests of the fixture providers found no manifest,
-  and those of the roadrunner and antimony providers, and the tests compiled with their manifests'
-  paths, found them only because `bin/$<CONFIG>/..` names `bin` wherever `..` is resolved by its
-  text. Every such use is now wrapped in `$<GENEX_EVAL>`. And a build tree builds its providers
-  where its runtime looks for an installation's, beside the runtime library; on Windows the
-  white-box test executables, which hold the runtime's objects, sit in the runtime DLL's directory,
-  so they found the roadrunner and antimony providers there, which the tests of a missing service
-  and of where discovery found each manifest did not expect. The test helpers' provider search paths
-  (`tests/support/validation_fixtures.hpp`), and that test's, leave out the installation's
-  directory, so that a white-box test sees only the providers it names. Not yet verified on GitHub:
-  the Linux job has yet to build the tool, both providers, the Python extension and the tests, and
-  only the macOS job has made its archive.
-- **The third run's failures.** The third run stopped the Linux job's build after 356 of its 435
-  steps, at a unit test that compared a `std::optional` left empty by a conditional expression:
-  GCC 13 at `-O3` reports the value of such an optional as maybe uninitialized, and the test now
-  makes two comparisons instead. The rest of the Linux job was then run under Docker, in the image
-  `ubuntu:24.04` for x86-64 (GCC 13.3, the pinned bundle, the CI preset, as an unprivileged user),
-  which found what the job had yet to reach. Two more test warnings: loop variables of type
-  `const std::string&` over lists of string literals (`-Wrange-loop-construct`; now `const char*`),
-  and results of `json::parse()` cast to `void`, which GCC still reports (nlohmann declares it
-  `warn_unused_result`; the test now counts the documents that `json::accept()` refuses). The tool
-  did not link: the version script of the runtime library quoted its patterns for the type
-  information and vtables (`"typeinfo for praenora::*"`), and a version script matches a quoted
-  name literally, so no type information was exported and `catch (const praenora::Error&)` in the
-  tool found no `typeinfo for praenora::Error`; the script now names them by their mangled names,
-  `_ZTIN8praenora*`, `_ZTSN8praenora*` and `_ZTVN8praenora*`, as the macOS patterns do
-  ([ADR-0023](ADR-0023-public-cpp-api.md)). Two tests failed. The channel to a module host grew a
-  payload's buffer with `reserve()`, which in libstdc++ takes at least twice the old capacity, so a
-  3 MiB payload took 4 MiB, past the announced length that
-  [process-isolation.md](../specs/process-isolation.md) bounds it to; the buffer now grows into a
-  new string reserved to the capacity wanted. And a test of a load failure wrote a text file of 43
-  bytes as the library, of which glibc says only "file too short"; it is now longer than an ELF
-  header, so glibc says "invalid ELF header", as the test expects. After these fixes, the build,
-  one complete run of `ctest`, the archive and the check of its libraries passed under Docker, but
-  for one test, which expects `posix_spawn()` to report that an executable does not exist. That
-  failure is attributed to the emulation of x86-64 there (Rosetta): glibc's `posix_spawn()` gave a
-  child that exited with 127, while the same glibc 2.39 on arm64, not emulated, reports `ENOENT`;
-  not yet verified on native x86-64. Under that emulation `ctest` also hung at times on a child
-  that had exited, until `ctest` was stopped and continued, which was done every 15 seconds during
-  the complete run. In the third run the macOS job passed, and both Windows jobs built and then
-  failed one test each, `providers.run_twice.shows_first_difference`, at its case 3, where the
-  longer output continues with a line feed and the report named a carriage return instead (0x0d).
-  CMake's `file(WRITE)` and `file(APPEND)` write in text mode on Windows (CMake 3.31.6 opens their
-  stream without `std::ios::binary`), so the outputs that `check_run_twice.cmake` wrote for its
-  printer held a carriage return before each line feed. It now writes them byte for byte, with
-  `cmake -E echo_append` and `cmake -E cat` through `execute_process()` with `OUTPUT_FILE`, which
-  takes what a program prints as it is, and checks each file's bytes against its text's. Not yet
-  verified on GitHub: the fix has not yet run on Windows on any machine, and since the script stops
-  at its first failure, its cases 4 to 14 have never run there. And every `execute_process()` of
-  the CMake code now gives `ENCODING UTF-8`: the scripts require CMake 3.24, so the policy CMP0176
-  (CMake 3.31) is not set, and CMake on Windows then decodes a program's output in the console's
-  code page, or in the ANSI code page without a console. On the runners it evidently left UTF-8 as
-  it was, since cases 1 and 2 passed with क in their outputs, but on a machine with another code
-  page it would garble the tests' non-ASCII text.
-- **The fourth run's failure.** In the fourth run the Linux, macOS and `windows-x64-release` jobs
-  passed: on Linux every one of 1146 tests, among them the test of `posix_spawn()` that failed
-  under Docker, which bears out the third run's attribution of that failure to the emulation; on
-  Windows `providers.run_twice.shows_first_difference` with all its cases. The `windows-x64-debug`
-  job failed one test, `StatusFile.AtomicReplaceAndParentCreation`, which had passed in that job in
-  the third run: the last of the hundred values that the test has the status file's writer write
-  never reached the file. On Windows a file that another handle holds open without
-  `FILE_SHARE_DELETE`, as the Microsoft C++ library's `std::ifstream` opens it, cannot be
-  replaced; `write_file_atomically()` tries the replacement ten times, at least 10 ms apart, then
-  fails the write, which the writer reports and does not repeat until it has its next reason to
-  write. The test's reader thread kept opening the file, and so did the test's wait for the last
-  value, during the attempts of the last write; in the Debug build, which reads and parses
-  the 64 KiB document slowly, every attempt evidently found the file open (the test gave the writer
-  no error handler, so the log does not show the refusals). Refusing that one write on macOS gives
-  the same failure. The writer does what
-  [observability.md](../specs/observability.md#status-file) says (a failed write is reported, and
-  the writer keeps going); the test assumed `rename()`, which replaces a file that a reader holds
-  open. It now waits for the writer to take the last value without reading the file, then for the
-  reader thread to read the last document, asking for a write again at each poll, checks the last
-  value in what the destructor wrote, after the reader has stopped, counts the replacements that
-  the writer reported refused (none may be refused off Windows) and expects no other error. Not yet
-  verified on GitHub.
-- **The fifth and sixth runs passed.** The fifth run, on the pull request (run 45041491678, commit
-  `de4b0e8`, with the fourth run's fix), passed every job, and so did the sixth, the first with
-  `publish`, on `main` (run 45044102336, commit `bcc3775`, the merge of that pull request), whose
-  release job drafted v0.2.0; an administrator published it the same day (2026-11-22). The jobs,
-  their compilers and their tests are in [releasing.md](../releasing.md#what-the-runs-verified).
-  They verify what the notes above leave not yet verified on GitHub: the check of the archive's
-  libraries on every key; the Windows paths, which no job found too long, without `subst`; the
-  build of the tool, both providers, the Python extension and the tests on Linux and Windows; and
-  `StatusFile.AtomicReplaceAndParentCreation` in both Windows jobs. The macOS job got AppleClang
-  21.0.0, the major version that the bundle's name gives.
+- **Warnings on Linux and Windows.** The first jobs compiled the code with GCC and MSVC, with
+  warnings as errors, for the first time. A warning is fixed in the code; it is turned off only
+  where its every report here is a false alarm or comes from code that is not this project's, and
+  then for no more than that code ([platforms.md](../platforms.md#common-to-every-platform)):
+  GCC 13's `-Wdangling-reference` for C++ (`cmake/PraenoraWarnings.cmake`), whose reports here are
+  references to objects that outlive the call, such as a provider that `load_provider()` keeps
+  loaded; MSVC's C4702 (unreachable code) for the targets that compile libRoadRunner's headers,
+  through the interface target `praenora_roadrunner_engine` (`cmake/PraenoraRoadrunner.cmake`),
+  since its `rr/Setting.h` gives it where its templates are instantiated, out of reach of the
+  warning level of external headers; and the wrapper that SWIG generates, compiled with the
+  compiler's default warnings and never as errors, while the facade it wraps is an object library
+  of its own with the project's warnings (`src/python/CMakeLists.txt`). MSVC's deprecation of
+  `getenv()` (C4996) is turned off around each call alone, with `#pragma warning(push)`,
+  `disable` and `pop`, rather than with `suppress`, whose effect depends on what MSVC takes for
+  the line after it.
+- **MSVC's traditional preprocessor is kept**, rather than the conforming one
+  (`/Zc:preprocessor`), which every target and the headers it includes would go through for the
+  first time. The traditional one stringizes a macro argument that holds a raw string with quotes
+  inside it as if those quotes began or ended string literals, so an assertion of GoogleTest, which
+  stringizes its condition, breaks where a backslash that it then takes for code comes before a
+  quote. Such an assertion builds its expected text in a variable first.
+- **What the runs verified** is kept in [releasing.md](../releasing.md#what-the-runs-verified), and
+  each platform's status in [platforms.md](../platforms.md#verification-status), not in these
+  notes. The runs that failed found warnings, a few defects of the runtime and its build, and
+  tests that assumed POSIX paths and behavior; the fixes are in the repository's history, and the
+  calls they needed are the two notes above.
 
 ## Alternatives considered
 
@@ -297,9 +190,8 @@ notes are Proposed.
 - Every pull request to `main` builds and tests the runtime on four platform keys, with both
   providers, and reports the checks `Prepare`, `linux-x64-release`, `macos-arm64-release`,
   `windows-x64-release` and `windows-x64-debug`, which the ruleset on `main` can require.
-- Linux and Windows get their first builds; the first runs are expected to need fixes. Until a run
-  passes, they stay not yet verified ([platforms.md](../platforms.md)). Later: the first four runs
-  needed fixes, and the fifth and sixth passed (builder notes).
+- Linux and Windows get their first builds, by CI, which verify them
+  ([platforms.md](../platforms.md#verification-status)).
 - Releases carry one archive per platform key with its `.sha256` file; wheels, manylinux and
   code signing stay open (OQ-13).
 - A job needs the network: it downloads the bundle and the sources of yaml-cpp, spdlog and

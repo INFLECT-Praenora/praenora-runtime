@@ -57,13 +57,14 @@
 #   4. No file below <prefix>/<LIBDIR>/cmake/Praenora and no installed *.pmm.json (the
 #      installation's and consumer-module's) or *.provider.json mentions SOURCE_DIR or
 #      BUILD_DIR.
-#   5. <prefix>/<BINDIR>/praenora version --json: exit 0 and a successful JSON document; with
-#      PROVIDERS, praenora providers list --json, without --provider-path, lists each of them,
-#      usable, from the installation's provider directory. On POSIX hosts the installed tool runs
-#      the test catalog's test.single with consumer-echo (step 2's) in a module host
-#      (--isolation process): the run completes, the installation's module host started (its
-#      module_host.started record, at --log-level debug), and the run record says the step ran
-#      in process mode.
+#   5. <prefix>/<BINDIR>/praenora version --json: exit 0 and a successful JSON document; the
+#      tool prints the usage of serve and of status --server, and serve without --config-root is
+#      refused (exit 2) before it listens; with PROVIDERS, praenora providers list --json, without
+#      --provider-path, lists each of them, usable, from the installation's provider directory.
+#      On POSIX hosts the installed tool runs the test catalog's test.single with consumer-echo
+#      (step 2's) in a module host (--isolation process): the run completes, the installation's
+#      module host started (its module_host.started record, at --log-level debug), and the run
+#      record says the step ran in process mode.
 #   6. With example modules: <prefix>/<BINDIR>/praenora modules list --json, without
 #      --module-path, lists them from the installation's module directory, and
 #      praenora modules check passes for each installed manifest (the module loads from the
@@ -196,6 +197,30 @@ function(_check_tool root step)
             "document:\n${VERSION_OUT}")
     endif()
     message(STATUS "${step}: ${tool} version --json:\n${VERSION_OUT}")
+
+    # The control API's commands: their usage, and serve refusing a missing --config-root before
+    # it listens. Listening itself is tested in the build tree (label server): this driver cannot
+    # run a server beside a client.
+    _run(SERVE_HELP "${step}: praenora serve --help" "${tool}" serve --help)
+    if(NOT SERVE_HELP_OUT MATCHES "^usage: praenora serve --listen ADDR --config-root D")
+        message(FATAL_ERROR "${step}: 'praenora serve --help' did not print its usage:\n"
+            "${SERVE_HELP_OUT}")
+    endif()
+    _run(STATUS_HELP "${step}: praenora status --help" "${tool}" status --help)
+    if(NOT STATUS_HELP_OUT MATCHES "\n +praenora status --server ADDR \\[--run ID\\]")
+        message(FATAL_ERROR "${step}: 'praenora status --help' did not print the usage of "
+            "status --server:\n${STATUS_HELP_OUT}")
+    endif()
+    set(serve_command "${tool}" serve --listen 127.0.0.1:0 --output-root
+        "${WORK_DIR}/serve-out")
+    praenora_test_run(SERVE "${step}: praenora serve without --config-root" "${serve_command}")
+    if(NOT SERVE_EXIT STREQUAL "2" OR NOT SERVE_ERR MATCHES "serve needs --config-root D")
+        praenora_test_fail("${step}: praenora serve without --config-root"
+            "expected exit code 2 and \"serve needs --config-root D\" on stderr"
+            "${serve_command}" "${SERVE_EXIT}" "${SERVE_OUT}" "${SERVE_ERR}")
+    endif()
+    message(STATUS "${step}: the installed tool prints the usage of serve and status --server, "
+        "and serve refuses a missing --config-root")
 
     # A step in a module host, the installation's own, which the runtime finds beside its library.
     if(NOT CMAKE_HOST_WIN32)

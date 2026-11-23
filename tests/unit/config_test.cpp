@@ -265,6 +265,15 @@ observability: { status_file: status.json }
     ASSERT_TRUE(config.status_file.has_value());
     EXPECT_EQ(*config.status_file, (cwd / "st.json").lexically_normal());
 
+    // An empty status file means none, in place of the configuration's.
+    WorkflowOptions no_status_file;
+    no_status_file.ticks = 1;
+    no_status_file.status_file = "";
+    ValidationReport without;
+    const WorkflowConfig unwritten = load_text(scratch.path(), yaml, without, no_status_file);
+    ASSERT_TRUE(without.ok()) << without.to_text();
+    EXPECT_FALSE(unwritten.status_file.has_value());
+
     // A seed beyond 2^53 - 1 is refused.
     WorkflowOptions too_large;
     too_large.seed = 9007199254740992ULL;

@@ -239,8 +239,8 @@ TEST(Lifecycle, CallsBehindAnAbandonedCallAreRefusedUntilItReturns) {
     bool kept = false;
     for (const json& event : logs.events()) {
         const json& attributes = event.at("attributes");
-        if (attributes.value("event", std::string()) == "instance.kept" &&
-            attributes.value("step", std::string()) == "b") {
+        if (attributes.value("praenora.event", std::string()) == "instance.kept" &&
+            attributes.value("praenora.step", std::string()) == "b") {
             kept = true;
             EXPECT_NE(event.value("body", std::string()).find("invoke by step 'a'"),
                       std::string::npos)

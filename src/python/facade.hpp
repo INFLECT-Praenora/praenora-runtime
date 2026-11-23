@@ -101,11 +101,12 @@ public:
     // Validates the configuration and prepares its run (Runtime::open()). `options_json` is a JSON
     // object with any of the keys module_paths, provider_paths and catalog_paths (arrays of paths),
     // seed and ticks (whole numbers from 0 to 2^53 - 1), output_dir, status_file and log_file
-    // (paths; an empty log_file means none), overwrite and trace_messages (booleans), log_level
-    // (trace, debug, info, warn, error, critical or off) and log_format (text or json), level and
-    // format names in any case, and isolation (in-process or process, exactly so); null stands for
-    // a key that is not given. The logging settings apply to the runtime that opens the run too, as
-    // the praenora tool's --log-* flags do. An unknown key or a bad value is INVALID_ARGUMENT.
+    // (paths; an empty status_file or log_file means none), overwrite and trace_messages
+    // (booleans), log_level (trace, debug, info, warn, error, critical or off) and log_format
+    // (text or json), level and format names in any case, and isolation (in-process or process,
+    // exactly so); null stands for a key that is not given. The logging settings apply to the
+    // runtime that opens the run too, as the praenora tool's --log-* flags do. An unknown key or a
+    // bad value is INVALID_ARGUMENT.
     WorkflowHandle(const std::string& config, const std::string& options_json);
     // Closes the run (Workflow::close()).
     ~WorkflowHandle();
@@ -119,9 +120,11 @@ public:
     // summary: {"state", "ticks_completed", "fingerprint"}. INVALID_ARGUMENT for a count below -1
     // or above 2^53 - 1.
     std::string run(long long max_ticks);
-    // The status-snapshot document, the metric points ({"metrics": [...]}), the newest envelope
-    // of each workflow output and the run record (null before the run starts).
-    std::string status() const;
+    // The status-snapshot document, its error records in the path form named `path_form`
+    // (absolute or placeholders, exactly so; another name is INVALID_ARGUMENT), the metric points
+    // ({"metrics": [...]}), the newest envelope of each workflow output and the run record (null
+    // before the run starts).
+    std::string status(const std::string& path_form) const;
     std::string metrics() const;
     std::string latest_outputs() const;
     std::string run_record() const;
@@ -130,6 +133,9 @@ public:
     // The run's state, for example "running", and its fingerprint (SHA-256, hex): plain text.
     std::string state() const;
     std::string fingerprint() const;
+    // The run's number in the runtime that opened it (Workflow::run_number()): an integer, 1, since
+    // each handle opens its run with a runtime of its own.
+    unsigned long long run_number() const;
 
 private:
     std::unique_ptr<praenora::Workflow> workflow_;

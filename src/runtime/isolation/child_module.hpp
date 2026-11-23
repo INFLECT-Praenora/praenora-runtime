@@ -186,7 +186,7 @@ private:
     const ChildProvider* store_provider(std::uint32_t index, std::uint64_t key_size,
                                         std::string& problem) const;
     // Logs one store request of `provider` at debug on the step's logger: `event`, `message` and,
-    // after the provider and `key`, the attributes `extra`.
+    // after the provider and `key`, the attributes `extra` (keys with the prefix praenora.).
     void log_store(const char* event, const ChildProvider& provider, std::string_view key,
                    const std::string& message,
                    std::vector<std::pair<const char*, std::uint64_t>> extra) const noexcept;

@@ -18,6 +18,9 @@
 #include "io/run_record.hpp"
 #include "loader/loaded_module.hpp"
 #include "observability/logging.hpp"
+#include "observability/otlp/exporter.hpp"
+#include "observability/otlp/http_client.hpp"
+#include "observability/otlp/otlp_settings.hpp"
 #include "platform/platform.hpp"
 #include "provider/provider_index.hpp"
 #include "provider/provider_loader.hpp"
@@ -25,6 +28,8 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <atomic>
+#include <cstdint>
 #include <filesystem>
 #include <set>
 #include <string>
@@ -387,6 +392,10 @@ struct Runtime::Impl {
     std::shared_ptr<detail::LogHub> logs;
     std::shared_ptr<spdlog::logger> logger; // praenora.runtime
     std::shared_ptr<const detail::RuntimeContext> context;
+    // How many workflows open() has returned, through this Runtime and its copies, which share
+    // this state: the last run number taken. Mutable: a Runtime is immutable but for this count,
+    // which open(), a const member, advances.
+    mutable std::atomic<std::uint64_t> workflows_opened{0};
 
     // The logging of a run of `config` with the overrides in `overrides`, each setting on its own:
     // level and format from the overrides, the environment, the configuration (when the document
@@ -499,9 +508,33 @@ Runtime::Runtime(RuntimeOptions options) {
     }
     impl->logs = std::make_shared<detail::LogHub>(std::move(logging));
     impl->logger = impl->logs->logger("praenora.runtime");
-    impl->context =
-        std::make_shared<const detail::RuntimeContext>(detail::make_runtime_context(options));
+    detail::RuntimeContext context = detail::make_runtime_context(options);
+    // The OTLP export (docs/specs/observability.md#otlp-export): the settings are read once, here,
+    // and a value that is invalid is never an error, only a warning, below. The exporter is
+    // created when a signal has an endpoint; the Runtime's hub and every workflow's give it their
+    // records, which are then exported with the warnings too.
+    detail::OtlpResolution telemetry =
+        detail::resolve_otlp_settings(options.telemetry, options.use_environment);
+    if (telemetry.settings.enabled()) {
+        std::vector<detail::LogAttribute> resource =
+            detail::otlp_resource(telemetry.settings, version_info().runtime,
+                                  detail::current_process_id(), detail::random_uuid_v4);
+        context.exporter = std::make_shared<detail::OtlpExporter>(
+            std::move(telemetry.settings), std::move(resource), version_info().runtime,
+            detail::make_otlp_transport(), impl->logger);
+        if (const auto sink = context.exporter->log_sink(nullptr)) {
+            impl->logs->add_sink(sink);
+        }
+    }
+    impl->context = std::make_shared<const detail::RuntimeContext>(std::move(context));
     impl->options = std::move(options);
+    for (const detail::IgnoredSetting& ignored : telemetry.ignored) {
+        detail::log_event(*impl->logger, LogLevel::warn,
+                          ignored.variable + " is ignored: " + ignored.reason,
+                          {{"praenora.event", "telemetry.setting_ignored"},
+                           {"praenora.variable", ignored.variable},
+                           {"praenora.reason", ignored.reason}});
+    }
 
     const auto utf8_paths = [](const std::vector<fs::path>& paths) {
         json list = json::array();
@@ -510,14 +543,14 @@ Runtime::Runtime(RuntimeOptions options) {
         }
         return list;
     };
-    detail::log_event(*impl->logger, LogLevel::debug, "runtime ready",
-                      {{"event", "runtime.ready"},
-                       {"module_search_paths", utf8_paths(impl->context->modules.search_paths())},
-                       {"modules", impl->context->modules.entries().size()},
-                       {"provider_search_paths",
-                        utf8_paths(impl->context->providers.search_paths())},
-                       {"providers", impl->context->providers.entries().size()},
-                       {"catalog_entries", impl->context->catalog.entries().size()}});
+    detail::log_event(
+        *impl->logger, LogLevel::debug, "runtime ready",
+        {{"praenora.event", "runtime.ready"},
+         {"praenora.module_search_paths", utf8_paths(impl->context->modules.search_paths())},
+         {"praenora.modules", impl->context->modules.entries().size()},
+         {"praenora.provider_search_paths", utf8_paths(impl->context->providers.search_paths())},
+         {"praenora.providers", impl->context->providers.entries().size()},
+         {"praenora.catalog_entries", impl->context->catalog.entries().size()}});
     impl_ = std::move(impl);
 }
 
@@ -794,7 +827,14 @@ std::unique_ptr<Workflow> Runtime::open(const std::string& config_path,
     }
     auto impl = std::make_unique<Workflow::Impl>(impl_->context, std::move(*workflow), logging,
                                                  options.overwrite);
-    return std::unique_ptr<Workflow>(new Workflow(std::move(impl)));
+    std::unique_ptr<Workflow> opened(new Workflow(std::move(impl)));
+    // Taken last, once nothing can fail any more: an open() that throws takes no number. The OTLP
+    // export names the run by it from now on.
+    opened->impl_->run_number = impl_->workflows_opened.fetch_add(1, std::memory_order_relaxed) + 1;
+    if (opened->impl_->telemetry_run) {
+        opened->impl_->telemetry_run->set_number(opened->impl_->run_number);
+    }
+    return opened;
 }
 
 std::string Runtime::read_status_file(const std::string& path) {

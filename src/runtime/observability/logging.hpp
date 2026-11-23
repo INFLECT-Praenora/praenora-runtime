@@ -59,7 +59,8 @@ private:
     std::vector<std::function<void()>> on_destroy_; // guarded by on_destroy_mutex_
 };
 
-// One attribute of a log event, for example {"tick", 3}.
+// One attribute of a log event, for example {"praenora.tick", 3}. The runtime's keys carry the
+// prefix praenora. where they are written; log_event() adds none.
 struct LogAttribute {
     std::string key;
     nlohmann::json value;
@@ -89,6 +90,17 @@ LogLevel log_level_from_abi(std::int32_t level) noexcept;
 
 // Whether `logger` records events at `level` (never at LogLevel::off).
 bool log_enabled(const spdlog::logger& logger, LogLevel level) noexcept;
+
+// The severity of `level` in the JSON format and the OTLP export: TRACE 1, DEBUG 5, INFO 9,
+// WARN 13, ERROR 17, CRITICAL 21 (and INFO 9 for LogLevel::off, which records nothing).
+struct LogSeverity {
+    std::string_view text;
+    int number;
+};
+LogSeverity log_severity(LogLevel level) noexcept;
+
+// The level of a record that spdlog passes to a sink.
+LogLevel log_level_from_spdlog(spdlog::level::level_enum level) noexcept;
 
 // "trace", "debug", "info", "warn", "error", "critical" or "off" (lower case only). Throws
 // praenora::Error(CONFIG_INVALID) for anything else.

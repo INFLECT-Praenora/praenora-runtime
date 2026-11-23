@@ -7,8 +7,9 @@
 //     /dev/null, and standard output and error are this process's;
 //   - on macOS every other descriptor is closed (POSIX_SPAWN_CLOEXEC_DEFAULT); elsewhere the
 //     child must close those above 3 itself (the module host does it first thing);
-//   - it gets a process group of its own (so a terminal's Ctrl+C reaches only the runtime) and an
-//     empty signal mask; it inherits the environment and the current directory.
+//   - it gets a process group of its own (so a terminal's Ctrl+C reaches only the runtime), an
+//     empty signal mask and SIGPIPE at its default disposition (this process's may be ignored);
+//     it inherits the environment and the current directory.
 // No process-wide signal disposition of this process is changed. When the child ends, whatever is
 // left in its process group (processes it started and that outlive it) is killed before the child
 // is reaped, while the group's number cannot yet go to another process.

@@ -177,18 +177,18 @@ TEST(Instance, LogsRoutedWithAttributes) {
     }
     ASSERT_NE(invoked, nullptr);
     const json& attributes = invoked->at("attributes");
-    EXPECT_EQ(attributes.at("step"), "s");
-    EXPECT_EQ(attributes.at("tick"), 1);
-    EXPECT_EQ(attributes.at("module"), "fx-lifecycle@0.1.0");
-    EXPECT_EQ(attributes.at("run.fingerprint"), fingerprint);
+    EXPECT_EQ(attributes.at("praenora.step"), "s");
+    EXPECT_EQ(attributes.at("praenora.tick"), 1);
+    EXPECT_EQ(attributes.at("praenora.module"), "fx-lifecycle@0.1.0");
+    EXPECT_EQ(attributes.at("praenora.run.fingerprint"), fingerprint);
     EXPECT_EQ(attributes.at("logger"), "module.s");
     EXPECT_EQ(invoked->at("severity_text"), "INFO");
 
     // Outside an invocation there is no tick.
     ASSERT_NE(created, nullptr);
-    EXPECT_EQ(created->at("attributes").at("step"), "s");
-    EXPECT_EQ(created->at("attributes").at("run.fingerprint"), fingerprint);
-    EXPECT_FALSE(created->at("attributes").contains("tick"));
+    EXPECT_EQ(created->at("attributes").at("praenora.step"), "s");
+    EXPECT_EQ(created->at("attributes").at("praenora.run.fingerprint"), fingerprint);
+    EXPECT_FALSE(created->at("attributes").contains("praenora.tick"));
 
     // Without a run fingerprint, the attribute is left out.
     CapturedLogs plain_logs;
@@ -197,7 +197,7 @@ TEST(Instance, LogsRoutedWithAttributes) {
     const auto plain_events = plain_logs.events();
     ASSERT_FALSE(plain_events.empty());
     for (const auto& event : plain_events) {
-        EXPECT_FALSE(event.at("attributes").contains("run.fingerprint")) << event.dump();
+        EXPECT_FALSE(event.at("attributes").contains("praenora.run.fingerprint")) << event.dump();
     }
 }
 

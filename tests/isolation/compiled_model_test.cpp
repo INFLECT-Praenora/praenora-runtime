@@ -140,7 +140,7 @@ private:
 std::vector<json> events_named(const CapturedLogs& logs, const std::string& event) {
     std::vector<json> found;
     for (const json& record : logs.events()) {
-        if (record.at("attributes").value("event", std::string()) == event) {
+        if (record.at("attributes").value("praenora.event", std::string()) == event) {
             found.push_back(record);
         }
     }
@@ -150,8 +150,8 @@ std::vector<json> events_named(const CapturedLogs& logs, const std::string& even
 std::size_t store_events(const CapturedLogs& logs) {
     std::size_t count = 0;
     for (const json& record : logs.events()) {
-        if (record.at("attributes").value("event", std::string()).rfind("compiled_models.", 0) ==
-            0) {
+        const std::string event = record.at("attributes").value("praenora.event", std::string());
+        if (event.rfind("compiled_models.", 0) == 0) {
             ++count;
         }
     }
@@ -205,17 +205,17 @@ TEST(Isolation, ModuleHostsOfSharingStepsShareCompiledModels) {
     ASSERT_EQ(saved.size(), 1u);
     EXPECT_EQ(saved[0].at("severity_text"), "DEBUG");
     EXPECT_EQ(saved[0].at("attributes").at("logger"), "module.s");
-    EXPECT_EQ(saved[0].at("attributes").at("provider"), "test-store");
-    EXPECT_EQ(saved[0].at("attributes").at("key"), key);
-    EXPECT_EQ(saved[0].at("attributes").at("size"), 16);
+    EXPECT_EQ(saved[0].at("attributes").at("praenora.provider"), "test-store");
+    EXPECT_EQ(saved[0].at("attributes").at("praenora.key"), key);
+    EXPECT_EQ(saved[0].at("attributes").at("praenora.size"), 16);
     const std::vector<json> hits = events_named(second_logs, "compiled_models.hit");
     ASSERT_EQ(hits.size(), 1u);
     EXPECT_EQ(hits[0].at("severity_text"), "DEBUG");
-    EXPECT_EQ(hits[0].at("attributes").at("key"), key);
-    EXPECT_EQ(hits[0].at("attributes").at("size"), 16);
+    EXPECT_EQ(hits[0].at("attributes").at("praenora.key"), key);
+    EXPECT_EQ(hits[0].at("attributes").at("praenora.size"), 16);
     const std::vector<json> misses = events_named(second_logs, "compiled_models.miss");
     ASSERT_EQ(misses.size(), 1u);
-    EXPECT_EQ(misses[0].at("attributes").at("key"), missing);
+    EXPECT_EQ(misses[0].at("attributes").at("praenora.key"), missing);
     EXPECT_EQ(store_events(first_logs), 1u);
     EXPECT_EQ(store_events(second_logs), 2u);
 }
@@ -353,13 +353,13 @@ TEST(Isolation, AnEntryOrAKeyOverItsLimitIsRefusedInTheModuleHost) {
     const std::vector<json> refused = events_named(logs, "compiled_models.refused");
     ASSERT_EQ(refused.size(), 2u);
     EXPECT_EQ(refused[0].at("severity_text"), "DEBUG");
-    EXPECT_EQ(refused[0].at("attributes").at("key"), large);
-    EXPECT_EQ(refused[0].at("attributes").at("size"), over);
+    EXPECT_EQ(refused[0].at("attributes").at("praenora.key"), large);
+    EXPECT_EQ(refused[0].at("attributes").at("praenora.size"), over);
     EXPECT_NE(refused[0].at("body").get<std::string>().find("134217728"), std::string::npos)
         << refused[0].at("body");
-    EXPECT_EQ(refused[1].at("attributes").at("key"),
+    EXPECT_EQ(refused[1].at("attributes").at("praenora.key"),
               long_key.substr(0, praenora::detail::kMaxCompiledModelKeyBytes));
-    EXPECT_EQ(refused[1].at("attributes").at("key_size"), long_key.size());
+    EXPECT_EQ(refused[1].at("attributes").at("praenora.key_size"), long_key.size());
     EXPECT_NE(refused[1].at("body").get<std::string>().find("256"), std::string::npos)
         << refused[1].at("body");
 
@@ -415,7 +415,7 @@ SimulationRun simulate_sharing(const ChildProvider& provider, const json& parame
     run.output = invoked.output;
     for (const json& record : logs.events()) {
         if (record.at("attributes").value("logger", std::string()) == "module.s" &&
-            !record.at("attributes").contains("event")) {
+            !record.at("attributes").contains("praenora.event")) {
             run.messages.push_back(record.at("body").get<std::string>());
         }
     }
@@ -473,7 +473,8 @@ TEST(Isolation, AStoredModelThatDoesNotLoadIsCompiledInstead) {
     const SimulationRun compiled = simulate_sharing(provider, parameters);
     EXPECT_TRUE(holds(compiled.messages, "test-simulation: compiled the model"));
     ASSERT_EQ(compiled.saved.size(), 1u);
-    const std::string key = compiled.saved[0].at("attributes").at("key").get<std::string>();
+    const std::string key =
+        compiled.saved[0].at("attributes").at("praenora.key").get<std::string>();
     const CompiledModelNamespace space{"test-simulation", provider.library_sha256};
     ASSERT_NE(praenora::detail::compiled_model_store().find(space, key), nullptr);
 
@@ -529,7 +530,8 @@ TEST(Isolation, ARoadrunnerStateThatDoesNotLoadIsCompiledInstead) {
     const SimulationRun compiled = simulate_sharing(provider, parameters);
     EXPECT_TRUE(holds(compiled.messages, "roadrunner: compiled the model"));
     ASSERT_EQ(compiled.saved.size(), 1u);
-    const std::string key = compiled.saved[0].at("attributes").at("key").get<std::string>();
+    const std::string key =
+        compiled.saved[0].at("attributes").at("praenora.key").get<std::string>();
     const CompiledModelNamespace space{"roadrunner", provider.library_sha256};
     const auto saved = praenora::detail::compiled_model_store().find(space, key);
     ASSERT_NE(saved, nullptr);

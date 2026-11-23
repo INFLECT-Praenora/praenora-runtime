@@ -145,7 +145,8 @@ bool crash_recorded_within(const CapturedLogs& logs, std::chrono::milliseconds l
     const auto deadline = std::chrono::steady_clock::now() + limit;
     for (;;) {
         for (const json& event : logs.events()) {
-            if (event.at("attributes").value("event", std::string()) == "module_host.crashed") {
+            if (event.at("attributes").value("praenora.event", std::string()) ==
+                "module_host.crashed") {
                 return true;
             }
         }
@@ -217,12 +218,12 @@ TEST(Isolation, ProvidersStartInTheModuleHostAndLogThroughTheRuntime) {
     EXPECT_EQ(records[0].at("body"), "test-simulation started");
     EXPECT_EQ(records[0].at("severity_text"), "INFO");
     EXPECT_EQ(records[0].at("attributes"), json({{"logger", "provider.test-simulation"},
-                                                 {"provider", "test-simulation@0.1.0"}}));
+                                                 {"praenora.provider", "test-simulation@0.1.0"}}));
     EXPECT_EQ(records[1].at("body"), "provider test-simulation@0.1.0 loaded and started");
     EXPECT_EQ(records[1].at("attributes"), json({{"logger", "provider.test-simulation"},
-                                                 {"provider", "test-simulation@0.1.0"},
-                                                 {"event", "provider.loaded"},
-                                                 {"library_sha256", digest}}));
+                                                 {"praenora.provider", "test-simulation@0.1.0"},
+                                                 {"praenora.event", "provider.loaded"},
+                                                 {"praenora.library_sha256", digest}}));
     EXPECT_EQ(praenora::detail::opened_providers_for_testing(), opened);
 }
 
@@ -314,7 +315,8 @@ TEST(Isolation, AProviderThatEndsItsModuleHostCrashesTheCallOrTheNext) {
         EXPECT_TRUE(praenora::test::process_gone(pid)) << pid;
         std::string record;
         for (const json& event : logs.events()) {
-            if (event.at("attributes").value("event", std::string()) == "module_host.crashed") {
+            if (event.at("attributes").value("praenora.event", std::string()) ==
+                "module_host.crashed") {
                 record = event.at("body").get<std::string>();
             }
         }
@@ -391,7 +393,8 @@ TEST(Isolation, AModuleHostThatNamesNoProviderOfItsLoadBreaksTheProtocol) {
         // The record of the crash says what was wrong.
         std::string crashed;
         for (const json& event : logs.events()) {
-            if (event.at("attributes").value("event", std::string()) == "module_host.crashed") {
+            if (event.at("attributes").value("praenora.event", std::string()) ==
+                "module_host.crashed") {
                 crashed = event.at("body").get<std::string>();
             }
         }

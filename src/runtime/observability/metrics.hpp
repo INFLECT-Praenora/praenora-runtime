@@ -79,13 +79,14 @@ Health compute_health(const StatusSnapshot& snapshot);
 // The snapshot's metrics as points named in OpenTelemetry style:
 //   {"metrics": [{"name", "unit", "kind": "counter"|"gauge"|"summary", "attributes": {...},
 //                 "value": N | "summary": {"count", "sum", "min", "max", "last"}}, ...]}
-// Per step (attributes step, module "<name>@<version>"):
+// Every attribute key carries the prefix "praenora."; per step (attributes praenora.step,
+// praenora.module "<name>@<version>"):
 //   praenora.step.invocations (counter, unit {invocation}; one point per outcome, attribute
-//     outcome succeeded|failed|timed_out|cancelled, zeros included);
+//     praenora.outcome succeeded|failed|timed_out|cancelled, zeros included);
 //   praenora.step.invocation.duration (summary, unit ns).
-// Per workflow (attribute workflow "<name>@<version>"): praenora.workflow.ticks (counter, unit
-// {tick}), praenora.workflow.tick.duration (gauge, unit ns: the last tick's duration) and
-// praenora.workflow.uptime (gauge, unit ns).
+// Per workflow (attribute praenora.workflow "<name>@<version>"): praenora.workflow.ticks
+// (counter, unit {tick}), praenora.workflow.tick.duration (gauge, unit ns: the last tick's
+// duration) and praenora.workflow.uptime (gauge, unit ns).
 std::string metrics_json(const StatusSnapshot& snapshot);
 
 } // namespace praenora::detail

@@ -118,7 +118,7 @@ const char* mode_name(bool child) { return child ? "in a module host" : "in this
 json event_named(const CapturedLogs& logs, const std::string& name) {
     json found;
     for (const json& event : logs.events()) {
-        if (event.at("attributes").value("event", std::string()) == name) {
+        if (event.at("attributes").value("praenora.event", std::string()) == name) {
             found = event;
         }
     }
@@ -128,7 +128,7 @@ json event_named(const CapturedLogs& logs, const std::string& name) {
 // The pid of the last module host that `logs` saw start.
 std::int64_t started_pid(const CapturedLogs& logs) {
     const json started = event_named(logs, "module_host.started");
-    return started.is_null() ? 0 : started.at("attributes").at("pid").get<std::int64_t>();
+    return started.is_null() ? 0 : started.at("attributes").at("praenora.pid").get<std::int64_t>();
 }
 
 // Waits up to 10 s until `logs` hold a message starting with `prefix`.
@@ -226,7 +226,7 @@ void expect_crash(const std::string& when, const std::string& how) {
     const json event = event_named(logs, "module_host.crashed");
     ASSERT_FALSE(event.is_null());
     EXPECT_EQ(event.at("severity_text"), "ERROR");
-    EXPECT_EQ(event.at("attributes").at("pid"), pid);
+    EXPECT_EQ(event.at("attributes").at("praenora.pid"), pid);
     EXPECT_NE(event.at("body").get<std::string>().find("during " + when), std::string::npos)
         << event.at("body");
 
@@ -319,8 +319,8 @@ TEST(Isolation, LoadsAModuleInItsModuleHostOnly) {
     const json started = event_named(logs, "module_host.started");
     ASSERT_FALSE(started.is_null());
     EXPECT_EQ(started.at("severity_text"), "DEBUG");
-    EXPECT_EQ(started.at("attributes").at("pid"), pid);
-    EXPECT_EQ(started.at("attributes").at("module"), "fx-echo@0.1.0");
+    EXPECT_EQ(started.at("attributes").at("praenora.pid"), pid);
+    EXPECT_EQ(started.at("attributes").at("praenora.module"), "fx-echo@0.1.0");
 
     // This process never opens the library of a module that runs in a module host.
     const auto crash = load_in_child("fx-crash", logs);
@@ -400,13 +400,13 @@ TEST(Isolation, LogsArriveInOrderBeforeTheirCallReturns) {
         const json& attributes = event.at("attributes");
         EXPECT_EQ(event.at("severity_text"), "INFO");
         EXPECT_EQ(attributes.at("logger"), "module.s");
-        EXPECT_EQ(attributes.at("step"), "s");
-        EXPECT_EQ(attributes.at("module"), "fx-lifecycle@0.1.0");
-        EXPECT_EQ(attributes.at("run.fingerprint"), std::string(64, 'a'));
+        EXPECT_EQ(attributes.at("praenora.step"), "s");
+        EXPECT_EQ(attributes.at("praenora.module"), "fx-lifecycle@0.1.0");
+        EXPECT_EQ(attributes.at("praenora.run.fingerprint"), std::string(64, 'a'));
         if (body == "lifecycle:invoke") {
-            EXPECT_EQ(attributes.at("tick"), 7);
+            EXPECT_EQ(attributes.at("praenora.tick"), 7);
         } else {
-            EXPECT_FALSE(attributes.contains("tick")) << event;
+            EXPECT_FALSE(attributes.contains("praenora.tick")) << event;
         }
     }
 }
@@ -422,8 +422,8 @@ TEST(Isolation, ALogFromAModuleThreadBetweenCallsArrives) {
     ASSERT_TRUE(logged_within_10s(logs, "fx-crash: later"));
     for (const json& event : logs.events()) {
         if (event.value("body", std::string()) == "fx-crash: later") {
-            EXPECT_FALSE(event.at("attributes").contains("tick")) << event;
-            EXPECT_EQ(event.at("attributes").at("step"), "s");
+            EXPECT_FALSE(event.at("attributes").contains("praenora.tick")) << event;
+            EXPECT_EQ(event.at("attributes").at("praenora.step"), "s");
         }
     }
     EXPECT_EQ(instance.finalize().outcome, CallOutcome::succeeded);
@@ -625,7 +625,7 @@ TEST(Isolation, ASecondInstanceDoesNotTakeTheModuleHostOfTheFirst) {
     for (const json& event : logs.events()) {
         if (event.value("body", std::string()) == "lifecycle:invoke") {
             ++invokes;
-            EXPECT_EQ(event.at("attributes").at("step"), "a") << event;
+            EXPECT_EQ(event.at("attributes").at("praenora.step"), "a") << event;
         }
     }
     EXPECT_EQ(invokes, 1u);
@@ -858,7 +858,8 @@ TEST(Isolation, LookupsAreRecordedAsInTheRuntimesProcess) {
         recorded.push_back(lookups);
         std::size_t events = 0;
         for (const json& event : logs.events()) {
-            events += event.at("attributes").value("event", std::string()) == "service.lookup";
+            events +=
+                event.at("attributes").value("praenora.event", std::string()) == "service.lookup";
         }
         logged.push_back(events);
     }
@@ -1118,8 +1119,8 @@ TEST(Isolation, AStopEndsTheHandshake) {
     // Killed as a stop during the load kills it, and said so; it was never announced as started.
     const json terminated = event_named(logs, "module_host.terminated");
     ASSERT_FALSE(terminated.is_null());
-    EXPECT_EQ(terminated.at("attributes").at("module"), "fx-echo@0.1.0");
-    EXPECT_GT(terminated.at("attributes").at("pid").get<std::int64_t>(), 0);
+    EXPECT_EQ(terminated.at("attributes").at("praenora.module"), "fx-echo@0.1.0");
+    EXPECT_GT(terminated.at("attributes").at("praenora.pid").get<std::int64_t>(), 0);
     EXPECT_TRUE(event_named(logs, "module_host.started").is_null());
     EXPECT_TRUE(event_named(logs, "module_host.crashed").is_null());
 }

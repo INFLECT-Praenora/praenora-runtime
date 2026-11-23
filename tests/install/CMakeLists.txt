@@ -93,7 +93,8 @@ set_tests_properties(install.consumer PROPERTIES
     LABELS install
     TIMEOUT 600
     RESOURCE_LOCK praenora_install
-    ${_praenora_test_environment})
+    ${_praenora_test_environment}
+    ${_praenora_no_telemetry})
 
 # The archive of an installation (the target package, cmake/PraenoraPackage.cmake, which only the
 # top-level project has): install.package makes one with cpack and checks its name, its .sha256
@@ -116,5 +117,6 @@ if(PRAENORA_TOP_LEVEL)
     set_tests_properties(install.package PROPERTIES
         LABELS install
         TIMEOUT 600
-        RESOURCE_LOCK praenora_install)
+        RESOURCE_LOCK praenora_install
+        ${_praenora_no_telemetry})
 endif()

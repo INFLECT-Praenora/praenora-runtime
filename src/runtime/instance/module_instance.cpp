@@ -125,19 +125,19 @@ praenora_bytes bytes(const std::string& text) noexcept {
     return praenora_bytes{text.data(), text.size()};
 }
 
-// The attributes of an event about this instance: run.fingerprint (when known), tick (during an
-// invocation), step and module.
+// The attributes of an event about this instance: praenora.run.fingerprint (when known),
+// praenora.tick (during an invocation), praenora.step and praenora.module.
 std::vector<LogAttribute> attributes_of(const HostContext& host) {
     std::vector<LogAttribute> attributes;
     if (!host.run_fingerprint.empty()) {
-        attributes.push_back({"run.fingerprint", host.run_fingerprint});
+        attributes.push_back({"praenora.run.fingerprint", host.run_fingerprint});
     }
     const std::uint64_t tick = host.tick.load();
     if (tick != kNoTick) {
-        attributes.push_back({"tick", tick});
+        attributes.push_back({"praenora.tick", tick});
     }
-    attributes.push_back({"step", host.step});
-    attributes.push_back({"module", host.module});
+    attributes.push_back({"praenora.step", host.step});
+    attributes.push_back({"praenora.module", host.module});
     return attributes;
 }
 
@@ -227,7 +227,7 @@ void log_lookup(const HostContext& host, std::string_view service, std::uint32_t
                 bool provided) {
     if (host.logger != nullptr && host.logger->should_log(spdlog::level::debug)) {
         auto attributes = attributes_of(host);
-        attributes.push_back({"event", "service.lookup"});
+        attributes.push_back({"praenora.event", "service.lookup"});
         log_event(*host.logger, LogLevel::debug,
                   "runtime service " + std::string(service) + "@" + std::to_string(major) +
                       (provided ? " provided" : " is not available"),
@@ -960,7 +960,7 @@ void ModuleInstance::log(LogLevel level, std::string_view message,
     }
     try {
         auto attributes = attributes_of(*host_);
-        attributes.push_back({"event", event});
+        attributes.push_back({"praenora.event", event});
         log_event(*options_.logger, level, message, attributes);
     } catch (...) {
         // The message is lost.

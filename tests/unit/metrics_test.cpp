@@ -555,13 +555,13 @@ TEST(MetricsJson, HasOtelStyleNames) {
         const json& attributes = point.at("attributes");
         if (point.at("name") == "praenora.step.invocations") {
             EXPECT_EQ(point.at("kind"), "counter");
-            counters[attributes.at("step").get<std::string>() + "/" +
-                     attributes.at("outcome").get<std::string>()] = point.at("value");
-            EXPECT_EQ(attributes.at("module"),
-                      attributes.at("step") == "a" ? "fx-echo@0.1.0" : "fx-slow@0.1.0");
+            counters[attributes.at("praenora.step").get<std::string>() + "/" +
+                     attributes.at("praenora.outcome").get<std::string>()] = point.at("value");
+            EXPECT_EQ(attributes.at("praenora.module"),
+                      attributes.at("praenora.step") == "a" ? "fx-echo@0.1.0" : "fx-slow@0.1.0");
         }
         if (point.at("name") == "praenora.step.invocation.duration" &&
-            attributes.at("step") == "a") {
+            attributes.at("praenora.step") == "a") {
             EXPECT_EQ(point.at("unit"), "ns");
             EXPECT_EQ(point.at("kind"), "summary");
             summary_a = point.at("summary");
@@ -579,4 +579,47 @@ TEST(MetricsJson, HasOtelStyleNames) {
     EXPECT_EQ(counters.at("a/failed"), 0);
     EXPECT_EQ(counters.at("b/cancelled"), 0);
     EXPECT_EQ(summary_a, json::parse(R"({"count":3,"sum":60,"min":10,"max":30,"last":20})"));
+}
+
+// Every attribute key of a point carries the prefix praenora.: the step points have
+// praenora.step, praenora.module and (the counters) praenora.outcome, the workflow points
+// praenora.workflow, and nothing else.
+TEST(MetricsJson, EveryAttributeKeyHasThePrefix) {
+    MetricsRegistry metrics;
+    prepare(metrics);
+    metrics.mark_started(1700000000000000000);
+    metrics.set_workflow_state(WorkflowState::running);
+    metrics.record_invocation("a", CallOutcome::succeeded, 10ns, 1, std::nullopt);
+    metrics.record_tick(0, 1.0, 7us);
+    const json document = json::parse(metrics_json(metrics.snapshot()));
+    std::vector<json> counters, summaries, workflow_points;
+    for (const json& point : document.at("metrics")) {
+        const json& attributes = point.at("attributes");
+        for (const auto& attribute : attributes.items()) {
+            EXPECT_EQ(attribute.key().rfind("praenora.", 0), 0u) << point.dump();
+        }
+        const std::string name = point.at("name").get<std::string>();
+        if (name == "praenora.step.invocations") {
+            counters.push_back(attributes);
+        } else if (name == "praenora.step.invocation.duration") {
+            summaries.push_back(attributes);
+        } else {
+            workflow_points.push_back(attributes);
+        }
+    }
+    ASSERT_EQ(counters.size(), 8u);
+    EXPECT_EQ(counters.front(), json({{"praenora.step", "a"},
+                                      {"praenora.module", "fx-echo@0.1.0"},
+                                      {"praenora.outcome", "succeeded"}}));
+    EXPECT_EQ(counters.back(), json({{"praenora.step", "b"},
+                                     {"praenora.module", "fx-slow@0.1.0"},
+                                     {"praenora.outcome", "cancelled"}}));
+    EXPECT_EQ(
+        summaries,
+        (std::vector<json>{json({{"praenora.step", "a"}, {"praenora.module", "fx-echo@0.1.0"}}),
+                           json({{"praenora.step", "b"}, {"praenora.module", "fx-slow@0.1.0"}})}));
+    ASSERT_EQ(workflow_points.size(), 3u);
+    for (const json& attributes : workflow_points) {
+        EXPECT_EQ(attributes, json({{"praenora.workflow", "test.chain@0.1.0"}}));
+    }
 }

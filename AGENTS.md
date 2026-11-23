@@ -9,12 +9,14 @@ Praenora is a configurable system for continuous modeling and forecasting. This 
 integration layer:
 
 - **Runtime (host):** `praenora_runtime` (`Praenora::Runtime`) validates a workflow configuration,
-  discovers and loads modules, runs the workflow deterministically and reports status.
+  discovers and loads modules, runs the workflow deterministically and reports status, metrics
+  and logs, which it can export to an OpenTelemetry collector over OTLP.
 - **Module SDK:** `Praenora::ModuleSDK`, the C ABI v0 headers plus an optional header-only C++
   adapter, a CMake helper and an in-process test kit.
 - **Protocol:** the Praenora Module Protocol (PMP) and Praenora Module Manifest (PMM) documents,
   their JSON Schemas and the protocol catalog.
-- **Surfaces:** the C++ API, the `praenora` CLI and the Python package `praenora.runtime`.
+- **Surfaces:** the C++ API, the `praenora` CLI, which also serves the control and status API over
+  HTTP, and the Python package `praenora.runtime`.
 
 Modules implement the science. They live in their own repositories and build against the SDK;
 this repository holds only example and test modules.
@@ -77,12 +79,41 @@ fifth and sixth runs; the sixth, on `main` with `publish`, drafted the first rel
 which an administrator published the same day
 ([docs/releasing.md](docs/releasing.md#what-the-runs-verified)).
 
+Control and status API and OTLP export (OQ-9, resolved: the maintainer accepted
+[ADR-0042](docs/adr/ADR-0042-control-and-status-api-over-http.md) and
+[ADR-0043](docs/adr/ADR-0043-otlp-export-of-metrics-and-logs.md) on 2026-11-23): the `praenora`
+tool serves an HTTP API on a Unix socket (POSIX) or a TCP address, for its one run
+(`praenora run --listen`) or for runs it opens on request from a configuration root
+(`praenora serve`), with the scopes `read` and `control`, bearer tokens read from files, a check
+of the `Host` header, an OpenAPI 3.1 document (`spec/openapi/`) and Prometheus text;
+`praenora status --server` is its client ([docs/specs/control-api.md](docs/specs/control-api.md)).
+The server is a third front end
+(`src/server/`, the static `praenora_server`, linked by the tool only): the runtime library opens
+no listener. The runtime exports its metrics and logs to an OpenTelemetry collector over OTLP/HTTP
+with JSON, configured by the `OTEL_*` variables or `RuntimeOptions::telemetry`
+([docs/specs/observability.md](docs/specs/observability.md#otlp-export)); a failed export never
+changes health, and every attribute key of the logs and the metrics carries the prefix
+`praenora.` (but `logger`, which in OTLP is the scope's name). Both use cpp-httplib 0.67,
+header-only and without TLS. Neither changes a run's outputs, run record or fingerprint. Verified
+on macOS arm64 with AppleClang: the Debug, Release, AddressSanitizer and ThreadSanitizer
+builds and their tests, those that open listeners from a shell outside any sandbox in the Debug
+and ThreadSanitizer builds; the `ci-macos-arm64-release` preset with installed packages, offline,
+and its tests outside any sandbox; and a Python wheel built offline. CI then built and tested all
+of it on every platform key, with cpp-httplib downloaded at its pinned commit and the listener
+tests run with `PRAENORA_TESTS_REQUIRE_LISTENERS=1` (the workflow's run 45165537866;
+[docs/releasing.md](docs/releasing.md#what-the-runs-verified)).
+Not yet verified: the distributions' and vcpkg's cpp-httplib packages; and the OpenAPI document
+checked with official OpenAPI tooling. Tracing spans are not
+exported (OQ-33). The listener tests skip, saying "local listener refused:", where listeners are
+refused (in a sandbox, for example); the `ci-*` test presets make that refusal a failure.
+
 ## Setup and commands
 
 **Dependencies.** CMake 3.24+; Ninja (Linux, macOS) or Visual Studio 2022 (Windows); GCC 9+,
 Clang 10+, AppleClang 13+ or MSVC 19.29+; nlohmann/json 3.11+, json-schema-validator (pboettch)
-2.3+, yaml-cpp 0.8+ (0.7 works through a target shim), spdlog 1.10+, GoogleTest 1.11+; for the
-Python bindings SWIG 4.0+ and Python 3.10+ with headers.
+2.3+, yaml-cpp 0.8+ (0.7 works through a target shim), spdlog 1.10+, cpp-httplib 0.67
+(header-only; 0.67.x only), GoogleTest 1.11+; for the Python bindings SWIG 4.0+ and Python 3.10+
+with headers.
 
 - macOS: `brew install cmake ninja swig nlohmann-json yaml-cpp spdlog googletest`
 - Ubuntu 24.04+ (not yet verified): `sudo apt install cmake ninja-build g++ nlohmann-json3-dev
@@ -94,6 +125,12 @@ Python bindings SWIG 4.0+ and Python 3.10+ with headers.
   Build it into a local prefix with the commands in
   [docs/platforms.md](docs/platforms.md#json-schema-validator), which clone it outside the
   checkout, then list that prefix in `CMAKE_PREFIX_PATH` when configuring this project.
+- cpp-httplib 0.67 is needed on every platform, header-only, for the runtime's OTLP export, the
+  control API and the listener tests. Install it into a local prefix with the commands in
+  [docs/platforms.md](docs/platforms.md#cpp-httplib), which clone it outside the checkout, then
+  list that prefix in `CMAKE_PREFIX_PATH`, or its `lib/cmake/httplib` in `httplib_DIR`. The
+  distributions' and vcpkg's packages are not yet verified, and a package whose header is compiled
+  into a library (`HTTPLIB_COMPILE`) stops the configuration. It is not in the dependency bundles.
 - Instead of installing packages, configure with `-DPRAENORA_FETCH_DEPENDENCIES=ON`: installed
   packages are still preferred and only missing ones are downloaded, at pinned commits. A default
   build never uses the network.
@@ -128,7 +165,8 @@ Python bindings SWIG 4.0+ and Python 3.10+ with headers.
 
 **Local presets.** Copy `CMakeUserPresets.json.example` to `CMakeUserPresets.json` (git-ignored)
 and edit its hidden `dev-local` preset: `CMAKE_PREFIX_PATH` (dependency prefixes, `;`-separated),
-`Python3_EXECUTABLE` and `PRAENORA_FETCH_DEPENDENCIES`. On macOS, add
+`Python3_EXECUTABLE` and `PRAENORA_FETCH_DEPENDENCIES`, and `httplib_DIR` when cpp-httplib's
+prefix should stay off `CMAKE_PREFIX_PATH` (it may hold other packages). On macOS, add
 `CMAKE_OSX_DEPLOYMENT_TARGET` only when your dependency binaries target a newer macOS than the
 project default of 11.0 (Homebrew builds for the running release); otherwise the linker warns
 about every such library. The `dev`, `dev-release`, `dev-asan` and `dev-tsan` presets inherit
@@ -162,7 +200,14 @@ ctest --preset dev -L perf -V                  # the performance probe's JSON re
 ctest --preset dev -L isolation                # process isolation: module hosts, white-box
 ctest --preset dev -L docs -V                  # the documentation checked against the tree
 ctest --preset dev -L ci                       # the CI tooling: fetch script, workflow checks
+ctest --preset dev -L 'server|python'          # listener tests: they skip where none is allowed
+PRAENORA_TESTS_REQUIRE_LISTENERS=1 ctest --preset dev -L 'server|python'  # outside any sandbox
 ./build/dev/bin/praenora providers list --provider-path build/dev/test-providers/test-simulation
+./build/dev/bin/praenora serve --listen "unix:${TMPDIR:-/tmp}/praenora.sock" \
+    --config-root examples/workflows/estimate-predict --output-root "${TMPDIR:-/tmp}/served" \
+    --module-path build/dev/modules            # the control API, until Ctrl+C
+./build/dev/bin/praenora status --server "unix:${TMPDIR:-/tmp}/praenora.sock"  # its runs
+OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318 ./build/dev/bin/praenora run <config>  # OTLP
 ctest --preset dev-roadrunner                  # with the roadrunner provider (local presets)
 ctest --preset dev-roadrunner-tsan -L contract # its concurrency checks under ThreadSanitizer
 ctest --preset dev-antimony                    # with the antimony provider (local presets)
@@ -208,12 +253,18 @@ Project presets: `linux-x64-{debug,release,asan,tsan}`, `macos-arm64-{debug,rele
 `ci-windows-x64-debug` (configure, build and test; trees in `build/ci-<key>`) inherit the preset of
 their key and build against the dependency bundle that the environment variable
 `PRAENORA_RUNTIME_DEPS` names, with both providers, the Python bindings and warnings as errors, and
-with yaml-cpp, spdlog and GoogleTest built from their pinned commits
-(`CMAKE_DISABLE_FIND_PACKAGE_{yaml-cpp,spdlog,googletest}`); a configuration stops when that
-variable names no bundle ([docs/developer-guide.md](docs/developer-guide.md#ci-presets)). The build
-jobs of `.github/workflows/build.yml` run them, which verified each on its runner, with those three
-downloaded. Labels: `unit`, `protocol`, `contract`, `negative`,
-`lifecycle`, `isolation`, `integration`, `cli`, `python`, `install`, `perf`, `docs`, `ci`. The
+with yaml-cpp, spdlog, GoogleTest and cpp-httplib built from their pinned commits
+(`CMAKE_DISABLE_FIND_PACKAGE_{yaml-cpp,spdlog,googletest,httplib}`); a configuration stops when
+that variable names no bundle ([docs/developer-guide.md](docs/developer-guide.md#ci-presets)).
+Their test presets set `PRAENORA_TESTS_REQUIRE_LISTENERS=1`, so a refused listener fails a test
+there instead of skipping it. The build jobs of `.github/workflows/build.yml` run them, which
+verified each on its runner, with yaml-cpp, spdlog, GoogleTest and cpp-httplib downloaded, the
+control API and the OTLP export included (run 45165537866). Labels: `unit`,
+`protocol`, `contract`, `negative`, `lifecycle`, `isolation`, `integration`, `cli`, `python`,
+`server`, `install`, `perf`, `docs`, `ci`. Every test runs with `OTEL_SDK_DISABLED=true` (the test
+presets, `praenora_add_gtest()`, the CLI, install and perf tests and `python.unittest` set it), so
+none exports telemetry to a collector that the caller's environment names; the tests of the OTLP
+export set the variables they read themselves. The
 `isolation` label holds the white-box tests of process isolation, `ChildProcess.*` and
 `Isolation.*` (`praenora_isolation_tests`), which start module hosts
 (`praenora-module-host`, from `build/<preset>/libexec/praenora/`) with the fixture modules, some of
@@ -241,17 +292,45 @@ holds the CLI driver tests, named `cli.<command>.<case>`; `cli.driver.passes_emp
 checks that each argument of a command reaches its program, an empty one included, and
 `cli.driver.shows_failing_command`, which checks how that driver shows a failing command; and the
 `CliTable.*` and `Frontend.*` unit tests of the tool's helpers and of what it shares with the Python
-extension (`ctest --preset dev -L cli`). The `python` label
+extension (`ctest --preset dev -L cli`). Among the driver tests, the `cli.serve.*` tests, the
+`cli.status.*` tests of `--server`, `cli.run.listen_host_name_refused`,
+`cli.run.server_flags_need_listen`, `cli.run.help_lists_listen`, `cli.usage.tool_help_lists_serve`
+and `cli.usage.tool_help_lists_status_server` check the control API's command lines: their usage,
+and those refused before anything listens. The `python` label
 holds one CTest test, `python.unittest`, which runs the unittest suite of `tests/python` against the
 package in `build/<preset>/python`; with `PRAENORA_SANITIZERS` set it is registered but disabled,
 because an instrumented extension does not load into an interpreter that is not instrumented. So a
 label-only run of a sanitizer tree (`ctest --preset dev-asan -L python`, or `dev-tsan`) runs no test
 and exits 8, since the presets set `noTestsAction: error`; a full run of those trees is unaffected.
+The `server` label holds the listener tests, which open local listeners under the rules of
+[docs/testing.md](docs/testing.md#listeners) (only `127.0.0.1`, `::1` or a Unix socket under the
+temporary directory, always port 0, no host name resolved, connections only to their own
+listeners): `praenora_otlp_listener_tests` (`OtlpHttp.*`, `OtlpExport.*`, `TelemetryRun.*`: the
+OTLP export against a fake collector of the test's own) and `praenora_server_listener_tests`
+(`ListenerTest.*`, `ControlClient.*`, `UnixSocketPath.*` and `ToolListen.*`: the control API's
+listener and client, and, on POSIX, the tool as a server with `run --listen`, `serve` and
+`status --server`). Registered with `praenora_add_gtest(... LISTENER_SKIP)`, they skip where a
+listener is refused, as in a sandbox, saying "local listener refused: <reason>", which the
+`SKIP_REGULAR_EXPRESSION` of those executables names; with `PRAENORA_TESTS_REQUIRE_LISTENERS=1`,
+which every `ci-*` test preset sets, the refusal fails them instead, in other words than the
+skip's, and so it fails the Python test of the export, `TelemetryTest.test_export_to_fake_collector`
+in `python.unittest`. Run `ctest --preset dev -L 'server|python'` from an unsandboxed shell to run
+them ([docs/testing.md](docs/testing.md#listeners)). The control API's tests without sockets are
+`praenora_server_tests` (label `unit`: `ControlApi.*`, `HttpStatus.*`, `RunRegistry.*`,
+`SingleRun.*`, `ConfigurationRoot.*`, `OutputRoot.*`, `ListenAddress.*`, `TokenFile.*`,
+`Credentials.*`, `Scopes.*`, `HostCheck.*`, `Prometheus.*`, `ServerClock.*`) and
+`praenora_openapi_tests` (label `protocol`: `OpenApi.*`, which compares the committed
+`spec/openapi/praenora-control-api.openapi.json` with the generated document); the OTLP export's
+are the `Otlp*` suites of `praenora_unit_tests` (`OtlpSettings`, `OtlpEndpoint`, `OtlpResource`,
+`OtlpJson`, `OtlpExporter`, `OtlpHttp`, `OtlpRuntime`: the settings, the encoders, and the
+exporter and runs over a fake transport).
 The `install` label holds `install.consumer`: its driver, `tests/install/run_install_test.cmake`,
 installs the build into `build/<preset>/tests/install/work`, builds the consumer projects next to it
 and lists every step it checks, among them the installed module host, the license files (this
 project's `LICENSE`, those of the dependencies built in the tree and the files of the directories
-that `PRAENORA_THIRD_PARTY_LICENSE_DIRS` names) and a step that the installed tool runs in the
+that `PRAENORA_THIRD_PARTY_LICENSE_DIRS` names), the installed tool's usage of `serve` and of
+`status --server` and `serve` refusing a missing `--config-root` (listening is tested in the build
+tree, label `server`), and a step that the installed tool runs in the
 module host, before and after the installation is moved; with the roadrunner or the antimony
 provider it also checks each installed provider, which the installed tool lists as usable before
 and after the installation is moved. It also holds `install.package`, whose driver,
@@ -266,7 +345,7 @@ trees, whose flags reach the consumer builds. The `docs` label holds `docs.consi
 script `tests/docs/check_docs.cmake`: every `ErrorCode` name is in `docs/specs/error-taxonomy.md`,
 every `spec/schemas/*.json` name in `docs/specs/protocol.md`, every ADR in `docs/adr/README.md`,
 every relative Markdown link of `README.md`, `AGENTS.md` and `docs/` resolves, and the
-open-questions register has its 32 rows. The `ci` label holds `ci.fetch_runtime_deps`, the CMake
+open-questions register has its 33 rows. The `ci` label holds `ci.fetch_runtime_deps`, the CMake
 script `tests/ci/check_fetch_runtime_deps.cmake`: it runs `cmake/praenora_fetch_runtime_deps.cmake`
 on fake bundle archives (`.tar.xz` and `.zip`) from `file://` URLs, with pin files of its own, and
 checks the line it prints and appends to `GITHUB_ENV`'s file, what a second run reuses, that the
@@ -327,7 +406,9 @@ src/runtime/                  runtime internals, one directory per component (ap
                               instance/, io/, isolation/ (process isolation: the channel to a
                               module host, the runtime's side of one, child processes, the
                               module host's own server, the store of shared compiled models,
-                              and the sandbox profiles), loader/, observability/,
+                              and the sandbox profiles), loader/, observability/ (logs, metrics,
+                              status, the status file, and otlp/: the OTLP export's settings,
+                              encoders, HTTP client, exporter and log sink),
                               platform/{posix,windows}/, provider/ (provider manifests, index and
                               loader; the internal provider interface provider_abi.h))
 src/module_host/              praenora-module-host, the module host (main.cpp; POSIX only, linked
@@ -337,15 +418,25 @@ src/providers/                service providers built with the runtime: roadrunn
                               (libAntimony; only with PRAENORA_WITH_ANTIMONY=ON), common/ (what
                               providers share: cancellable_lock.hpp, header-only, never installed)
 src/sdk/                      Praenora::ModuleSDK target
-src/frontend/                 what the CLI and the Python extension share: frontend.hpp
-                              (praenora::frontend; header-only, internal, never installed)
+src/frontend/                 what the CLI, the Python extension and the control API's server
+                              share: frontend.hpp (praenora::frontend; header-only, internal,
+                              never installed)
+src/server/                   the control API, a third front end (praenora_server, static,
+                              internal, linked by the tool only; praenora::server): addresses,
+                              tokens and scopes, the routes (ControlApi) over the runs of both
+                              modes (RunRegistry, SingleRun), the Prometheus text, the OpenAPI
+                              document, and the listener and the client, the only two sources
+                              that include httplib.h
 src/cli/                      praenora command-line tool: main.cpp, args, output, signals,
-                              commands/ (one file per command)
+                              serving (the listener's flags and the server of run --listen and
+                              serve), commands/ (one file per command)
 src/python/                   Python extension: SWIG interface praenora_runtime.i and the facade
                               (facade.hpp, facade.cpp) it wraps
 python/praenora/runtime/      pure-Python package praenora.runtime (praenora: namespace package)
 spec/                         schemas/, catalog/, asyncapi/ (generated AsyncAPI documents,
-                              committed; refreshed with PRAENORA_UPDATE_GOLDEN=1)
+                              committed; refreshed with PRAENORA_UPDATE_GOLDEN=1), openapi/ (the
+                              control API's generated OpenAPI document, committed; refreshed the
+                              same way)
 examples/                     modules/estimator/, modules/predictor/ (the example modules) and
                               workflows/estimate-predict/ (configuration, data, README)
 tests/                        unit/, protocol/, negative/, contract/, lifecycle/, isolation/
@@ -353,7 +444,10 @@ tests/                        unit/, protocol/, negative/, contract/, lifecycle/
                               praenora_isolation_parent_probe, praenora_fake_module_host,
                               praenora_isolation_short_host_probe and
                               praenora_isolation_restricted_probe),
-                              integration/,
+                              integration/, server/ (the control API: the tests without
+                              sockets, and the listener tests of its listener, its client and the
+                              tool as a server, with listener_fixtures.hpp), telemetry/ (the OTLP
+                              export's listener tests, against a fake collector),
                               cli/ (CLI tests and their driver run_cli.cmake), python/ (unittest
                               suite of praenora.runtime), install/ (install tests: the driver
                               run_install_test.cmake and the projects consumer-module/ and
@@ -365,7 +459,9 @@ tests/                        unit/, protocol/, negative/, contract/, lifecycle/
                               docs/ (documentation test check_docs.cmake), ci/ (tests of the
                               bundle fetch script, check_fetch_runtime_deps.cmake, and of the
                               workflow, check_workflow_consistency.cmake), support/ (test
-                              helpers, and run_command.cmake, which the CMake drivers share);
+                              helpers, among them listener_support.hpp, the listener tests'
+                              skip, ClosedPort, SilentListener and FakeCollector; and
+                              run_command.cmake, which the CMake drivers share);
                               fixtures/: modules/ (fixture modules), providers/ (fixture
                               providers, praenora_add_fixture_provider(); test-simulation and
                               test-conversion offer the public services, test-store drives the
@@ -389,8 +485,9 @@ docs/                         index.md, the guides (architecture, user-guide, co
 
 - The runtime compiles once into the OBJECT library `praenora_runtime_objects`, linked into the
   shared `praenora_runtime` (only the public API is exported) and into white-box test executables.
-  Its two front ends, the CLI and the Python extension, use only the public API and share their
-  documents, failures and names through the header-only internal `praenora_frontend`.
+  Its front ends, the CLI, the Python extension and the control API's server (`praenora_server`,
+  a static library that only the CLI links), use only the public API and share their documents,
+  failures and names through the header-only internal `praenora_frontend`.
 - Modules are independently built `MODULE` libraries, found through `*.pmm.json` manifests on
   module search paths, loaded with `dlopen`/`LoadLibraryExW` and called only through the ABI v0
   function table returned by `praenora_module_get_api`.
@@ -414,18 +511,20 @@ docs/                         index.md, the guides (architecture, user-guide, co
   document is validated against an embedded JSON Schema (draft-07) before anything runs.
 - Execution is a sequence of synchronous ticks in deterministic order; feedback uses connections
   with `delay: 1`. Each run has a fingerprint and a run record; status, metrics and logs are
-  available from C++, the CLI and Python.
+  available from C++, the CLI and Python, from another process over the control API, and to an
+  OpenTelemetry collector through the runtime's OTLP export (one exporter thread per `Runtime`).
 
 ## Conventions
 
 - **Language.** C++17 without extensions; C99 for the ABI headers. snake_case functions, variables
   and files; PascalCase types; internals in `praenora::detail` under `src/runtime/<component>/`;
-  what both front ends need in `praenora::frontend` (`src/frontend/`), never copied into one.
+  what the front ends share in `praenora::frontend` (`src/frontend/`), never copied into one.
   Format with `.clang-format`; `.clang-tidy` holds the static checks.
 - **Errors.** Throw `praenora::Error` with an error-taxonomy code. Validation collects every
   diagnostic in a report instead of stopping at the first.
-- **Public headers** use only the standard library and Praenora types (no nlohmann, spdlog or
-  yaml-cpp types); third-party dependencies link PRIVATE; exports use `PRAENORA_RUNTIME_API`.
+- **Public headers** use only the standard library and Praenora types (no nlohmann, spdlog,
+  yaml-cpp or cpp-httplib types); third-party dependencies link PRIVATE; exports use
+  `PRAENORA_RUNTIME_API`.
 - **ABI.** Only C types cross the module boundary (fixed-width integers, `size_t`, pointers,
   length-delimited UTF-8); no C++ types, exceptions or allocator ownership. Minor ABI changes only
   append fields and function pointers.
@@ -444,12 +543,16 @@ docs/                         index.md, the guides (architecture, user-guide, co
   `Loader.LoadsModuleFromUnicodePath`); the case may end in a `_WhenCondition` suffix. Python
   tests are stdlib `unittest` modules `tests/python/test_*.py` (classes `<Topic>Test`, methods
   `test_<what>`), which `python.unittest` discovers; what they share (CTest's environment, fixture
-  paths) is in `tests/python/support.py`. Write temporary files only under the system
+  paths) is in `tests/python/support.py`. A test that opens a listener follows the rules of
+  [docs/testing.md](docs/testing.md#listeners), has the label `server` and is registered with
+  `praenora_add_gtest(... LISTENER_SKIP)` (a Python test, in `python.unittest`, calls
+  `support.listener_refused()` instead). Write temporary files only under the system
   temporary directory or the build tree. Keep the build warning-free
   (`PRAENORA_WARNINGS_AS_ERRORS=ON` enforces it).
 - **Licenses.** This repository's files are under the MIT license (`LICENSE`, copyright The
   Praenora developers, [ADR-0040](docs/adr/ADR-0040-mit-license.md); `pyproject.toml` says so for
-  the wheel). A third-party dependency linked statically brings its license files into the
+  the wheel). A third-party dependency linked statically, or compiled in from its headers
+  (cpp-httplib), brings its license files into the
   installation (`share/praenora/licenses/`): one built in the tree through the rules of
   `cmake/PraenoraInstall.cmake`, one found installed through `PRAENORA_THIRD_PARTY_LICENSE_DIRS`.
 - **Agent standards.** Use `AGENTS.md` (this file) and the `agentskills.io` standard for agent skills.
@@ -488,12 +591,19 @@ docs/                         index.md, the guides (architecture, user-guide, co
   linked ADR accepted, in full or in part, or an Accepted ADR that is new or supersedes the linked
   one. Its row in `docs/open-questions.md` is then updated as the register's header says; an answer
   that only a Proposed ADR records leaves the row open. Calls made while building go into the
-  relevant ADR as "Builder notes" (Proposed).
-- Golden files, and the committed AsyncAPI documents in `spec/asyncapi/`, are refreshed only with
-  `PRAENORA_UPDATE_GOLDEN=1`, never implicitly; regenerate the AsyncAPI documents whenever a
-  workflow definition, a message type or the envelope schema changes, and, with a local copy of
-  the official AsyncAPI 3.0.0 schema at hand, check them against it (`PRAENORA_ASYNCAPI_SCHEMA`),
-  and with the official AsyncAPI parser installed, through it (`PRAENORA_ASYNCAPI_PARSER`).
+  relevant ADR as "Builder notes" (Proposed): a call and its reasons, never a log of CI runs,
+  their failures or the fixes they needed (those go in commit messages), nor what a run verified
+  (that goes in [docs/releasing.md](docs/releasing.md#what-the-runs-verified) and
+  [docs/platforms.md](docs/platforms.md#verification-status)); a note that a later fact makes
+  stale is rewritten, not followed by another ([docs/adr/README.md](docs/adr/README.md#process)).
+- Golden files, the committed AsyncAPI documents in `spec/asyncapi/` and the committed OpenAPI
+  document in `spec/openapi/` are refreshed only with `PRAENORA_UPDATE_GOLDEN=1`, never
+  implicitly; regenerate the AsyncAPI documents whenever a workflow definition, a message type or
+  the envelope schema changes, and, with a local copy of the official AsyncAPI 3.0.0 schema at
+  hand, check them against it (`PRAENORA_ASYNCAPI_SCHEMA`), and with the official AsyncAPI parser
+  installed, through it (`PRAENORA_ASYNCAPI_PARSER`); regenerate the OpenAPI document whenever a
+  route of the control API, its schemas, or the status-snapshot, run-record or envelope schema
+  changes ([docs/specs/control-api.md](docs/specs/control-api.md#the-openapi-document)).
 
 ## Prohibitions
 
@@ -501,7 +611,9 @@ docs/                         index.md, the guides (architecture, user-guide, co
 - No release, `v*` tag or release asset made by hand: a release is a draft of
   `.github/workflows/build.yml`, which an administrator publishes
   ([docs/releasing.md](docs/releasing.md#release-procedure)).
-- No network access in tests or in a default build.
+- No network access in tests or in a default build: a test connects only to listeners it opens
+  itself, on a loopback address (127.0.0.1, ::1) or a Unix domain socket, and resolves no host
+  names.
 - `BUILD_SHARED_LIBS` is never read: the runtime is always SHARED, modules always MODULE.
 - Never commit build trees, install trees or `CMakeUserPresets.json`.
 
@@ -518,12 +630,15 @@ docs/                         index.md, the guides (architecture, user-guide, co
 - Normative specifications: `docs/specs/` (ABI, protocol, manifest, runtime services and
   providers, the simulation service, the model conversion service, workflow definitions,
   compatibility, error taxonomy, threading and ownership, process isolation, time and timeouts,
-  observability, reproducibility, the draft starting workflow), listed in
+  observability, the control API, reproducibility, the draft starting workflow), listed in
   [docs/index.md](docs/index.md); the three on services are
   [runtime-services.md](docs/specs/runtime-services.md),
   [simulation-service.md](docs/specs/simulation-service.md) and
   [model-conversion-service.md](docs/specs/model-conversion-service.md); process isolation, module
-  hosts and their configuration are in [process-isolation.md](docs/specs/process-isolation.md).
+  hosts and their configuration are in [process-isolation.md](docs/specs/process-isolation.md);
+  the control and status API over HTTP, its security rules, modes, routes and OpenAPI document
+  in [control-api.md](docs/specs/control-api.md), and the OTLP export in
+  [observability.md](docs/specs/observability.md#otlp-export).
 - Feasibility documents: [WebAssembly](docs/feasibility/webassembly.md) is a design, nothing of
   which is built; [libRoadRunner](docs/feasibility/libroadrunner.md) holds the upstream facts
   behind the built simulation service and its provider `roadrunner`, and the design of level C

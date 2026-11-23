@@ -37,6 +37,7 @@
 #include <iostream>
 #include <memory>
 #include <optional>
+#include <set>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -332,9 +333,62 @@ TEST(Example, LogLevelDoesNotChangeFingerprint) {
         return event.at("severity_text") == "DEBUG";
     }));
     for (const json& event : verbose_events) {
-        EXPECT_EQ(event.at("attributes").at("run.fingerprint"), loud.fingerprint);
+        EXPECT_EQ(event.at("attributes").at("praenora.run.fingerprint"), loud.fingerprint);
     }
     EXPECT_TRUE(engine_events(dir.path() / "quiet.log").empty()); // nothing went wrong
+}
+
+// Every attribute key of what a run logs, and of what its Runtime logs, carries the prefix
+// praenora. (but logger, the logger's name), in JSON lines and in text lines alike.
+TEST(Example, EveryAttributeKeyHasThePrefix) {
+    ScratchDir dir;
+    RuntimeOptions options = example_options();
+    options.logging.level = LogLevel::debug;
+    options.logging.format = LogFormat::json;
+    options.logging.file = utf8(dir.path() / "runtime.log");
+    const Runtime runtime(options);
+    WorkflowOptions as_json;
+    as_json.log_level = LogLevel::debug;
+    as_json.log_format = LogFormat::json;
+    as_json.log_file = utf8(dir.path() / "run.log");
+    const ExampleRun run = run_example(runtime, dir.path() / "json", as_json);
+    ASSERT_EQ(run.summary.final_state, WorkflowState::completed);
+
+    std::set<std::string> events, loggers;
+    for (const fs::path& log : {dir.path() / "runtime.log", dir.path() / "run.log"}) {
+        for (const json& record : json_lines(log)) {
+            const json& attributes = record.at("attributes");
+            loggers.insert(attributes.at("logger").get<std::string>());
+            for (const auto& attribute : attributes.items()) {
+                if (attribute.key() != "logger") {
+                    EXPECT_EQ(attribute.key().rfind("praenora.", 0), 0u) << record.dump();
+                }
+            }
+            if (attributes.contains("praenora.event")) {
+                events.insert(attributes.at("praenora.event").get<std::string>());
+            }
+        }
+    }
+    // The records hold the Runtime's, the engine's and the modules' own.
+    EXPECT_EQ(loggers, (std::set<std::string>{"praenora.runtime", "praenora.engine",
+                                              "module.estimate", "module.predict"}));
+    for (const char* event : {"runtime.ready", "run.started", "step.ready", "invocation.completed",
+                              "tick.completed", "run.completed"}) {
+        EXPECT_EQ(events.count(event), 1u) << event;
+    }
+
+    WorkflowOptions as_text;
+    as_text.log_level = LogLevel::debug;
+    as_text.log_format = LogFormat::text;
+    as_text.log_file = utf8(dir.path() / "run.txt");
+    const ExampleRun text = run_example(runtime, dir.path() / "text", as_text);
+    ASSERT_EQ(text.summary.final_state, WorkflowState::completed);
+    const std::string completed =
+        " DEBUG praenora.engine [praenora.run.fingerprint=" + text.fingerprint +
+        " praenora.event=invocation.completed praenora.tick=0 praenora.step=estimate"
+        " praenora.module=example-estimator@0.1.0 praenora.duration_ns=";
+    EXPECT_TRUE(contains(read_file(dir.path() / "run.txt"), completed))
+        << read_file(dir.path() / "run.txt");
 }
 
 TEST(Example, SeedChangesFingerprint) {

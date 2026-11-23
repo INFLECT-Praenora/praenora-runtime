@@ -82,6 +82,8 @@ if(PRAENORA_BUILD_CLI OR PRAENORA_BUILD_PYTHON)
     add_subdirectory(src/frontend)
 endif()
 if(PRAENORA_BUILD_CLI)
+    # The control API, a third front end (static, internal), for the praenora tool.
+    add_subdirectory(src/server)
     add_subdirectory(src/cli)
 endif()
 if(PRAENORA_BUILD_PYTHON)

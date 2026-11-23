@@ -188,12 +188,14 @@ std::string metrics_json(const StatusSnapshot& snapshot) {
                                                                   {"cancelled", step.cancelled}};
         for (const auto& [outcome, count] : outcomes) {
             json counter = point("praenora.step.invocations", "{invocation}", "counter",
-                                 {{"step", step.step}, {"module", module}, {"outcome", outcome}});
+                                 {{"praenora.step", step.step},
+                                  {"praenora.module", module},
+                                  {"praenora.outcome", outcome}});
             counter["value"] = count;
             points.push_back(std::move(counter));
         }
         json duration = point("praenora.step.invocation.duration", "ns", "summary",
-                              {{"step", step.step}, {"module", module}});
+                              {{"praenora.step", step.step}, {"praenora.module", module}});
         duration["summary"] = {{"count", step.invocations},
                                {"sum", step.total_duration_ns},
                                {"min", step.min_duration_ns},
@@ -201,7 +203,8 @@ std::string metrics_json(const StatusSnapshot& snapshot) {
                                {"last", step.last_duration_ns}};
         points.push_back(std::move(duration));
     }
-    const json workflow = {{"workflow", snapshot.workflow_name + "@" + snapshot.workflow_version}};
+    const json workflow = {
+        {"praenora.workflow", snapshot.workflow_name + "@" + snapshot.workflow_version}};
     json ticks = point("praenora.workflow.ticks", "{tick}", "counter", workflow);
     ticks["value"] = snapshot.ticks_completed;
     points.push_back(std::move(ticks));

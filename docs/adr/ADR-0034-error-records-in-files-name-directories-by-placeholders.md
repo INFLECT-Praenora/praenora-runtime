@@ -140,6 +140,10 @@ on the machine where the run happens, who needs the absolute paths to find the f
   a status file in the configuration's directory that cannot be written becomes the workflow's
   last error, which the final status of the run record holds. The conflict test is skipped in a
   process that loaded `test-conflict` before (see the comment at the test).
+- Later: [ADR-0042](ADR-0042-control-and-status-api-over-http.md) adds
+  `Workflow::status_json(PathForm)`: `PathForm::placeholders` gives a snapshot in the status
+  file's form, made by the status-file writer's own code (`Workflow::Impl::status_document()`),
+  and `status_json()` stays the absolute form.
 
 ## Alternatives considered
 

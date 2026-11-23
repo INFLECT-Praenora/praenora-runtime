@@ -76,8 +76,9 @@ struct CatalogEntryInfo {
 // directory), the index of the provider search paths (the options' provider_paths, then
 // PRAENORA_PROVIDER_PATH with use_environment, then the installation's provider directory) and
 // the runtime's logging. Everything is read once, when the Runtime is constructed.
-// A Runtime is immutable and thread-safe; copies share one state and are cheap (a move is a copy,
-// so a Runtime stays usable whatever happened to it).
+// A Runtime is immutable and thread-safe, but for the count of the workflows it opened, which
+// numbers them (Workflow::run_number()); copies share one state, that count included, and are
+// cheap (a move is a copy, so a Runtime stays usable whatever happened to it).
 //
 // Logging. The Runtime's own log records use RuntimeOptions::logging, with PRAENORA_LOG_LEVEL and
 // PRAENORA_LOG_FORMAT put over its level and format when use_environment. A workflow resolves each
@@ -182,10 +183,12 @@ public:
 
     // Validates the configuration (with the overrides in `options`) and prepares its run: the
     // output directory (refusing one that holds an earlier run, unless options.overwrite), the
-    // status file and the logging. Nothing is loaded yet. Throws praenora::Error: when validation
-    // reports an error, the first error's code and location, the message "workflow validation
-    // failed: N error(s)" and the whole report (ValidationReport::to_json()) as details; IO_ERROR
-    // when the output directory or the log file cannot be used.
+    // status file and the logging. Nothing is loaded yet. The workflow returned takes the next
+    // run number of this Runtime and its copies (Workflow::run_number()), from 1 on; an open()
+    // that throws takes none. Throws praenora::Error: when validation reports an error, the
+    // first error's code and location, the message "workflow validation failed: N error(s)" and
+    // the whole report (ValidationReport::to_json()) as details; IO_ERROR when the output
+    // directory or the log file cannot be used.
     std::unique_ptr<Workflow> open(const std::string& config_path,
                                    const WorkflowOptions& options = {}) const;
 

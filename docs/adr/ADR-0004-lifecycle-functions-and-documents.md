@@ -35,6 +35,7 @@ The v0 table has required functions `describe`, `create`, `initialize`, `invoke`
 - Module log messages are routed to the step's logger with the attributes `run.fingerprint` (when the instance is given the run's fingerprint), `tick` (during an invocation only), `step` and `module` (`name@version`); levels below trace count as trace and above critical as critical.
 - `pmp_version` in the ABI documents: the runtime writes its own PMP version into the create, initialize and invocation documents and into every envelope. A result may carry `pmp_version`, which the runtime does not read; the error document (`pmp-error`: `code`, `message`, optional `details`) has none; and `describe()` reports the module's own, of which only the form is checked: compatibility is decided from the manifest's `pmp_version` before loading, and the identity check does not compare the two.
 - Later: [ADR-0036](ADR-0036-describe-and-manifest-agree-on-every-field-they-share.md) makes the identity check compare the `pmp_version` that `describe()` reports with the manifest's, by SemVer precedence (`MODULE_IDENTITY_MISMATCH`), so the compatibility decided from the manifest holds for the library.
+- Later: [ADR-0043](ADR-0043-otlp-export-of-metrics-and-logs.md) gives the attributes of module log messages the prefix `praenora.`: `praenora.run.fingerprint`, `praenora.tick`, `praenora.step` and `praenora.module`.
 
 ## Alternatives considered
 

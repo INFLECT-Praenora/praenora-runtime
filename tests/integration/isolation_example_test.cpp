@@ -69,12 +69,13 @@ std::vector<std::string> module_records(const fs::path& log) {
         const json record = json::parse(line);
         const json& attributes = record.at("attributes");
         const std::string logger = attributes.value("logger", std::string());
-        if (logger.compare(0, 7, "module.") != 0 || attributes.contains("event")) {
+        if (logger.compare(0, 7, "module.") != 0 || attributes.contains("praenora.event")) {
             continue;
         }
+        const std::string tick =
+            attributes.contains("praenora.tick") ? attributes.at("praenora.tick").dump() : "-";
         records.push_back(logger + " " + record.at("severity_text").get<std::string>() + " " +
-                          (attributes.contains("tick") ? attributes.at("tick").dump() : "-") + " " +
-                          record.at("body").get<std::string>());
+                          tick + " " + record.at("body").get<std::string>());
     }
     return records;
 }
@@ -136,6 +137,77 @@ TEST(IsolationExample, GivesTheBytesOfTheRuntimesProcess) {
     const auto logged = module_records(logs.at(IsolationMode::in_process));
     EXPECT_FALSE(logged.empty());
     EXPECT_EQ(logged, module_records(logs.at(IsolationMode::process)));
+}
+
+// With one step in a module host, every attribute key of the run's records carries the prefix
+// praenora. (but logger): the module host's events and the module records it passes on included.
+TEST(IsolationExample, EveryAttributeKeyHasThePrefix) {
+    ScratchDir dir;
+    // The example's configuration with its step predict in a module host, and its data named by
+    // an absolute path.
+    const fs::path example = utf8_path(PRAENORA_EXAMPLE_WORKFLOW_DIR);
+    std::string config = read_text(example / "workflow.yaml");
+    const std::string data = "path: data/observations.csv";
+    const std::string level = "    log_level: debug\n";
+    ASSERT_NE(config.find(data), std::string::npos);
+    ASSERT_NE(config.find(level), std::string::npos);
+    config.replace(config.find(data), data.size(),
+                   "path: " + json(utf8(example / "data" / "observations.csv")).dump());
+    config.insert(config.find(level) + level.size(), "    isolation: { mode: process }\n");
+    const fs::path config_file = dir.path() / "workflow.yaml";
+    std::ofstream(config_file, std::ios::binary) << config;
+
+    RuntimeOptions options;
+    options.module_paths = {PRAENORA_EXAMPLE_MODULES_DIR};
+    options.use_environment = false;
+    options.logging.to_stderr = false;
+    WorkflowOptions run;
+    run.log_level = LogLevel::debug;
+    run.log_format = LogFormat::json;
+    run.log_file = utf8(dir.path() / "run.log");
+    run.output_dir = utf8(dir.path() / "out");
+    const Runtime runtime(options);
+    const auto workflow = runtime.open(utf8(config_file), run);
+    ASSERT_EQ(workflow->run().final_state, WorkflowState::completed);
+    const std::string fingerprint = workflow->fingerprint();
+    workflow->close();
+    const json isolation = json::parse(read_text(dir.path() / "out" / "run-record.json"))
+                               .at("execution")
+                               .at("isolation");
+    ASSERT_EQ(isolation.at("estimate").at("mode"), "in-process");
+    ASSERT_EQ(isolation.at("predict").at("mode"), "process");
+
+    std::vector<json> started, relayed;
+    std::istringstream lines(read_text(dir.path() / "run.log"));
+    for (std::string line; std::getline(lines, line);) {
+        const json record = json::parse(line);
+        const json& attributes = record.at("attributes");
+        for (const auto& attribute : attributes.items()) {
+            if (attribute.key() != "logger") {
+                EXPECT_EQ(attribute.key().rfind("praenora.", 0), 0u) << record.dump();
+            }
+        }
+        if (attributes.at("logger") != "module.predict") {
+            continue;
+        }
+        if (attributes.value("praenora.event", std::string()) == "module_host.started") {
+            started.push_back(attributes);
+        } else if (!attributes.contains("praenora.event")) {
+            relayed.push_back(attributes);
+        }
+    }
+    ASSERT_EQ(started.size(), 1u);
+    EXPECT_EQ(started[0].at("praenora.module"), "example-predictor@0.1.0");
+    EXPECT_TRUE(started[0].at("praenora.pid").is_number_integer()) << started[0];
+    // The module's own records, which its module host passed on, keep the attributes of the
+    // runtime's process.
+    ASSERT_FALSE(relayed.empty());
+    for (const json& attributes : relayed) {
+        EXPECT_EQ(attributes.at("praenora.run.fingerprint"), fingerprint);
+        EXPECT_EQ(attributes.at("praenora.step"), "predict");
+        EXPECT_EQ(attributes.at("praenora.module"), "example-predictor@0.1.0");
+        EXPECT_TRUE(attributes.contains("praenora.tick")) << attributes;
+    }
 }
 
 #endif
