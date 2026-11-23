@@ -46,8 +46,8 @@ struct ChildSettings {
     // only the manifest's own library.sha256, if it pins one, is checked.
     std::optional<std::string> library_sha256;
     // Receives the module host's events: module_host.started and module_host.exited (debug),
-    // module_host.terminated (warn) and module_host.crashed (error), with the attributes module
-    // and pid. None: they are dropped.
+    // module_host.terminated (warn) and module_host.crashed (error), with the attributes
+    // praenora.module and praenora.pid. None: they are dropped.
     std::shared_ptr<spdlog::logger> logger;
     // How long the module host may take to answer the handshake.
     std::chrono::nanoseconds start_timeout{std::chrono::seconds(30)};

@@ -1,7 +1,7 @@
 // Starting, watching and ending a child process (isolation/child_process.hpp), with /bin/sh as the
 // child: exit codes and signals, the channel as descriptor 3 and /dev/null as standard input, a
-// process group of its own that terminate() kills whole, waits with a deadline, a stopped child
-// that has not ended, and no zombie left behind.
+// process group of its own that terminate() kills whole, SIGPIPE at its default disposition, waits
+// with a deadline, a stopped child that has not ended, and no zombie left behind.
 #include "isolation/child_process.hpp"
 
 #include <praenora/runtime/error.hpp>
@@ -91,6 +91,30 @@ private:
     int descriptor_;
 };
 
+// Ignores SIGPIPE in this process for its lifetime, then restores the disposition it found, also
+// when a failed assertion returns from the test.
+class SigpipeIgnored {
+public:
+    SigpipeIgnored() noexcept {
+        struct sigaction ignored{};
+        ignored.sa_handler = SIG_IGN;
+        sigemptyset(&ignored.sa_mask);
+        set_ = ::sigaction(SIGPIPE, &ignored, &previous_) == 0;
+    }
+    ~SigpipeIgnored() {
+        if (set_) {
+            ::sigaction(SIGPIPE, &previous_, nullptr);
+        }
+    }
+    SigpipeIgnored(const SigpipeIgnored&) = delete;
+    SigpipeIgnored& operator=(const SigpipeIgnored&) = delete;
+    bool set() const noexcept { return set_; }
+
+private:
+    struct sigaction previous_{};
+    bool set_ = false;
+};
+
 } // namespace
 
 TEST(ChildProcess, ReportsTheExitCode) {
@@ -133,6 +157,21 @@ TEST(ChildProcess, RunsInAProcessGroupOfItsOwn) {
     EXPECT_NE(::getpgid(pid), ::getpgid(0));
     ASSERT_EQ(::send(channel.get(), "\n", 1, 0), 1);
     EXPECT_EQ(started.process->wait()->exit_code, std::optional<int>(0));
+}
+
+// A process that ignores SIGPIPE (as one that serves the control API does) starts its children with
+// SIGPIPE at its default disposition all the same: a SIGPIPE ends the child.
+TEST(ChildProcess, StartsWithSigpipeAtItsDefaultDisposition) {
+    std::optional<ChildExit> exit;
+    {
+        const SigpipeIgnored ignored;
+        ASSERT_TRUE(ignored.set());
+        auto started = shell("kill -PIPE $$; exit 0");
+        const Descriptor channel(started.channel);
+        exit = started.process->wait();
+    }
+    ASSERT_TRUE(exit.has_value());
+    EXPECT_EQ(exit->signal, std::optional<int>(SIGPIPE)) << describe(*exit);
 }
 
 #if defined(__APPLE__)

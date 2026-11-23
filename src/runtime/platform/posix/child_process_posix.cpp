@@ -275,12 +275,18 @@ ChildProcess::Started ChildProcess::start(const std::filesystem::path& executabl
         }
     }
 #endif
-    short flags = POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_SETSIGMASK;
+    short flags = POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETSIGDEF;
 #if defined(__APPLE__)
     flags |= POSIX_SPAWN_CLOEXEC_DEFAULT;
 #endif
     sigset_t no_signals;
     sigemptyset(&no_signals);
+    // SIGPIPE at its default disposition, whatever this process has (a process that serves the
+    // control API ignores it, as cpp-httplib's server does): a module host's modules meet the same
+    // SIGPIPE whether or not the tool that started it listens.
+    sigset_t defaults;
+    sigemptyset(&defaults);
+    sigaddset(&defaults, SIGPIPE);
     if (error == 0) {
         error = ::posix_spawnattr_setflags(attributes.get(), flags);
     }
@@ -289,6 +295,9 @@ ChildProcess::Started ChildProcess::start(const std::filesystem::path& executabl
     }
     if (error == 0) {
         error = ::posix_spawnattr_setsigmask(attributes.get(), &no_signals);
+    }
+    if (error == 0) {
+        error = ::posix_spawnattr_setsigdefault(attributes.get(), &defaults);
     }
     if (error != 0) {
         refuse(executable, "cannot prepare it", error);

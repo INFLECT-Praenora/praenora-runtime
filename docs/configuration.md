@@ -340,8 +340,12 @@ A setting given by the caller wins over the file, which wins over the defaults:
 | Output directory | `--output-dir D` | `output_dir` | `outputs.directory` |
 | Replace an earlier run | `--overwrite` | `overwrite` | |
 | Message trace | `--trace` | `trace_messages` | `outputs.trace_messages` |
-| Status file | `--status-file F` | `status_file` | `observability.status_file` |
+| Status file (empty: none) | `--status-file F` | `status_file` | `observability.status_file` |
 | Isolation of every step | `--isolation M` | `isolation` | `run.isolation`, `steps.<id>.isolation` |
+
+An empty status file (`--status-file ""`, `WorkflowOptions::status_file = ""`, Python
+`status_file=""`) means no status file, in place of the configuration's; an empty output directory
+is an error (`INVALID_ARGUMENT`).
 
 The logging settings (level, format and file) are resolved each on its own, the level and the
 format also from the environment; their sources and order are specified in
@@ -366,12 +370,17 @@ overrides are the arguments of `Workflow` ([python.md](python.md)).
 | `PRAENORA_LOG_LEVEL` | Logging | The log level ([precedence](specs/observability.md#settings)). |
 | `PRAENORA_LOG_FORMAT` | Logging | The log format ([precedence](specs/observability.md#settings)). |
 | `PRAENORA_DEBUG_KEEP_LIBRARIES` | The loader | `1` keeps every module library loaded until the process ends ([developer-guide.md](developer-guide.md#keeping-module-libraries-loaded)). |
+| `OTEL_SDK_DISABLED`, `OTEL_EXPORTER_OTLP_*`, `OTEL_METRICS_EXPORTER`, `OTEL_LOGS_EXPORTER`, `OTEL_METRIC_EXPORT_INTERVAL`, `OTEL_SERVICE_NAME`, `OTEL_RESOURCE_ATTRIBUTES` | The OTLP export | Where and how the runtime exports its metrics and logs to an OpenTelemetry collector; nothing is exported without an endpoint ([specs/observability.md](specs/observability.md#otlp-export)). |
 
-The first five are read only when `RuntimeOptions::use_environment` is set (the default): when a
-`Runtime` is constructed, and `PRAENORA_MODULE_PATH` again when a configuration that lists
-`modules.search_paths` is validated. An empty variable counts as unset, and an invalid log level or
-format is `CONFIG_INVALID`, naming the variable. `PRAENORA_DEBUG_KEEP_LIBRARIES` is read whenever a
-module library is loaded, whatever `use_environment` says.
+The `PRAENORA_*` variables but the last, and the `OTEL_*` variables, are read only when
+`RuntimeOptions::use_environment` is set (the default): when a `Runtime` is constructed, and
+`PRAENORA_MODULE_PATH` again when a configuration that lists `modules.search_paths` is validated.
+An empty variable counts as unset, and an invalid log level or format is `CONFIG_INVALID`, naming
+the variable; an `OTEL_*` value the export cannot use is never an error, but ignored with a
+warning. `PRAENORA_DEBUG_KEEP_LIBRARIES` is read whenever a module library is loaded, whatever
+`use_environment` says. The configuration file has no setting of the OTLP export or of the
+control API: the export is the `Runtime`'s, and the control API is the tool's
+([specs/control-api.md](specs/control-api.md)).
 
 ## What changes the run fingerprint
 

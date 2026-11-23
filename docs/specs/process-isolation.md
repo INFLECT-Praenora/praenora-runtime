@@ -107,8 +107,9 @@ step):
     elsewhere by the module host itself, first thing; and the module host makes descriptor 3
     close-on-exec, so no program the module runs inherits the channel;
   - it gets a process group of its own, so a terminal's Ctrl+C reaches only the runtime (which
-    then stops the call in flight), and an empty signal mask; it inherits the environment and the
-    current directory;
+    then stops the call in flight), an empty signal mask and `SIGPIPE` at its default disposition,
+    whatever the runtime's process has (a process that serves the control API ignores `SIGPIPE`);
+    it inherits the environment and the current directory;
   - a process group of its own is a background one of the runtime's terminal, if the runtime has
     one, which would stop a process of it that writes to the terminal under `stty tostop`, changes
     the terminal's settings (`SIGTTOU`) or reads from it (`SIGTTIN`): the module host ignores both
@@ -281,9 +282,9 @@ with the same stack (the load runs on a thread with a main thread's stack, [Load
 What the module does with its host API:
 
 - **`log`, `log_enabled`.** A record whose level the runtime records is passed to the runtime, which
-  logs it with the attributes it has in the runtime's process (`run.fingerprint`, `tick` during an
-  invocation, `step`, `module`). The level comes with each call. A module's own thread may log
-  between calls; the record arrives then.
+  logs it with the attributes it has in the runtime's process (`praenora.run.fingerprint`,
+  `praenora.tick` during an invocation, `praenora.step`, `praenora.module`). The level comes with
+  each call. A module's own thread may log between calls; the record arrives then.
 - **`cancel_requested`.** It reads a flag in the module host, without a round trip to the runtime.
   When the call in flight passes its deadline or has a stop requested, the runtime sends one
   cancellation frame within a few milliseconds (it looks every 5 ms; it never waits busily); a stop
@@ -338,12 +339,12 @@ function pointers into the engine's memory).
   order and whether a table was provided, are those of the runtime's process.
 - **Logs.** A provider's records go to the logger `provider.<name>` of the run's logs (of the
   `Runtime`'s for `validate --load`), as in the runtime's process. The module host records the
-  levels that logger records and passes each record on with its level, its attributes (`provider`;
-  `event` and `library_sha256` for `provider.loaded`) and its message, and the runtime logs it with
-  them: the record is the one the runtime's process would log, with no process id added. Records
-  of an engine that its provider routes to its own logger come the same way. A provider of a step
-  in a module host starts when that step loads, not when the run starts, so its records come later
-  in the run's log.
+  levels that logger records and passes each record on with its level, its attributes
+  (`praenora.provider`; `praenora.event` and `praenora.library_sha256` for `provider.loaded`) and
+  its message, and the runtime logs it with them, keys as they are: the record is the one the
+  runtime's process would log, with no process id added. Records of an engine that its provider
+  routes to its own logger come the same way. A provider of a step in a module host starts when that
+  step loads, not when the run starts, so its records come later in the run's log.
 - **Crashes.** A provider runs in its module host's process: one that ends it, in its `start()`, in
   a service call or on a thread of its own, crashes the module host ([Crashes](#crashes)), with
   `details.phase` `load` when that happens during the load (a provider's `start()` included), or
@@ -396,10 +397,12 @@ compiling it again. A step takes part with `share_compiled_models: true`, and on
   `start()` may use the store), during a call, and between calls (from a provider's own thread).
   A load waits for its answer. What a call saved reaches the store before the call's result.
 - **Events** (debug, on the logger `module.<step>` of the step whose module host asked, with the
-  attributes `module`, `pid`, `provider` and `key`): `compiled_models.hit` (with `size`),
-  `compiled_models.miss`, `compiled_models.saved` (with `size` and `evicted`, the entries evicted
-  for it) and `compiled_models.refused` (with `key_size` and `size`). The provider says, at debug
-  through the calling instance's host, whether it compiled a model or loaded it from the store.
+  attributes `praenora.module`, `praenora.pid`, `praenora.provider` and `praenora.key`):
+  `compiled_models.hit` (with `praenora.size`), `compiled_models.miss`, `compiled_models.saved`
+  (with `praenora.size` and `praenora.evicted`, the entries evicted for it) and
+  `compiled_models.refused` (with `praenora.key_size` and `praenora.size`). The provider says, at
+  debug through the calling instance's host, whether it compiled a model or loaded it from the
+  store.
 - **Protocol.** A store request from the module host of a step that does not share, one that names
   no provider of the load, one whose key or entry is over its limit, and a notice that refuses an
   entry within the limits, break the channel's protocol ([Crashes](#crashes), reason `protocol`).
@@ -561,16 +564,18 @@ taken (it stopped reading its channel, or takes it slowly) cannot be passed on: 
 which has not begun the call, is killed within a slice of 5 ms (event `module_host.terminated`),
 and the call ends cancelled, so the run ends as `stopped`. The module's instance went with the
 module host: the teardown calls neither its `finalize` nor its `destroy`, and reports no failure;
-a warning (event `teardown.skipped`, with the step, the module and the instance's `state`) says
-that it "is neither finalized nor destroyed: its module host was ended when a stop came before it
-had taken a call", the step ends `destroyed`, and the run's health does not change for it.
+a warning (event `teardown.skipped`, with the step, the module and the instance's state,
+`praenora.state`) says that it "is neither finalized nor destroyed: its module host was ended when a
+stop came before it had taken a call", the step ends `destroyed`, and the run's health does not
+change for it.
 
 A load has no timeout of its own, in a module host as in the runtime's process. A stop that comes
 while a module host starts (its handshake) or loads the step's module, for example in a static
 initializer that never returns, kills that module host and waits for it (event
-`module_host.terminated`, with its `module` and `pid`; a module host stopped during its handshake
-was never announced as started, so no `module_host.started` comes before it); the run then ends
-as `stopped` (`RUN_STOPPED`). A stop requested before the step's load starts no module host.
+`module_host.terminated`, with its `praenora.module` and `praenora.pid`; a module host stopped
+during its handshake was never announced as started, so no `module_host.started` comes before it);
+the run then ends as `stopped` (`RUN_STOPPED`). A stop requested before the step's load starts no
+module host.
 
 ## Platforms
 

@@ -301,8 +301,9 @@ void Engine::start_run() {
     const std::int64_t started_at = now_unix_ns();
     metrics_.mark_started(started_at);
     log(LogLevel::info, "run started",
-        {{"event", "run.started"},
-         {"workflow", identity(workflow_.definition->name, workflow_.definition->version)}});
+        {{"praenora.event", "run.started"},
+         {"praenora.workflow",
+          identity(workflow_.definition->name, workflow_.definition->version)}});
     open_output(started_at);
     if (stop_flag_.load()) {
         stop_run(std::nullopt); // a run stopped before it started loads no provider either
@@ -361,7 +362,7 @@ void Engine::open_output(std::int64_t started_at) {
         }
     } else if (workflow_.config.trace_messages) {
         log(LogLevel::warn, "no message trace is written: the run has no output directory",
-            {{"event", "trace.skipped"}});
+            {{"praenora.event", "trace.skipped"}});
     }
 }
 
@@ -476,7 +477,9 @@ bool Engine::start_step(Step& step) {
         return false;
     }
     log(LogLevel::debug, "step '" + resolved.id + "' is ready",
-        {{"event", "step.ready"}, {"step", resolved.id}, {"module", step.module}});
+        {{"praenora.event", "step.ready"},
+         {"praenora.step", resolved.id},
+         {"praenora.module", step.module}});
     return true;
 }
 
@@ -646,10 +649,10 @@ TickResult Engine::tick_once() {
     ticks_completed_.store(tick + 1);
     metrics_.record_tick(tick, window_end, duration);
     log(LogLevel::debug, "tick " + std::to_string(tick) + " completed",
-        {{"event", "tick.completed"},
-         {"tick", tick},
-         {"logical_time", window_end},
-         {"duration_ns", duration.count()}});
+        {{"praenora.event", "tick.completed"},
+         {"praenora.tick", tick},
+         {"praenora.logical_time", window_end},
+         {"praenora.duration_ns", duration.count()}});
     update_end_reached();
     if (end_reached_.load()) {
         complete_run();
@@ -736,11 +739,11 @@ bool Engine::run_step(Step& step, std::uint64_t tick, double logical_time,
         messages[source.to_string()] = std::move(envelope);
     }
     log(LogLevel::debug, "invocation completed",
-        {{"event", "invocation.completed"},
-         {"tick", tick},
-         {"step", resolved.id},
-         {"module", step.module},
-         {"duration_ns", result.duration.count()}});
+        {{"praenora.event", "invocation.completed"},
+         {"praenora.tick", tick},
+         {"praenora.step", resolved.id},
+         {"praenora.module", step.module},
+         {"praenora.duration_ns", result.duration.count()}});
     return true;
 }
 
@@ -883,7 +886,8 @@ Error Engine::fail(const Error& error, const Failure& failure) {
         sync_step_state(*failure.step);
     }
     log(LogLevel::error, std::string("run failed: ") + error.what(),
-        {{"event", "run.failed"}, {"code", std::string(error_code_info(error.code()).name)}});
+        {{"praenora.event", "run.failed"},
+         {"praenora.code", std::string(error_code_info(error.code()).name)}});
     if (const auto problem = finish(WorkflowState::failed, std::move(record))) {
         log(LogLevel::error, std::string("while ending the failed run: ") + problem->what());
     }
@@ -899,7 +903,7 @@ void Engine::stop_run(std::optional<std::uint64_t> tick) {
     record.at_unix_ns = now_unix_ns();
     log(LogLevel::info,
         record.message + " after " + std::to_string(ticks_completed_.load()) + " tick(s)",
-        {{"event", "run.stopped"}});
+        {{"praenora.event", "run.stopped"}});
     if (auto problem = finish(WorkflowState::stopped, std::move(record))) {
         throw *problem;
     }
@@ -908,7 +912,7 @@ void Engine::stop_run(std::optional<std::uint64_t> tick) {
 void Engine::complete_run() {
     log(LogLevel::info,
         "run completed after " + std::to_string(ticks_completed_.load()) + " tick(s)",
-        {{"event", "run.completed"}});
+        {{"praenora.event", "run.completed"}});
     if (auto problem = finish(WorkflowState::completed, std::nullopt)) {
         throw *problem;
     }
@@ -955,7 +959,7 @@ std::optional<Error> Engine::finish(WorkflowState final_state, std::optional<Err
             }
         }
         const auto turn_into_failure = [&](const Error& e) {
-            log(LogLevel::error, e.what(), {{"event", "run.output_failed"}});
+            log(LogLevel::error, e.what(), {{"praenora.event", "run.output_failed"}});
             metrics_.set_last_error(record_of(e, std::nullopt));
             if (final_state != WorkflowState::failed) {
                 final_state = WorkflowState::failed;
@@ -1040,7 +1044,7 @@ std::optional<Error> Engine::finish(WorkflowState final_state, std::optional<Err
         try {
             metrics_.set_workflow_state(WorkflowState::failed);
             if (problem) {
-                log(LogLevel::error, problem->what(), {{"event", "run.failed"}});
+                log(LogLevel::error, problem->what(), {{"praenora.event", "run.failed"}});
             }
             if (run_error) {
                 metrics_.set_last_error(*run_error);
@@ -1112,10 +1116,10 @@ void Engine::teardown() noexcept {
                     "step '" + id + "' (module " + step.module + ") " + left_undone(*was) +
                         ": its module host was ended when a stop came before it had taken a "
                         "call, and the instance went with it",
-                    {{"event", "teardown.skipped"},
-                     {"step", id},
-                     {"module", step.module},
-                     {"state", to_string(*was)}});
+                    {{"praenora.event", "teardown.skipped"},
+                     {"praenora.step", id},
+                     {"praenora.module", step.module},
+                     {"praenora.state", to_string(*was)}});
             } catch (...) {
                 // Out of memory while building the warning; the instance is gone all the same.
             }
@@ -1143,11 +1147,13 @@ void Engine::teardown() noexcept {
                 }
                 metrics_.set_step_error(step.resolved->id, std::move(record));
                 log(LogLevel::warn, error.what(),
-                    {{"event", "teardown.finalize_failed"}, {"step", step.resolved->id}});
+                    {{"praenora.event", "teardown.finalize_failed"},
+                     {"praenora.step", step.resolved->id}});
             }
         } catch (const std::exception& e) {
             log(LogLevel::warn, "step '" + step.resolved->id + "': finalize: " + e.what(),
-                {{"event", "teardown.finalize_failed"}, {"step", step.resolved->id}});
+                {{"praenora.event", "teardown.finalize_failed"},
+                 {"praenora.step", step.resolved->id}});
         }
         sync_step_state(step);
     }
@@ -1178,10 +1184,12 @@ void Engine::teardown() noexcept {
                 const Error error = call_error(*it, "destroy", result, std::nullopt);
                 metrics_.set_step_error(it->resolved->id, teardown_record_of(error, "destroy"));
                 log(LogLevel::warn, error.what(),
-                    {{"event", "teardown.destroy_failed"}, {"step", it->resolved->id}});
+                    {{"praenora.event", "teardown.destroy_failed"},
+                     {"praenora.step", it->resolved->id}});
             } catch (const std::exception& e) {
                 log(LogLevel::warn, "step '" + it->resolved->id + "': destroy: " + e.what(),
-                    {{"event", "teardown.destroy_failed"}, {"step", it->resolved->id}});
+                    {{"praenora.event", "teardown.destroy_failed"},
+                     {"praenora.step", it->resolved->id}});
             }
         }
         sync_step_state(*it);
@@ -1196,10 +1204,10 @@ void Engine::teardown() noexcept {
                 log(LogLevel::warn,
                     "step '" + id + "' (module " + it->module + ") " + left_undone(state) + ": " +
                         refusal_reason(*it->kept),
-                    {{"event", "teardown.skipped"},
-                     {"step", id},
-                     {"module", it->module},
-                     {"state", to_string(state)}});
+                    {{"praenora.event", "teardown.skipped"},
+                     {"praenora.step", id},
+                     {"praenora.module", it->module},
+                     {"praenora.state", to_string(state)}});
             } catch (...) {
                 // Out of memory while building the warning; the instance is kept all the same.
             }
@@ -1340,7 +1348,7 @@ void Engine::log(LogLevel level, const std::string& message,
                  std::vector<LogAttribute> attributes) const noexcept {
     try {
         attributes.insert(attributes.begin(),
-                          LogAttribute{"run.fingerprint", workflow_.fingerprint});
+                          LogAttribute{"praenora.run.fingerprint", workflow_.fingerprint});
         log_event(*logger_, level, message, attributes);
     } catch (...) {
         // The message is lost.

@@ -14,6 +14,7 @@
 #include <nlohmann/json.hpp>
 
 #include <chrono>
+#include <cstdint>
 #include <filesystem>
 #include <memory>
 #include <optional>
@@ -63,13 +64,22 @@ Workflow::Impl::Impl(std::shared_ptr<const detail::RuntimeContext> runtime_conte
     directories.modules = workflow.module_search_paths;
     directories.providers = context->providers.scanned_search_paths();
     directories.home = detail::home_directory();
-    const auto anchors = std::make_shared<const detail::PathAnchors>(directories);
+    anchors = std::make_shared<const detail::PathAnchors>(directories);
     // Nothing that can fail may run after an earlier run is removed: refuse it first, without
     // changing anything; remove it (with overwrite) only after the log hub and the engine exist.
     if (output_path) {
         detail::check_output_dir(*output_path, overwrite);
     }
     logs = std::make_unique<detail::LogHub>(logging);
+    // The OTLP export of the run's records, with the run's attributes: added before the engine,
+    // so that it has every record of the run.
+    const std::int64_t opened_at = detail::now_unix_ns();
+    if (context->exporter) {
+        telemetry_run = std::make_shared<detail::OtlpRun>(workflow.fingerprint);
+        if (const auto sink = context->exporter->log_sink(telemetry_run)) {
+            logs->add_sink(sink);
+        }
+    }
 
     detail::EngineSettings settings;
     settings.logs = logs.get();
@@ -83,6 +93,12 @@ Workflow::Impl::Impl(std::shared_ptr<const detail::RuntimeContext> runtime_conte
         }
     };
     engine = std::make_unique<detail::Engine>(std::move(workflow), std::move(settings));
+    if (context->exporter) {
+        // Exported from now on, once Runtime::open() has set the run's number; its snapshots are
+        // the short copies that status() takes.
+        telemetry = context->exporter->add_run(
+            telemetry_run, [this] { return metrics.snapshot(); }, opened_at);
+    }
     if (output_path) {
         detail::prepare_output_dir(*output_path, overwrite);
     }
@@ -90,13 +106,9 @@ Workflow::Impl::Impl(std::shared_ptr<const detail::RuntimeContext> runtime_conte
     if (status_path) {
         status_file = std::make_unique<detail::StatusFileWriter>(
             *status_path, status_interval,
-            [this, anchors] {
-                // Written for others to read: its error records name the run's directories by
-                // their placeholders. status() and status_json() keep the absolute paths.
-                nlohmann::json snapshot = detail::status_snapshot_json(metrics.snapshot());
-                anchors->apply_to_status_snapshot(snapshot);
-                return snapshot.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
-            },
+            // Written for others to read: its error records name the run's directories by their
+            // placeholders. status() and status_json() keep the absolute paths.
+            [this] { return status_document(PathForm::placeholders); },
             [this](const Error& error) {
                 // A write that failed degrades the run's health.
                 metrics.set_last_error(
@@ -118,6 +130,15 @@ void Workflow::Impl::keep_failure(const Error& error) {
     if (!failure && engine->state() == WorkflowState::failed) {
         failure = error;
     }
+}
+
+std::string Workflow::Impl::status_document(PathForm form) const {
+    nlohmann::json snapshot = detail::status_snapshot_json(metrics.snapshot());
+    if (form == PathForm::placeholders) {
+        anchors->apply_to_status_snapshot(snapshot);
+    }
+    // Messages may come from modules: bytes that are not UTF-8 are replaced, not refused.
+    return snapshot.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
 }
 
 Workflow::Workflow(std::unique_ptr<Impl> impl) : impl_(std::move(impl)) {}
@@ -225,6 +246,9 @@ void Workflow::close() noexcept {
         // may reach it.
         impl.status_target.store(nullptr);
         impl.status_file.reset();
+        // The final state, and the records queued so far, go to the OTLP export soon, on the
+        // exporter's thread; close() does not wait for them.
+        impl.telemetry.finish();
     }
     impl.busy.store(false);
 }
@@ -233,7 +257,9 @@ WorkflowState Workflow::state() const noexcept { return impl_->engine->state(); 
 
 StatusSnapshot Workflow::status() const { return impl_->metrics.snapshot(); }
 
-std::string Workflow::status_json() const { return status().to_json(); }
+std::string Workflow::status_json() const { return status_json(PathForm::absolute); }
+
+std::string Workflow::status_json(PathForm form) const { return impl_->status_document(form); }
 
 std::string Workflow::metrics_json() const {
     return detail::metrics_json(impl_->metrics.snapshot());
@@ -250,5 +276,7 @@ std::string Workflow::run_record_json() const {
 const std::string& Workflow::fingerprint() const noexcept { return impl_->engine->fingerprint(); }
 
 const std::string& Workflow::output_dir() const noexcept { return impl_->output_dir; }
+
+std::uint64_t Workflow::run_number() const noexcept { return impl_->run_number; }
 
 } // namespace praenora

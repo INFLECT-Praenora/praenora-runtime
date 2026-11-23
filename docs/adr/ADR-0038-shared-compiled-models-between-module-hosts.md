@@ -173,6 +173,9 @@ The specification is [process-isolation.md](../specs/process-isolation.md#shared
   (with the loader, in the fake's own process) and then stop reading. The
   store belongs to the test's process, so the tests use keys and model texts no earlier test of the
   process used, and pass in one process and repeated.
+- Later: [ADR-0043](ADR-0043-otlp-export-of-metrics-and-logs.md) gives the attribute keys of the
+  logs the prefix `praenora.`: the events of the store carry `praenora.module`, `praenora.pid`,
+  `praenora.provider`, `praenora.key`, `praenora.size`, `praenora.evicted` and `praenora.key_size`.
 
 ## Alternatives considered
 

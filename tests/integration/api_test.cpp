@@ -1,8 +1,9 @@
 // The public C++ API (praenora/runtime/runtime.hpp and workflow.hpp), through the shared library
 // only: version facts, validation reports, opening a workflow, listing and inspecting modules, the
-// workflow's states, concurrent control calls and closing, and the placeholders that the files of
-// a failed run name its directories by. The workflows and modules are the test catalog's and the
-// fixture modules (tests/fixtures/catalog and tests/fixtures/modules).
+// workflow's states, concurrent control calls and closing, the placeholders that the files of a
+// failed run name its directories by, the status in either path form, run numbers and the empty
+// status-file override. The workflows and modules are the test catalog's and the fixture modules
+// (tests/fixtures/catalog and tests/fixtures/modules).
 #include <praenora/runtime/error.hpp>
 #include <praenora/runtime/options.hpp>
 #include <praenora/runtime/runtime.hpp>
@@ -50,6 +51,7 @@ using praenora::ErrorCode;
 using praenora::LogFormat;
 using praenora::LogLevel;
 using praenora::ModuleInfo;
+using praenora::PathForm;
 using praenora::RunSummary;
 using praenora::Runtime;
 using praenora::RuntimeOptions;
@@ -1068,15 +1070,16 @@ TEST(Api, LoggingResolvesEachSettingOnItsOwn) {
     EXPECT_EQ(ready.at("attributes").at("logger"), "praenora.runtime") << runtime_log;
     // It names the search paths, the caller's first, and counts what the indexes hold.
     const json& attributes = ready.at("attributes");
-    EXPECT_EQ(attributes.at("module_search_paths").at(0),
+    EXPECT_EQ(attributes.at("praenora.event"), "runtime.ready") << runtime_log;
+    EXPECT_EQ(attributes.at("praenora.module_search_paths").at(0),
               utf8(praenora::test::utf8_path(PRAENORA_TEST_MODULES_DIR).lexically_normal()))
         << runtime_log;
-    EXPECT_EQ(attributes.at("provider_search_paths").at(0),
+    EXPECT_EQ(attributes.at("praenora.provider_search_paths").at(0),
               utf8((dir.path() / "providers").lexically_normal()))
         << runtime_log;
-    EXPECT_TRUE(attributes.at("modules").is_number_unsigned()) << runtime_log;
-    EXPECT_TRUE(attributes.at("providers").is_number_unsigned()) << runtime_log;
-    EXPECT_TRUE(attributes.at("catalog_entries").is_number_unsigned()) << runtime_log;
+    EXPECT_TRUE(attributes.at("praenora.modules").is_number_unsigned()) << runtime_log;
+    EXPECT_TRUE(attributes.at("praenora.providers").is_number_unsigned()) << runtime_log;
+    EXPECT_TRUE(attributes.at("praenora.catalog_entries").is_number_unsigned()) << runtime_log;
     {
         const ScopedEnvironment debug("PRAENORA_LOG_LEVEL", std::string("debug"));
         own.use_environment = false;
@@ -1919,4 +1922,160 @@ TEST(Api, RunRecordNamesTheConfigurationDirectory_WhenTheStatusFileCannotBeWritt
                       directory_forms({dir.path(), config_dir, out,
                                        praenora::test::utf8_path(PRAENORA_TEST_MODULES_DIR)}));
     EXPECT_FALSE(contains(record.dump(), "<home>")) << record.dump();
+}
+
+// The two forms of a run's status: status_json(PathForm::placeholders) is the status file's
+// document, its error records naming the run's directories by placeholders, but for the moment it
+// was generated; status_json() and status_json(PathForm::absolute) keep the absolute paths.
+TEST(Workflow, StatusJsonPlaceholdersMatchesStatusFile) {
+    ScratchDir dir;
+    const ScopedEnvironment home("HOME", utf8(dir.path()));
+    // A file where the run's outputs directory goes: the run fails with an error that names the
+    // output directory.
+    const fs::path out = dir.path() / "out";
+    write_text_file(out / "outputs", "a file, not a directory\n");
+    const Runtime runtime(fixture_options());
+    const fs::path config_dir = dir.path() / "config";
+    const fs::path status_file = dir.path() / "status" / "status.json";
+    WorkflowOptions options;
+    options.output_dir = utf8(out);
+    options.status_file = utf8(status_file);
+    const auto workflow = runtime.open(
+        write_config(config_dir, "test.single", "run: { ticks: 1 }\n", step("a", "fx-echo")),
+        options);
+    const Error error = error_of([&] { workflow->run(); });
+    ASSERT_EQ(error.code(), ErrorCode::IO_ERROR) << error.to_json();
+    // The status file is written for the last time when the workflow is closed; the snapshots
+    // taken after that show the same final state.
+    workflow->close();
+
+    json from_file = json::parse(Runtime::read_status_file(utf8(status_file)));
+    json placeholders = json::parse(workflow->status_json(PathForm::placeholders));
+    json absolute = json::parse(workflow->status_json(PathForm::absolute));
+    json plain = json::parse(workflow->status_json());
+    for (json* document : {&from_file, &placeholders, &absolute, &plain}) {
+        ASSERT_TRUE(document->contains("generated_at")) << document->dump();
+        document->erase("generated_at");
+    }
+    EXPECT_EQ(placeholders, from_file);
+    EXPECT_EQ(plain, absolute);
+
+    const std::string outputs = named_path("<output>", out, out / "outputs");
+    const json& named = placeholders.at("workflow").at("last_error");
+    EXPECT_EQ(named.at("name"), "IO_ERROR");
+    EXPECT_EQ(named.at("location").at("file"), outputs);
+    EXPECT_TRUE(contains(named.at("message").get<std::string>(), "'" + outputs + "'"))
+        << named.dump();
+    const std::vector<std::string> forms =
+        directory_forms({dir.path(), config_dir, out, status_file.parent_path(),
+                         praenora::test::utf8_path(PRAENORA_TEST_MODULES_DIR)});
+    expect_names_none(placeholders, forms);
+
+    const json& kept = absolute.at("workflow").at("last_error");
+    EXPECT_EQ(kept.at("location").at("file"), utf8(out / "outputs"));
+    EXPECT_TRUE(contains(kept.at("message").get<std::string>(), "'" + utf8(out / "outputs") + "'"))
+        << kept.dump();
+    // Only the error records differ.
+    json without_errors = absolute;
+    without_errors["workflow"]["last_error"] = placeholders.at("workflow").at("last_error");
+    for (std::size_t i = 0; i < without_errors.at("steps").size(); ++i) {
+        without_errors["steps"][i]["last_error"] = placeholders.at("steps").at(i).at("last_error");
+    }
+    EXPECT_EQ(without_errors, placeholders);
+}
+
+// The workflows that a Runtime and its copies open are numbered 1, 2, 3, ... in one sequence, also
+// when copies open them at once from several threads; an open() that fails takes no number, and a
+// Runtime constructed on its own starts again at 1.
+TEST(Workflow, RunNumbersCountOpensAcrossRuntimeCopies) {
+    ScratchDir dir;
+    const Runtime runtime(fixture_options());
+    const std::string config = write_config(dir.path() / "config", "test.single",
+                                            "run: { ticks: 1 }\n", step("a", "fx-echo"));
+    const auto first = runtime.open(config);
+    EXPECT_EQ(first->run_number(), 1u);
+    // The copies are what is tested.
+    const Runtime copy = runtime; // NOLINT(performance-unnecessary-copy-initialization)
+    const auto second = copy.open(config);
+    EXPECT_EQ(second->run_number(), 2u);
+
+    // A configuration that cannot be read, and one whose output directory holds an earlier run
+    // (refused after validation, while the run is prepared): no number is taken.
+    EXPECT_EQ(error_of([&] { (void)runtime.open(utf8(dir.path() / "missing.yaml")); }).code(),
+              ErrorCode::IO_ERROR);
+    const fs::path earlier = dir.path() / "earlier run";
+    write_text_file(earlier / "run-record.json", "{}\n");
+    WorkflowOptions refused;
+    refused.output_dir = utf8(earlier);
+    EXPECT_EQ(error_of([&] { (void)copy.open(config, refused); }).code(), ErrorCode::IO_ERROR);
+
+    Runtime assigned(fixture_options());
+    assigned = copy;
+    const auto third = assigned.open(config);
+    EXPECT_EQ(third->run_number(), 3u);
+    first->close();
+    EXPECT_EQ(first->run_number(), 1u) << "a closed workflow keeps its number";
+
+    // Copies opening at once take distinct numbers, and leave none out.
+    constexpr int kThreads = 4;
+    constexpr int kOpensPerThread = 2;
+    std::vector<std::vector<std::uint64_t>> taken(kThreads);
+    std::vector<std::thread> threads;
+    for (int t = 0; t < kThreads; ++t) {
+        threads.emplace_back([&runtime, &config, &mine = taken[static_cast<std::size_t>(t)]] {
+            const Runtime own = runtime; // NOLINT(performance-unnecessary-copy-initialization)
+            for (int i = 0; i < kOpensPerThread; ++i) {
+                mine.push_back(own.open(config)->run_number());
+            }
+        });
+    }
+    for (std::thread& thread : threads) {
+        thread.join();
+    }
+    std::vector<std::uint64_t> numbers;
+    for (const auto& list : taken) {
+        numbers.insert(numbers.end(), list.begin(), list.end());
+    }
+    std::sort(numbers.begin(), numbers.end());
+    std::vector<std::uint64_t> expected;
+    for (std::uint64_t n = 4; n < 4 + kThreads * kOpensPerThread; ++n) {
+        expected.push_back(n);
+    }
+    EXPECT_EQ(numbers, expected);
+    EXPECT_EQ(runtime.open(config)->run_number(), 4u + kThreads * kOpensPerThread);
+
+    const Runtime other(fixture_options());
+    EXPECT_EQ(other.open(config)->run_number(), 1u);
+}
+
+// A configuration that names a status file, with an empty status-file override: the run keeps no
+// status file, as it would without the configuration's.
+TEST(WorkflowConfig, EmptyStatusFileOverrideMeansNone) {
+    ScratchDir dir;
+    const Runtime runtime(fixture_options());
+    const fs::path config_dir = dir.path() / "config";
+    const std::string config =
+        write_config(config_dir, "test.single", "run: { ticks: 1 }\n", step("a", "fx-echo"),
+                     "observability: { status_file: status.json }\n");
+    const fs::path status_file = config_dir / "status.json";
+    // Without the override, the configuration's status file is kept.
+    {
+        const auto workflow = runtime.open(config);
+        EXPECT_EQ(workflow->run().final_state, WorkflowState::completed);
+    }
+    ASSERT_TRUE(fs::is_regular_file(status_file));
+    fs::remove(status_file);
+
+    WorkflowOptions options;
+    options.status_file = "";
+    const auto workflow = runtime.open(config, options);
+    EXPECT_EQ(workflow->run().final_state, WorkflowState::completed);
+    workflow->close();
+    EXPECT_FALSE(fs::exists(status_file));
+    std::vector<std::string> names;
+    for (const auto& entry : fs::directory_iterator(config_dir)) {
+        names.push_back(utf8(entry.path().filename()));
+    }
+    std::sort(names.begin(), names.end());
+    EXPECT_EQ(names, (std::vector<std::string>{"source.json", "workflow.yaml"}));
 }

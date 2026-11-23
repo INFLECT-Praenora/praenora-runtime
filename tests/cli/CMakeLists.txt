@@ -93,7 +93,8 @@ function(praenora_add_cli_test name)
     endforeach()
     add_test(NAME ${name}
         COMMAND "${CMAKE_COMMAND}" ${definitions} -P "${_praenora_cli_driver}")
-    set_tests_properties(${name} PROPERTIES LABELS cli)
+    # No OTLP export to a collector that the caller's environment names (tests/CMakeLists.txt).
+    set_tests_properties(${name} PROPERTIES LABELS cli ${_praenora_no_telemetry})
     set(environment ${arg_ENVIRONMENT})
     # As for the GoogleTest tests: AddressSanitizer builds on macOS keep module libraries loaded
     # (tests/CMakeLists.txt says why).
@@ -267,6 +268,33 @@ foreach(_praenora_command IN ITEMS validate run)
             EXPECT_FILE "${_praenora_unicode}/öutput ñ/run-record.json")
     endif()
 endforeach()
+
+# A configuration that keeps a status file beside it, copied with its data into a directory of
+# each test's own: the run writes the file, unless --status-file "" means none, in place of the
+# configuration's (the status command then finds no file: IO_ERROR, exit 74).
+set(_praenora_configured_status "${_praenora_cli_out}/configured-status-file")
+praenora_add_cli_test(cli.run.configured_status_file
+    CLEAN_DIR "${_praenora_configured_status}"
+    COPY_FILES
+        "${_praenora_cli_configs}/status-file/workflow.yaml"
+        "${_praenora_configured_status}/workflow.yaml"
+        "${_praenora_cli_configs}/source.json" "${_praenora_configured_status}/source.json"
+    CMD run "${_praenora_configured_status}/workflow.yaml" ${_praenora_fixture_paths}
+    EXPECT_STDOUT_REGEX "state +completed\n"
+    EXPECT_FILE "${_praenora_configured_status}/status.json"
+    EXPECT_FILE_JSON_PATH kind workflow.state
+    EXPECT_FILE_JSON_VALUE status-snapshot completed)
+set(_praenora_empty_status "${_praenora_cli_out}/empty-status-file")
+praenora_add_cli_test(cli.run.empty_status_file
+    CLEAN_DIR "${_praenora_empty_status}"
+    COPY_FILES
+        "${_praenora_cli_configs}/status-file/workflow.yaml"
+        "${_praenora_empty_status}/workflow.yaml"
+        "${_praenora_cli_configs}/source.json" "${_praenora_empty_status}/source.json"
+    CMD run "${_praenora_empty_status}/workflow.yaml" ${_praenora_fixture_paths} --status-file ""
+    EXPECT_STDOUT_REGEX "state +completed\n"
+    AFTER_CMD status "${_praenora_empty_status}/status.json"
+    AFTER_EXPECT_EXIT 74)
 
 # A missing input file exits 74 from every command.
 set(_praenora_missing "${_praenora_cli_out}/missing")
@@ -542,6 +570,136 @@ praenora_add_cli_test(cli.logging.invalid_environment
     ENVIRONMENT "PRAENORA_LOG_LEVEL=loud"
     EXPECT_EXIT 3
     EXPECT_STDERR_REGEX "PRAENORA_LOG_LEVEL")
+
+# The control API's command lines (praenora serve, run --listen, status --server), refused before
+# anything listens: usage errors (exit 2) for a missing --config-root, host names, a token file
+# that others may read (POSIX), a short token, tokens with a Unix socket, a Unix socket's path over
+# the platform's limit (POSIX; the message names the limit), --max-runs 0, a non-loopback address
+# without a token, the server flags without --listen, --run without --server, and a Unix socket on
+# Windows; and status --server of a socket that does not exist (IO_ERROR, exit 74). Listening
+# itself is tested by the listener tests (label server). The token files are written here, with
+# their modes.
+set(_praenora_cli_tokens "${CMAKE_CURRENT_BINARY_DIR}/tokens")
+set(_praenora_cli_token "cli-test-token-0123456789abcdefghijklmnop")
+file(MAKE_DIRECTORY "${_praenora_cli_tokens}")
+file(WRITE "${_praenora_cli_tokens}/private.token" "${_praenora_cli_token}\n")
+file(CHMOD "${_praenora_cli_tokens}/private.token" PERMISSIONS OWNER_READ OWNER_WRITE)
+file(WRITE "${_praenora_cli_tokens}/shared.token" "${_praenora_cli_token}\n")
+file(CHMOD "${_praenora_cli_tokens}/shared.token"
+    PERMISSIONS OWNER_READ OWNER_WRITE GROUP_READ WORLD_READ)
+file(WRITE "${_praenora_cli_tokens}/short.token" "short-token\n")
+file(CHMOD "${_praenora_cli_tokens}/short.token" PERMISSIONS OWNER_READ OWNER_WRITE)
+set(_praenora_serve_roots
+    --config-root "${_praenora_cli_configs}" --output-root "${_praenora_cli_out}/serve")
+set(_praenora_slow_config "${_praenora_cli_configs}/interrupted/workflow.yaml")
+
+praenora_add_cli_test(cli.usage.tool_help_lists_serve
+    CMD --help
+    EXPECT_STDOUT_REGEX "\n  serve --listen ADDR +serve the control API")
+praenora_add_cli_test(cli.usage.tool_help_lists_status_server
+    CMD --help
+    EXPECT_STDOUT_REGEX "\n  status --server ADDR +the runs of a server")
+praenora_add_cli_test(cli.serve.help
+    CMD serve --help
+    EXPECT_STDOUT_REGEX "^usage: praenora serve --listen ADDR --config-root D --output-root D\n")
+praenora_add_cli_test(cli.status.help_lists_server
+    CMD status --help
+    EXPECT_STDOUT_REGEX "\n +praenora status --server ADDR \\[--run ID\\] \\[--token-file F\\]\n")
+praenora_add_cli_test(cli.run.help_lists_listen
+    CMD run --help
+    EXPECT_STDOUT_REGEX "\n  --listen ADDR +")
+praenora_add_cli_test(cli.serve.needs_config_root
+    CMD serve --listen 127.0.0.1:0 --output-root "${_praenora_cli_out}/serve"
+    EXPECT_EXIT 2
+    EXPECT_STDERR_REGEX "^praenora: serve needs --config-root D\n\nusage: praenora serve")
+praenora_add_cli_test(cli.serve.takes_no_positional_argument
+    CMD serve extra --listen 127.0.0.1:0 ${_praenora_serve_roots}
+    EXPECT_EXIT 2
+    EXPECT_STDERR_REGEX "serve takes no positional argument")
+praenora_add_cli_test(cli.serve.host_name_refused
+    CMD serve --listen example.com:80 ${_praenora_serve_roots} --json
+    EXPECT_EXIT 2
+    EXPECT_JSON_PATH ok error.name
+    EXPECT_JSON_VALUE false INVALID_ARGUMENT
+    EXPECT_STDERR_REGEX "listen address 'example\\.com:80': ")
+praenora_add_cli_test(cli.run.listen_host_name_refused
+    CMD run "${_praenora_slow_config}" ${_praenora_fixture_paths} --listen localhost:0
+    EXPECT_EXIT 2
+    EXPECT_STDERR_REGEX "listen address 'localhost:0': ")
+praenora_add_cli_test(cli.serve.max_runs_zero
+    CMD serve --listen 127.0.0.1:0 ${_praenora_serve_roots} --max-runs 0
+    EXPECT_EXIT 2
+    EXPECT_STDERR_REGEX "--max-runs must be at least 1")
+praenora_add_cli_test(cli.serve.non_loopback_needs_a_token
+    CMD serve --listen 192.0.2.1:0 ${_praenora_serve_roots}
+    EXPECT_EXIT 2
+    EXPECT_STDERR_REGEX "not a loopback address, needs --token-file or --read-token-file")
+praenora_add_cli_test(cli.serve.short_token
+    CMD serve --listen 127.0.0.1:0 ${_praenora_serve_roots}
+        --token-file "${_praenora_cli_tokens}/short.token"
+    EXPECT_EXIT 2
+    EXPECT_STDERR_REGEX "short\\.token': its first line must hold a token of at least 32")
+praenora_add_cli_test(cli.serve.config_root_not_a_directory
+    CMD serve --listen 127.0.0.1:0 --config-root "${_praenora_cli_out}/no-such-root"
+        --output-root "${_praenora_cli_out}/serve"
+    EXPECT_EXIT 2
+    EXPECT_STDERR_REGEX "--config-root '[^']*no-such-root' is not a directory")
+praenora_add_cli_test(cli.run.server_flags_need_listen
+    CMD run "${_praenora_slow_config}" ${_praenora_fixture_paths}
+        --token-file "${_praenora_cli_tokens}/private.token"
+    EXPECT_EXIT 2
+    EXPECT_STDERR_REGEX "--token-file needs --listen")
+praenora_add_cli_test(cli.status.run_needs_server
+    CMD status --run 1
+    EXPECT_EXIT 2
+    EXPECT_STDERR_REGEX "--run needs --server")
+praenora_add_cli_test(cli.status.file_or_server
+    CMD status "${_praenora_cli_out}/status.json" --server 127.0.0.1:1
+    EXPECT_EXIT 2
+    EXPECT_STDERR_REGEX "status takes a status file or --server, not both")
+praenora_add_cli_test(cli.status.server_host_name_refused
+    CMD status --server example.com:80
+    EXPECT_EXIT 2
+    EXPECT_STDERR_REGEX "listen address 'example\\.com:80': ")
+praenora_add_cli_test(cli.status.server_run_id
+    CMD status --server 127.0.0.1:1 --run 01
+    EXPECT_EXIT 2
+    EXPECT_STDERR_REGEX "--run '01' is not a run id")
+if(WIN32)
+    praenora_add_cli_test(cli.serve.unix_socket_unsupported
+        CMD serve --listen unix:praenora.sock ${_praenora_serve_roots}
+        EXPECT_EXIT 2
+        EXPECT_STDERR_REGEX "Unix sockets are not supported on Windows")
+else()
+    praenora_add_cli_test(cli.serve.token_file_shared
+        CMD serve --listen 127.0.0.1:0 ${_praenora_serve_roots}
+            --token-file "${_praenora_cli_tokens}/shared.token"
+        EXPECT_EXIT 2
+        EXPECT_STDERR_REGEX "shared\\.token': group or others may read or write it")
+    # Unix sockets by short relative paths, from this directory of the build tree: an absolute
+    # path below a deep build tree may exceed sun_path. None of them is ever made.
+    set(_praenora_cli_sockets "${CMAKE_CURRENT_BINARY_DIR}")
+    praenora_add_cli_test(cli.serve.tokens_with_unix_socket
+        CMD serve --listen unix:s.sock ${_praenora_serve_roots}
+            --token-file "${_praenora_cli_tokens}/private.token"
+        EXPECT_EXIT 2
+        EXPECT_STDERR_REGEX "refused with a Unix socket listener")
+    set_tests_properties(cli.serve.tokens_with_unix_socket
+        PROPERTIES WORKING_DIRECTORY "${_praenora_cli_sockets}")
+    # 300 bytes: beyond every platform's sun_path.
+    string(REPEAT "x" 300 _praenora_long_name)
+    praenora_add_cli_test(cli.serve.unix_path_too_long
+        CMD serve --listen "unix:${CMAKE_CURRENT_BINARY_DIR}/${_praenora_long_name}"
+            ${_praenora_serve_roots}
+        EXPECT_EXIT 2
+        EXPECT_STDERR_REGEX "a Unix socket's path holds at most [0-9]+ bytes on this platform")
+    praenora_add_cli_test(cli.status.server_unreachable
+        CMD status --server unix:none.sock
+        EXPECT_EXIT 74
+        EXPECT_STDERR_REGEX "error\\[IO_ERROR\\]: the control API at unix:none\\.sock")
+    set_tests_properties(cli.status.server_unreachable
+        PROPERTIES WORKING_DIRECTORY "${_praenora_cli_sockets}")
+endif()
 
 if(PRAENORA_BUILD_EXAMPLES)
     set(_praenora_example_modules --module-path "${PRAENORA_EXAMPLE_MODULES_DIR}")

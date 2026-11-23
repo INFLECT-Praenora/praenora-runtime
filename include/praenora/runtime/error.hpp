@@ -74,6 +74,8 @@ enum class ErrorCode : std::int32_t {
     MODULE_CRASHED = 706,
     TARGET_DATA_INVALID = 800,
     TARGET_DATA_UNAVAILABLE = 801,
+    UNAUTHENTICATED = 900,
+    PERMISSION_DENIED = 901,
 };
 
 // The kind of failure a code stands for. The category determines the CLI exit code: usage 2,

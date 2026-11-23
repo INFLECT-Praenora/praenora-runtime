@@ -10,27 +10,31 @@
 ## Guides
 
 - [architecture.md](architecture.md): components, data flow, the life of a run and of a module
-  instance, threads (Mermaid diagrams), and the security rules.
+  instance, threads (Mermaid diagrams), module hosts, service providers, the control API and the
+  OTLP export, and the security rules.
 - [user-guide.md](user-guide.md): getting the tool, the CLI's commands, running the example
-  workflow, process isolation, the files a run writes, status, stopping, logging, troubleshooting.
+  workflow, process isolation, the files a run writes, status, stopping, watching and running over
+  HTTP (`run --listen`, `serve`, `status --server`), logging and the OTLP export, troubleshooting.
 - [configuration.md](configuration.md): the workflow configuration reference: every section and
   key, input sources, durations, paths, isolation (module hosts, shared compiled models, the
-  restricted sandbox profile), overrides, environment variables, validation.
-- [developer-guide.md](developer-guide.md): dependencies, presets, building, installing and
-  archiving, debugging modules (in module hosts too), keeping libraries loaded, message tracing,
-  logging, sanitizer builds, adding a module locally, conventions and the ADR process.
+  restricted sandbox profile), overrides, environment variables (the `OTEL_*` variables of the
+  OTLP export too), validation.
+- [developer-guide.md](developer-guide.md): dependencies (cpp-httplib among them), presets,
+  building, installing and archiving, debugging modules (in module hosts too), keeping libraries
+  loaded, message tracing, logging, sanitizer builds, adding a module locally, conventions and the
+  ADR process.
 - [module-developer-guide.md](module-developer-guide.md): writing a module: the SDK, ABI rules, the
   C++ adapter, the manifest, `praenora_add_module()`, the test kit, test vectors, the contract
   checks, a module in a module host and under the restricted sandbox profile, determinism and
   portability, versioning.
-- [testing.md](testing.md): running the tests and their labels, module hosts and nested sandboxes,
-  sanitizer builds, golden files, triage by label and error code, the module acceptance gate,
-  adding tests.
-- [python.md](python.md): the Python API, process isolation, its errors, threads and logging,
-  building the bindings, the tests and the wheel (which holds no module host).
-- [platforms.md](platforms.md): macOS, Linux and Windows: dependencies, presets, run paths, DLL
-  search, code signing, the module host and the restricted sandbox profile, and what is verified
-  where.
+- [testing.md](testing.md): running the tests and their labels, the rules of the tests that open
+  local listeners, module hosts and nested sandboxes, sanitizer builds, golden files, triage by
+  label and error code, the module acceptance gate, adding tests.
+- [python.md](python.md): the Python API, process isolation, its errors, threads, logging and the
+  OTLP export, building the bindings, the tests and the wheel (which holds no module host).
+- [platforms.md](platforms.md): macOS, Linux and Windows: dependencies (json-schema-validator and
+  cpp-httplib from source), presets, run paths, DLL search, code signing, the module host and the
+  restricted sandbox profile, the control API's platform differences, and what is verified where.
 - [releasing.md](releasing.md): the GitHub Actions workflow that builds and tests every pull
   request against the pinned dependency bundles, what its runs verified, its jobs and runners,
   raising the pin, the
@@ -69,7 +73,12 @@
 - [specs/time-cancellation-timeouts.md](specs/time-cancellation-timeouts.md): logical time,
   durations, deadlines, cancellation and stop requests.
 - [specs/observability.md](specs/observability.md): logs, metrics, status snapshots, health, the
-  status file and the message trace.
+  status file, the OTLP export of metrics and logs, the Prometheus text of the metrics, and the
+  message trace.
+- [specs/control-api.md](specs/control-api.md): the control and status API over HTTP, its
+  security rules first (listeners, tokens, scopes, the Host check), addresses, run and serve mode
+  and their command lines, routes, run entries and request bodies, HTTP statuses, the OpenAPI
+  document (`spec/openapi/`), the Prometheus text and limits.
 - [specs/reproducibility.md](specs/reproducibility.md): the run fingerprint, canonical JSON, seeds,
   the run record and the output files.
 - [specs/starting-workflow.md](specs/starting-workflow.md): the starting workflow

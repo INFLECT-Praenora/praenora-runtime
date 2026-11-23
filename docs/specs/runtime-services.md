@@ -364,16 +364,16 @@ was never called, checks 5 to 8 run again with the new manifest (they are free o
 `start()`), so a load with a corrected manifest can start it.
 
 **Logging.** A provider's records go to the logger `provider.<name>` of the logs of the load that
-gave it logs last, with the attribute `provider` (`<name>@<version>`): a run's logs when a run loads
-it, the `Runtime`'s logs for `validate --load` and the contract checks. A later load, by the same or
-another `Runtime` or run of the process, takes the provider's records to its logs. When the logs a
-provider writes to go (the `Runtime` or the run that owned them is destroyed), the provider lets go
-of them, sinks and log file included, and its records go nowhere until a later load gives it logs
-again. The first time a provider is loaded and started in the process, the runtime logs the event
-`provider.loaded` (info) on that logger, with the attributes `provider` and `library_sha256`. The
-records of a provider in a module host, `provider.loaded` included, go to the run's logger
-`provider.<name>` (the `Runtime`'s for `validate --load`) with the same levels, attributes and
-messages.
+gave it logs last, with the attribute `praenora.provider` (`<name>@<version>`): a run's logs when a
+run loads it, the `Runtime`'s logs for `validate --load` and the contract checks. A later load, by
+the same or another `Runtime` or run of the process, takes the provider's records to its logs. When
+the logs a provider writes to go (the `Runtime` or the run that owned them is destroyed), the
+provider lets go of them, sinks and log file included, and its records go nowhere until a later load
+gives it logs again. The first time a provider is loaded and started in the process, the runtime
+logs the event `provider.loaded` (info) on that logger, with the attributes `praenora.provider` and
+`praenora.library_sha256`. The records of a provider in a module host, `provider.loaded` included,
+go to the run's logger `provider.<name>` (the `Runtime`'s for `validate --load`) with the same
+levels, attributes and messages.
 
 ## Trust
 

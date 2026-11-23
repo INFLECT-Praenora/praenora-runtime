@@ -137,8 +137,9 @@ struct InstanceOptions {
     std::string caller;
     std::chrono::nanoseconds lifecycle_timeout{std::chrono::seconds(60)},
         invoke_timeout{std::chrono::seconds(300)}, cancel_grace{std::chrono::seconds(5)};
-    // Receives the module's log messages, with the attributes run.fingerprint (when set), tick
-    // (during an invocation), step and module (name@version). Usually the logger module.<step>.
+    // Receives the module's log messages, with the attributes praenora.run.fingerprint (when
+    // set), praenora.tick (during an invocation), praenora.step and praenora.module
+    // (name@version). Usually the logger module.<step>.
     // Without one, messages are dropped and log_enabled() reports 0.
     std::shared_ptr<spdlog::logger> logger;
     // The runtime's built-in services, served through get_service() to every module whatever its
@@ -154,7 +155,7 @@ struct InstanceOptions {
     // PRAENORA_STATUS_RESOURCE_EXHAUSTED.
     std::size_t max_output_bytes = 256u << 20;
     // The run's fingerprint; when set, the module's log messages also carry the attribute
-    // run.fingerprint.
+    // praenora.run.fingerprint.
     std::string run_fingerprint;
     // The caller's stop flag, or NULL; the engine passes the workflow's. A create, initialize or
     // invoke that starts while it is set is stopped at once, as if request_cancel() had come

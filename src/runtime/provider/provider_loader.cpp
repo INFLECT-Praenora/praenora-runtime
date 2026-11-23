@@ -245,8 +245,8 @@ public:
         }
     }
 
-    // The attributes of the provider's records: provider (name@version).
-    std::vector<LogAttribute> attributes() const { return {{"provider", provider_}}; }
+    // The attributes of the provider's records: praenora.provider (name@version).
+    std::vector<LogAttribute> attributes() const { return {{"praenora.provider", provider_}}; }
 
 private:
     // Called when `destroyed` goes: lets go of its logger if the provider still writes to it.
@@ -628,8 +628,8 @@ void ProviderRegistry::start(LoadedProvider& provider, const ProviderManifest& m
     // 7. The event.
     if (const auto logger = provider.host_->logger()) {
         auto attributes = provider.host_->attributes();
-        attributes.push_back({"event", "provider.loaded"});
-        attributes.push_back({"library_sha256", provider.library_sha256_});
+        attributes.push_back({"praenora.event", "provider.loaded"});
+        attributes.push_back({"praenora.library_sha256", provider.library_sha256_});
         log_event(*logger, LogLevel::info, "provider " + identity(manifest) + " loaded and started",
                   attributes);
     }

@@ -974,7 +974,7 @@ bool ChildModule::dispatch_store(Frame& frame, std::string& problem) {
                       describe_key(key) + " of provider " + name +
                           " was found in the shared store (" + std::to_string(entry->size()) +
                           " bytes)",
-                      {{"size", entry->size()}});
+                      {{"praenora.size", entry->size()}});
         } else {
             log_store("compiled_models.miss", *provider, key,
                       describe_key(key) + " of provider " + name + " is not in the shared store",
@@ -1031,13 +1031,13 @@ bool ChildModule::dispatch_store(Frame& frame, std::string& problem) {
                                                    " least recently used evicted"
                                              : std::string()) +
                           ")",
-                      {{"size", size}, {"evicted", saved.evicted}});
+                      {{"praenora.size", size}, {"praenora.evicted", saved.evicted}});
         } else {
             log_store("compiled_models.refused", *provider, key,
                       describe_key(key) + " of provider " + name +
                           " was not saved in the shared store: its " + std::to_string(size) +
                           " bytes do not fit",
-                      {{"key_size", key.size()}, {"size", size}});
+                      {{"praenora.key_size", key.size()}, {"praenora.size", size}});
         }
         return true;
     }
@@ -1071,7 +1071,7 @@ bool ChildModule::dispatch_store(Frame& frame, std::string& problem) {
                                       std::to_string(kMaxCompiledModelKeyBytes)
                                 : "its " + std::to_string(size) + " bytes are over the limit of " +
                                       std::to_string(kMaxCompiledModelBytes)),
-                  {{"key_size", key_size}, {"size", size}});
+                  {{"praenora.key_size", key_size}, {"praenora.size", size}});
         return true;
     }
     default:
@@ -1089,11 +1089,11 @@ void ChildModule::log_store(
         return;
     }
     try {
-        std::vector<LogAttribute> attributes = {{"event", event},
-                                                {"module", module_},
-                                                {"pid", process_->pid()},
-                                                {"provider", provider.manifest->name},
-                                                {"key", std::string(key)}};
+        std::vector<LogAttribute> attributes = {{"praenora.event", event},
+                                                {"praenora.module", module_},
+                                                {"praenora.pid", process_->pid()},
+                                                {"praenora.provider", provider.manifest->name},
+                                                {"praenora.key", std::string(key)}};
         for (const auto& [name, value] : extra) {
             attributes.push_back({name, value});
         }
@@ -1312,7 +1312,9 @@ void ChildModule::log(int level, const std::string& message, const char* event) 
     }
     try {
         log_event(*settings_.logger, log_level_from_abi(level), message,
-                  {{"event", event}, {"module", module_}, {"pid", process_->pid()}});
+                  {{"praenora.event", event},
+                   {"praenora.module", module_},
+                   {"praenora.pid", process_->pid()}});
     } catch (...) {
         // The message is lost.
     }

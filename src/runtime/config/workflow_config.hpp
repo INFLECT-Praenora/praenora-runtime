@@ -144,7 +144,8 @@ struct WorkflowConfig {
 // `overrides` are the caller's settings (CLI flags or API options), which take precedence over
 // the file: seed and ticks (each at most 2^53 - 1, else INVALID_ARGUMENT; the ones applied are
 // noted in WorkflowConfig::overrides), output_dir, trace_messages and status_file (relative paths
-// resolve against the current directory), and isolation, which sets every step's mode (noted in
+// resolve against the current directory; an empty status_file means none, an empty output_dir is
+// INVALID_ARGUMENT), and isolation, which sets every step's mode (noted in
 // WorkflowConfig::overrides too; in-process also turns every step's share_compiled_models off and
 // sets its sandbox to none). The logging overrides are not applied here, because environment
 // variables rank between them and the file; the caller resolves logging.

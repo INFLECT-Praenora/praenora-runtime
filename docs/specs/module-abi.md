@@ -236,7 +236,7 @@ exists; the callbacks are thread-safe and never throw or `longjmp`.
 | `struct_size` | `sizeof(praenora_host_api)` as compiled into the host. A module MUST check that `struct_size` covers a field before it uses the field; a host of a later minor version appends callbacks. |
 | `abi_major`, `abi_minor` | The host's ABI version. A module MAY refuse to create an instance for another major (the C++ adapter returns `PRAENORA_STATUS_UNSUPPORTED`). |
 | `context` | Opaque and per instance. A module MUST pass it unchanged to every callback. |
-| `log` | Records a message at a `PRAENORA_LOG_*` level. The runtime routes it to the step's logger `module.<step>` and adds the attributes `run.fingerprint`, `tick` (during an invocation), `step` and `module` (`name@version`). Levels below 0 count as trace and above 5 as critical. |
+| `log` | Records a message at a `PRAENORA_LOG_*` level. The runtime routes it to the step's logger `module.<step>` and adds the attributes `praenora.run.fingerprint`, `praenora.tick` (during an invocation), `praenora.step` and `praenora.module` (`name@version`). Levels below 0 count as trace and above 5 as critical. |
 | `log_enabled` | Nonzero when a message at that level would be recorded, so a module can skip formatting it. |
 | `cancel_requested` | Nonzero while the call in flight has passed its deadline or had a stop requested; zero at the start of every call. A module SHOULD poll it in long computations and then return `PRAENORA_STATUS_CANCELLED` ([time-cancellation-timeouts.md](time-cancellation-timeouts.md)). |
 | `get_service` | The function table of a runtime service, a struct that starts with `praenora_api_header`, for a name and a major version; NULL when the service is not available. |

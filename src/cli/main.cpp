@@ -56,8 +56,11 @@ const std::string kUsage =
     "                         a workflow definition's graph: " +
     frontend::names_of(frontend::kGraphFormats) +
     "\n"
-    "  run <config.yaml>      run a workflow\n"
+    "  run <config.yaml>      run a workflow; with --listen, serve it through the control API\n"
+    "  serve --listen ADDR    serve the control API: open runs on request, from the\n"
+    "                         configurations under a configuration root\n"
     "  status <status.json>   print the status file of a run\n"
+    "  status --server ADDR   the runs of a server of the control API, or one run's status\n"
     "  catalog list | catalog show <id>@<version>\n"
     "                         the protocol catalog's entries\n"
     "  schema list | schema show <kind>\n"
@@ -81,6 +84,7 @@ const Command kCommands[] = {
     {"providers", &command_providers},
     {"graph", &command_graph},
     {"run", &command_run},
+    {"serve", &command_serve},
     {"status", &command_status},
     {"catalog", &command_catalog},
     {"schema", &command_schema},

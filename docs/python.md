@@ -95,8 +95,9 @@ The constructor validates the configuration, with its arguments as overrides
 loaded yet. `seed` and `ticks` are whole numbers from 0 to 2^53 - 1; `log_level` and `log_format`
 take the names of the tool's options in any case; `isolation` is `"in-process"` or `"process"`,
 exactly so, as `--isolation` takes them, and sets every step's isolation mode
-([Process isolation](#process-isolation)); `None` leaves a setting to the configuration. A `with`
-block closes the run when it ends.
+([Process isolation](#process-isolation)); `status_file=""` (like `log_file=""`) means none, in
+place of the configuration's; `None` leaves a setting to the configuration. A `with` block closes
+the run when it ends.
 
 | Method or property | Does |
 |---|---|
@@ -105,11 +106,11 @@ block closes the run when it ends.
 | `run(ticks=None)` | Starts the run if needed, then runs ticks until it is finished, or until `ticks` more ran: `{"state", "ticks_completed", "fingerprint"}`. It returns for a completed or stopped run, and raises the failure of a failed one, again on every later call. |
 | `request_stop()` | Asks the run to stop: the call in progress is asked to cancel and no further call starts. Safe from any thread. |
 | `close()` | Ends a ready or running run as `stopped`, finalizes, destroys and unloads its modules, and refuses later control calls. Idempotent. |
-| `status()` | The status snapshot (`{"kind", "format_version", "generated_at", "runtime_version", "pid", "workflow", "steps"}`), its error records with absolute paths. |
+| `status(path_form="absolute")` | The status snapshot (`{"kind", "format_version", "generated_at", "runtime_version", "pid", "workflow", "steps"}`), its error records with absolute paths; with `path_form="placeholders"` they name the run's directories by placeholders such as `<output>`, as the status file does ([observability.md](specs/observability.md#status-snapshot)). Another name raises `PraenoraError` `INVALID_ARGUMENT`, another type `TypeError`. |
 | `metrics()` | `{"metrics": [...]}`: the metric points, such as `praenora.step.invocations`. |
 | `latest_outputs()` | The newest envelope of each workflow output, `{"<output>": envelope}`. |
 | `run_record()` | The run record as last written, the same document as its file, whose error records name the run's directories by placeholders such as `<output>`; `None` before the run starts. |
-| `state`, `fingerprint` | Properties: the state name and the run fingerprint. |
+| `state`, `fingerprint`, `run_number` | Read-only properties: the state name, the run fingerprint, and the run's number in the runtime that opened it (`Workflow::run_number()`), which is 1, since each `Workflow` opens its run with a runtime of its own. |
 
 ### Process isolation
 
@@ -199,8 +200,8 @@ MODULE_NOT_FOUND: examples/workflows/estimate-predict/workflow.yaml: validation 
 31 MODULE_NOT_FOUND module example-predictor@0.1.0 was not found; searched '.../build/dev/lib/praenora/modules'
 ```
 
-Wrong arguments are `INVALID_ARGUMENT` (a tick count of `-1`, an unknown log level) or a `TypeError`
-(a path of the wrong type).
+Wrong arguments are `INVALID_ARGUMENT` (a tick count of `-1`, an unknown log level or path form)
+or a `TypeError` (a path or a path form of the wrong type).
 
 ## Threads and interruption
 
@@ -284,6 +285,28 @@ descriptor 2), and also to the log file when one is set. Two limits:
 The few records of the runtime itself, outside a run (such as "runtime ready" at level `debug`),
 follow `PRAENORA_LOG_LEVEL` and `PRAENORA_LOG_FORMAT` when they are set.
 
+**OTLP export.** The runtime exports a run's log records and metrics to an OpenTelemetry collector
+when the process environment names an endpoint, as for the tool; Python has no other way to
+configure it ([specs/observability.md](specs/observability.md#otlp-export)). The variables are
+read when a `Workflow` is constructed, so set them before:
+
+```python
+import os
+import praenora.runtime as pr
+
+os.environ["OTEL_EXPORTER_OTLP_ENDPOINT"] = "http://127.0.0.1:4318"
+with pr.Workflow("examples/workflows/estimate-predict/workflow.yaml",
+                 module_paths=["build/dev/modules"]) as workflow:
+    workflow.run()
+```
+
+Each `Workflow` opens its run with a runtime of its own, and so with an exporter of its own: the
+run's final metrics are handed to it when the run is closed, and what is left is sent, within one
+export timeout, when the `Workflow` object is destroyed. A collector that is down changes nothing
+in the run, its health or what the methods return; the failure is logged as a warning. Python has
+no server of the control API: to watch a run over HTTP, run it with `praenora run --listen` or
+`praenora serve` ([user-guide.md](user-guide.md#watching-and-running-over-http)).
+
 ## Tests
 
 CTest's `python.unittest` (label `python`) runs the `unittest` suite of `tests/python/` with the
@@ -293,9 +316,14 @@ interpreter the extension was built for, against the package in the build tree:
 ctest --preset dev -L python -V
 ```
 
-It sets `PYTHONPATH` to `build/<preset>/python`, the fixture and example locations the tests use
-and `PRAENORA_LOG_LEVEL=off`, and unsets the other `PRAENORA_*` variables the runtime reads, so the
-caller's environment cannot change the results. In builds with `PRAENORA_SANITIZERS` the test is
+It sets `PYTHONPATH` to `build/<preset>/python`, the fixture and example locations the tests use,
+`PRAENORA_LOG_LEVEL=off` and `OTEL_SDK_DISABLED=true`, and unsets the other `PRAENORA_*` variables
+the runtime reads, so the caller's environment cannot change the results. The test of the OTLP
+export, `TelemetryTest.test_export_to_fake_collector`, sets the `OTEL_*` variables it reads itself
+and sends to a fake collector of its own on `127.0.0.1`: where that listener is refused, as in a
+sandbox, it skips, saying `local listener refused:`, and with
+`PRAENORA_TESTS_REQUIRE_LISTENERS=1` it fails instead
+([testing.md](testing.md#listeners)). In builds with `PRAENORA_SANITIZERS` the test is
 registered but disabled, because an instrumented extension does not load into an interpreter that is
 not instrumented; `ctest --preset dev-asan -L python`, a run of that label alone, then exits with 8
 ([testing.md](testing.md#sanitizer-builds)).
@@ -309,7 +337,9 @@ metadata is `Metadata-Version: 2.1`) and does not warn about the `tool.scikit-bu
 that reads the version from `CMakeLists.txt`. It configures this CMake project with the Python
 bindings on and the tests, the examples and the tool off, so the C++ dependencies must be findable,
 for example through the `CMAKE_PREFIX_PATH` environment variable. In the environment, prefixes are
-separated by `:` (`;` on Windows), not by the `;` of a preset's cache variable.
+separated by `:` (`;` on Windows), not by the `;` of a preset's cache variable. cpp-httplib must
+be findable too, header-only, from the prefix that
+[platforms.md](platforms.md#cpp-httplib) installs it into.
 
 Verified on macOS arm64 (macOS 15) with CPython 3.12, scikit-build-core 1.1.2 and Homebrew's
 SWIG 4.5.1, offline: scikit-build-core is installed once into a virtual environment, and the build
@@ -319,7 +349,8 @@ uses that environment and the SWIG on `PATH` instead of downloading its requirem
 ```sh
 uv venv --python 3.12 build/wheel-tools
 uv pip install --python build/wheel-tools "scikit-build-core>=0.10"
-CMAKE_PREFIX_PATH="/opt/homebrew:/path/to/json-schema-validator/prefix" \
+PREFIXES="/opt/homebrew:/path/to/json-schema-validator/prefix:$HOME/.local/opt/praenora-deps"
+CMAKE_PREFIX_PATH="$PREFIXES" \
     uv build --wheel --no-build-isolation --python build/wheel-tools/bin/python -o build/wheel \
     -C cmake.define.CMAKE_OSX_DEPLOYMENT_TARGET=15.0
 ```
@@ -346,15 +377,16 @@ scikit-build-core copies from the root by its default `wheel.license-files` patt
 `METADATA` says `License: MIT`, from `pyproject.toml`'s `license = { text = "MIT" }`
 ([ADR-0040](adr/ADR-0040-mit-license.md)). The license files of the third-party code linked into
 the runtime library, such as a static json-schema-validator, are not in the wheel, whose
-distribution is open ([open-questions.md](open-questions.md), OQ-13). The wheel built above is
-1.04 MB, and 2.4 MB once installed:
+distribution is open ([open-questions.md](open-questions.md), OQ-13). cpp-httplib, whose header is
+compiled into the runtime library for the OTLP export, is MIT-licensed too; its license file is not
+in the wheel either. The wheel built above is 1.17 MB, and 2.7 MB once installed:
 
 | File | Size | From |
 |---|---|---|
-| `__init__.py` | 18.3 kB | `python/praenora/runtime/`, through `wheel.packages` |
-| `_bindings.py` | 9.3 kB | SWIG's proxy module, installed by the build |
-| `_bindings_native.cpython-312-darwin.so` | 349 kB | The extension, installed by the build |
-| `libpraenora_runtime.0.2.dylib` | 2.1 MB | The runtime library, installed by the build |
+| `__init__.py` | 19.1 kB | `python/praenora/runtime/`, through `wheel.packages` |
+| `_bindings.py` | 9.4 kB | SWIG's proxy module, installed by the build |
+| `_bindings_native.cpython-312-darwin.so` | 366 kB | The extension, installed by the build |
+| `libpraenora_runtime.0.2.dylib` | 2.3 MB | The runtime library, installed by the build |
 
 The wheel holds no module host (`praenora-module-host`): steps in process mode are refused there
 (checked with the wheel above) with `MODULE_HOST_UNAVAILABLE`, `details.reason` `"missing"`
@@ -381,15 +413,19 @@ uv pip install --python build/wheel-test build/wheel/praenora_runtime-0.2.0-cp31
 build/wheel-test/bin/python -c 'import praenora.runtime as pr; print(pr.version()["runtime"], pr.version()["build_type"])'
 ```
 
-prints `0.2.0 Release`. The tests of `tests/python` pass against the installed package as well, run
+prints `0.2.0 Release`. The tests of `tests/python` pass against the wheel's package as well, run
 with that environment's Python, CTest's environment for `python.unittest` and `PYTHONPATH` naming
-the environment's `site-packages` instead of `build/<preset>/python`.
+the environment's `site-packages` instead of `build/<preset>/python`, but for the three of
+`IsolationWorkflowTest` that run a step in a module host (`test_isolation_keyword` in mode
+`process`, `test_validate_loads_in_a_module_host` and `test_crash_in_a_module_host`), which fail
+with `MODULE_HOST_UNAVAILABLE` since the wheel holds no module host; and the test of the OTLP
+export skips where a local listener is refused ([Tests](#tests)).
 
 The runtime's third-party shared libraries are not bundled into the wheel: the macOS wheel above
 links yaml-cpp, spdlog and fmt from Homebrew by their absolute paths (json-schema-validator is
-linked statically, and nlohmann/json is header-only). Such a wheel works only where those libraries
-are installed at the same places, so it is not yet a portable binary; bundling and manylinux wheels
-are open ([open-questions.md](open-questions.md), OQ-13).
+linked statically, and nlohmann/json and cpp-httplib are header-only). Such a wheel works only
+where those libraries are installed at the same places, so it is not yet a portable binary;
+bundling and manylinux wheels are open ([open-questions.md](open-questions.md), OQ-13).
 
 ## Platform notes
 

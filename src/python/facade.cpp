@@ -139,6 +139,15 @@ LogFormat log_format_option(const json& value) {
                          " is not a log format: " + frontend::names_of(frontend::kLogFormats));
 }
 
+// The path form named `name` (Workflow.status()'s path_form).
+PathForm path_form_option(const std::string& name) {
+    if (const auto form = frontend::path_form(name)) {
+        return *form;
+    }
+    throw argument_error("path_form '" + name +
+                         "' is not a path form: " + frontend::names_of(frontend::kPathForms));
+}
+
 IsolationMode isolation_option(const json& value) {
     if (value.is_string()) {
         if (const auto mode = frontend::isolation_mode(value.get<std::string>())) {
@@ -391,8 +400,8 @@ std::string WorkflowHandle::run(long long max_ticks) {
     });
 }
 
-std::string WorkflowHandle::status() const {
-    return guarded([&] { return workflow_->status_json(); });
+std::string WorkflowHandle::status(const std::string& path_form) const {
+    return guarded([&] { return workflow_->status_json(path_form_option(path_form)); });
 }
 
 std::string WorkflowHandle::metrics() const {
@@ -418,5 +427,7 @@ std::string WorkflowHandle::state() const {
 std::string WorkflowHandle::fingerprint() const {
     return guarded([&] { return workflow_->fingerprint(); });
 }
+
+unsigned long long WorkflowHandle::run_number() const { return workflow_->run_number(); }
 
 } // namespace praenora::python

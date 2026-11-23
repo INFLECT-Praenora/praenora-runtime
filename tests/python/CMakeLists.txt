@@ -5,8 +5,9 @@
 # (tests/python/support.py reads them). It sets PRAENORA_LOG_LEVEL to off, so the output shows
 # only the tests' own lines (a test that wants log records asks for them), unsets the other
 # PRAENORA_* variables that the runtime reads, so the caller's environment cannot change the
-# results, and keeps Python from writing bytecode beside the tests. The tests write files only to
-# temporary directories.
+# results, turns the OTLP export off (OTEL_SDK_DISABLED; the test of the export sets the OTEL_*
+# variables it reads itself), and keeps Python from writing bytecode beside the tests. The tests
+# write files only to temporary directories.
 find_package(Python3 3.10 REQUIRED COMPONENTS Interpreter)
 
 set(_praenora_example_config
@@ -15,6 +16,7 @@ set(_praenora_python_environment
     "PYTHONPATH=${PROJECT_BINARY_DIR}/python"
     "PYTHONDONTWRITEBYTECODE=1"
     "PRAENORA_LOG_LEVEL=off"
+    "OTEL_SDK_DISABLED=true"
     "PRAENORA_TEST_MODULES_DIR=${PRAENORA_TEST_MODULES_DIR}"
     "PRAENORA_TEST_PROVIDERS_DIR=${PRAENORA_TEST_PROVIDERS_DIR}"
     "PRAENORA_TEST_CATALOG_DIR=${PROJECT_SOURCE_DIR}/tests/fixtures/catalog"

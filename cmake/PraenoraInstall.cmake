@@ -67,11 +67,12 @@ endforeach()
 set(_praenora_licenses_dir "${CMAKE_INSTALL_DATADIR}/praenora/licenses")
 install(FILES "${PROJECT_SOURCE_DIR}/LICENSE"
     DESTINATION "${_praenora_licenses_dir}/praenora-runtime")
-# A dependency built in this tree is linked statically into the runtime, so the installation holds
-# its license files: those at the top of its sources whose names begin with LICENSE or COPYING, in
-# any case, the NOTICE files beside them (which the Apache License asks to pass on), and spdlog's
-# copy of the license of the fmt library it bundles, if it has one; each under its path in the
-# sources. A dependency without a LICENSE or COPYING file stops the configuration.
+# A dependency built in this tree is linked statically into the runtime, or, header-only like
+# cpp-httplib, compiled into it, so the installation holds its license files: those at the top of
+# its sources whose names begin with LICENSE or COPYING, in any case, the NOTICE files beside them
+# (which the Apache License asks to pass on), and spdlog's copy of the license of the fmt library
+# it bundles, if it has one; each under its path in the sources. A dependency without a LICENSE or
+# COPYING file stops the configuration.
 foreach(_praenora_dependency IN LISTS PRAENORA_FETCHED_DEPENDENCIES)
     set(_praenora_source "${PRAENORA_FETCHED_SOURCE_DIR_${_praenora_dependency}}")
     file(GLOB _praenora_top_files LIST_DIRECTORIES false RELATIVE "${_praenora_source}"

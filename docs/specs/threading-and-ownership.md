@@ -171,13 +171,16 @@ when its `finalize` or `destroy` is refused (event `instance.kept`). The rationa
 
 - `praenora::Runtime` is immutable once constructed and thread-safe: any number of threads MAY use
   one `Runtime` at the same time. Copies share its state, and a `Workflow` it opened MAY outlive it.
+  The one thing that changes is an atomic count of the workflows that `open()` returned, which
+  gives each its `run_number()`.
 - `praenora::Workflow` is one run. Its control calls (`start`, `tick`, `run`, `close`) MUST be made
   by one thread at a time: a control call that starts while another one is in progress fails with
   `INVALID_STATE` without touching the run, except `close()`, which then only requests a stop.
 - The queries (`state`, `status`, `status_json`, `metrics_json`, `latest_outputs_json`,
-  `run_record_json`, `fingerprint`, `output_dir`) and `request_stop()` MAY be called from any thread
-  at any time, also during a control call. Status and metrics come from a copy guarded by a mutex,
-  so a query never waits for a module call. `request_stop()` is lock-free and async-signal-safe.
+  `run_record_json`, `fingerprint`, `output_dir`, `run_number`) and `request_stop()` MAY be called
+  from any thread at any time, also during a control call. Status and metrics come from a copy
+  guarded by a mutex, so a query never waits for a module call. `request_stop()` is lock-free and
+  async-signal-safe.
 - Destructors never throw. A `Workflow` MUST NOT be destroyed while another thread still calls it.
 - The Python bindings release the interpreter lock during their long calls, so another Python thread
   can query the status or request a stop during `run()`

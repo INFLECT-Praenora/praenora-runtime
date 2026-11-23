@@ -1,0 +1,2541 @@
+{
+  "components": {
+    "schemas": {
+      "Error": {
+        "additionalProperties": false,
+        "description": "The error document of praenora::Error::to_json().",
+        "properties": {
+          "category": {
+            "enum": [
+              "cancelled",
+              "compatibility",
+              "data",
+              "environment",
+              "execution",
+              "internal",
+              "load",
+              "timeout",
+              "usage",
+              "validation"
+            ],
+            "type": "string"
+          },
+          "code": {
+            "description": "The error code.",
+            "type": "integer"
+          },
+          "details": {
+            "description": "The code's details: an object (a validation report for 422), or a string when they are not JSON."
+          },
+          "location": {
+            "additionalProperties": false,
+            "properties": {
+              "column": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "file": {
+                "type": "string"
+              },
+              "line": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "pointer": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "message": {
+            "type": "string"
+          },
+          "name": {
+            "description": "The code's stable name.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "name",
+          "category",
+          "message",
+          "location",
+          "details"
+        ],
+        "type": "object"
+      },
+      "Health": {
+        "additionalProperties": false,
+        "properties": {
+          "status": {
+            "enum": [
+              "ok"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "MetricPoint": {
+        "properties": {
+          "attributes": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Every key with the prefix praenora.",
+            "type": "object"
+          },
+          "kind": {
+            "enum": [
+              "counter",
+              "gauge",
+              "summary"
+            ],
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "summary": {
+            "properties": {
+              "count": {
+                "type": "integer"
+              },
+              "last": {
+                "type": "integer"
+              },
+              "max": {
+                "type": "integer"
+              },
+              "min": {
+                "type": "integer"
+              },
+              "sum": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "count",
+              "sum",
+              "min",
+              "max",
+              "last"
+            ],
+            "type": "object"
+          },
+          "unit": {
+            "type": "string"
+          },
+          "value": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "unit",
+          "kind",
+          "attributes"
+        ],
+        "type": "object"
+      },
+      "Metrics": {
+        "description": "Workflow::metrics_json().",
+        "properties": {
+          "metrics": {
+            "items": {
+              "$ref": "#/components/schemas/MetricPoint"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "metrics"
+        ],
+        "type": "object"
+      },
+      "OpenApiDocument": {
+        "description": "This document.",
+        "type": "object"
+      },
+      "Outputs": {
+        "additionalProperties": {
+          "$ref": "#/components/schemas/pmp-envelope"
+        },
+        "description": "The newest envelope of each workflow output; {} at first.",
+        "type": "object"
+      },
+      "PrometheusText": {
+        "description": "The Prometheus text exposition format 0.0.4, every line ending in a line feed.",
+        "type": "string"
+      },
+      "RunEntry": {
+        "additionalProperties": false,
+        "properties": {
+          "configuration": {
+            "description": "Run mode: the configuration file's name; serve mode: its name under the configuration root, with '/'.",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "When the server opened the run (RFC 3339, UTC).",
+            "format": "date-time",
+            "type": "string"
+          },
+          "fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "health": {
+            "enum": [
+              "degraded",
+              "healthy",
+              "unhealthy",
+              "unknown"
+            ],
+            "type": "string"
+          },
+          "id": {
+            "description": "The run id: in serve mode the k of run-<k>; in run mode 1.",
+            "pattern": "^[1-9][0-9]*$",
+            "type": "string"
+          },
+          "output": {
+            "description": "Serve mode: run-<k>, the run's directory under the output root; run mode: null.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "run_number": {
+            "description": "The workflow's number in its Runtime (Workflow::run_number()).",
+            "minimum": 1,
+            "type": "integer"
+          },
+          "state": {
+            "enum": [
+              "completed",
+              "created",
+              "failed",
+              "ready",
+              "running",
+              "starting",
+              "stopped",
+              "stopping"
+            ],
+            "type": "string"
+          },
+          "ticks_completed": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "workflow": {
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "version"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "id",
+          "run_number",
+          "configuration",
+          "workflow",
+          "fingerprint",
+          "state",
+          "health",
+          "ticks_completed",
+          "created_at",
+          "output"
+        ],
+        "type": "object"
+      },
+      "RunList": {
+        "additionalProperties": false,
+        "properties": {
+          "runs": {
+            "description": "In id order.",
+            "items": {
+              "$ref": "#/components/schemas/RunEntry"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "runs"
+        ],
+        "type": "object"
+      },
+      "RunRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "configuration": {
+            "description": "A configuration file under the configuration root: a relative path with '/', no empty, '.' or '..' segment, whose canonical path lies under the root's.",
+            "minLength": 1,
+            "type": "string"
+          },
+          "isolation": {
+            "description": "Every step's isolation, in place of the configuration's.",
+            "enum": [
+              "in-process",
+              "process"
+            ],
+            "type": "string"
+          },
+          "seed": {
+            "description": "The run seed, in place of the configuration's.",
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "ticks": {
+            "description": "The ticks to run, in place of the configuration's.",
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "trace_messages": {
+            "description": "Trace every message to trace/messages.jsonl.",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "configuration"
+        ],
+        "type": "object"
+      },
+      "ServerInfo": {
+        "additionalProperties": false,
+        "properties": {
+          "api_version": {
+            "description": "The API's version, 0.1.0.",
+            "type": "string"
+          },
+          "mode": {
+            "description": "run: praenora run --listen, its one run; serve: praenora serve, runs on request.",
+            "enum": [
+              "run",
+              "serve"
+            ],
+            "type": "string"
+          },
+          "pid": {
+            "description": "The server's process id.",
+            "type": "integer"
+          },
+          "runtime_version": {
+            "description": "The runtime's version.",
+            "type": "string"
+          },
+          "scopes": {
+            "description": "The scopes of this request, sorted.",
+            "items": {
+              "enum": [
+                "control",
+                "read"
+              ],
+              "type": "string"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
+          "started_at": {
+            "description": "When the server started (RFC 3339, UTC).",
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "api_version",
+          "runtime_version",
+          "mode",
+          "pid",
+          "started_at",
+          "scopes"
+        ],
+        "type": "object"
+      },
+      "StopRequest": {
+        "description": "No fields. The body may also be empty; its Content-Type is application/json all the same, as every POST's.",
+        "maxProperties": 0,
+        "type": "object"
+      },
+      "pmp-envelope": {
+        "$id": "urn:praenora:schema:pmp-envelope:0.1",
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "definitions": {
+          "catalog_id": {
+            "pattern": "^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)*$",
+            "type": "string"
+          },
+          "count": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "endpoint": {
+            "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$",
+            "type": "string"
+          },
+          "semver": {
+            "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$",
+            "type": "string"
+          }
+        },
+        "description": "A message as the runtime delivers it: identity, type, source endpoint, tick and logical time, and the data. Envelopes carry no wall-clock time.",
+        "patternProperties": {
+          "^x-": {}
+        },
+        "properties": {
+          "data": {
+            "description": "The payload; its schema is the message type's schema."
+          },
+          "id": {
+            "description": "<first 16 hex digits of the run fingerprint>:<tick>:<source>",
+            "pattern": "^[0-9a-f]{16}:(0|[1-9][0-9]*):[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$",
+            "type": "string"
+          },
+          "logical_time": {
+            "type": "number"
+          },
+          "pmp_version": {
+            "$ref": "#/definitions/semver"
+          },
+          "source": {
+            "$ref": "#/definitions/endpoint"
+          },
+          "tick": {
+            "$ref": "#/definitions/count"
+          },
+          "type": {
+            "$ref": "#/definitions/catalog_id"
+          },
+          "type_version": {
+            "$ref": "#/definitions/semver"
+          }
+        },
+        "required": [
+          "pmp_version",
+          "id",
+          "type",
+          "type_version",
+          "source",
+          "tick",
+          "logical_time",
+          "data"
+        ],
+        "title": "PMP message envelope",
+        "type": "object"
+      },
+      "run-record": {
+        "$id": "urn:praenora:schema:run-record:0.2",
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "definitions": {
+          "capability_ref": {
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "$ref": "#/definitions/catalog_id"
+              },
+              "version": {
+                "$ref": "#/definitions/semver"
+              }
+            },
+            "required": [
+              "id",
+              "version"
+            ],
+            "type": "object"
+          },
+          "catalog_id": {
+            "pattern": "^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)*$",
+            "type": "string"
+          },
+          "count": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "duration": {
+            "$comment": "A duration is either a string <number><unit> with unit ns, us, ms, s, m or h (\"30s\", \"1.5m\"; \"0\" or \"none\" disables the timeout), or the integer 0, which also disables it. The pattern applies only to strings and minimum/maximum only to numbers, so every other number is rejected.",
+            "description": "<number><unit> with unit ns|us|ms|s|m|h; 0 or none disables.",
+            "maximum": 0,
+            "minimum": 0,
+            "pattern": "^(none|0|[0-9]+(\\.[0-9]+)?(ns|us|ms|s|m|h))$",
+            "type": [
+              "string",
+              "integer"
+            ]
+          },
+          "error_record": {
+            "additionalProperties": false,
+            "description": "An error record of the run. Its strings (message, location.file, and every string of details and cause) name each directory the run knows by a placeholder, the rest of a path kept: <output>, <configuration>, <modules:ORIGIN:INDEX> or <modules:installation>, <providers:ORIGIN:INDEX> or <providers:installation>, <home>.",
+            "properties": {
+              "at": {
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/timestamp"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "cause": {
+                "type": [
+                  "object",
+                  "null"
+                ]
+              },
+              "code": {
+                "type": "integer"
+              },
+              "details": {
+                "description": "The error's code-specific details, or null when it has none.",
+                "minProperties": 1,
+                "type": [
+                  "object",
+                  "null"
+                ]
+              },
+              "location": {
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/source_location"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Where the error was found: the parts of its location that are set, or null when none is."
+              },
+              "message": {
+                "type": "string"
+              },
+              "name": {
+                "pattern": "^[A-Z][A-Z0-9_]*$",
+                "type": "string"
+              },
+              "tick": {
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/count"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "code",
+              "name",
+              "message",
+              "location",
+              "details"
+            ],
+            "type": "object"
+          },
+          "fingerprint": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "isolation_mode": {
+            "enum": [
+              "in-process",
+              "process"
+            ]
+          },
+          "manifest_location": {
+            "additionalProperties": false,
+            "description": "Where discovery found a manifest, without an absolute path.",
+            "properties": {
+              "file": {
+                "description": "The manifest file relative to the search path, '/'-separated: <file>, or <directory>/<file> for a manifest in an immediate subdirectory. Never absolute (no leading /, \\ or drive such as C:/), never with a . or .. segment.",
+                "pattern": "^(?![A-Za-z]:[/\\\\])(?!\\\\)(?!\\.\\.?(/|$))[^/]+(/(?!\\.\\.?$)[^/]+)?$",
+                "type": "string"
+              },
+              "search_path": {
+                "additionalProperties": false,
+                "description": "The search path that reached the manifest first; the installation's directory has no index.",
+                "else": {
+                  "required": [
+                    "index"
+                  ]
+                },
+                "if": {
+                  "properties": {
+                    "origin": {
+                      "const": "installation"
+                    }
+                  }
+                },
+                "properties": {
+                  "index": {
+                    "description": "The search path's position among the non-empty entries of its origin, as given, from 0; an entry that repeats an earlier path still counts.",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "origin": {
+                    "description": "Where the search path comes from: the caller's paths, the configuration's modules.search_paths, the environment variable (PRAENORA_MODULE_PATH or PRAENORA_PROVIDER_PATH), or the installation's directory.",
+                    "enum": [
+                      "caller",
+                      "configuration",
+                      "environment",
+                      "installation"
+                    ]
+                  }
+                },
+                "required": [
+                  "origin"
+                ],
+                "then": {
+                  "properties": {
+                    "index": false
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "required": [
+              "search_path",
+              "file"
+            ],
+            "type": "object"
+          },
+          "module_name": {
+            "pattern": "^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)*$",
+            "type": "string"
+          },
+          "resolved_service": {
+            "additionalProperties": false,
+            "properties": {
+              "engine": {
+                "description": "The engine object of the provider's manifest.",
+                "type": "object"
+              },
+              "minor": {
+                "description": "The minor version the provider offers.",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "provider": {
+                "additionalProperties": false,
+                "properties": {
+                  "library_sha256": {
+                    "$ref": "#/definitions/sha256"
+                  },
+                  "manifest_sha256": {
+                    "$ref": "#/definitions/sha256"
+                  },
+                  "name": {
+                    "$ref": "#/definitions/module_name"
+                  },
+                  "version": {
+                    "$ref": "#/definitions/semver"
+                  }
+                },
+                "required": [
+                  "name",
+                  "version",
+                  "manifest_sha256",
+                  "library_sha256"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "minor",
+              "provider",
+              "engine"
+            ],
+            "type": "object"
+          },
+          "seed": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "semver": {
+            "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$",
+            "type": "string"
+          },
+          "service_key": {
+            "description": "<name>@<major> of a runtime service.",
+            "pattern": "^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)*@(0|[1-9][0-9]*)$",
+            "type": "string"
+          },
+          "sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "source_location": {
+            "additionalProperties": false,
+            "dependencies": {
+              "column": [
+                "line"
+              ]
+            },
+            "description": "A file (UTF-8 path), a 1-based line and column (columns count bytes; a column only with a line) and a JSON pointer into the document.",
+            "minProperties": 1,
+            "properties": {
+              "column": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "file": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "line": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "pointer": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "time_base": {
+            "additionalProperties": false,
+            "properties": {
+              "period": {
+                "default": 1.0,
+                "exclusiveMinimum": 0,
+                "type": "number"
+              },
+              "start": {
+                "default": 0.0,
+                "type": "number"
+              },
+              "unit": {
+                "default": "1",
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "timeouts": {
+            "additionalProperties": false,
+            "properties": {
+              "cancel_grace": {
+                "$ref": "#/definitions/duration"
+              },
+              "invoke": {
+                "$ref": "#/definitions/duration"
+              },
+              "lifecycle": {
+                "$ref": "#/definitions/duration"
+              }
+            },
+            "type": "object"
+          },
+          "timestamp": {
+            "description": "RFC 3339 UTC time with exactly 9 fractional digits.",
+            "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{9}Z$",
+            "type": "string"
+          }
+        },
+        "description": "What a run used (the hashed reproducibility section) and how it went (execution).",
+        "patternProperties": {
+          "^x-": {}
+        },
+        "properties": {
+          "execution": {
+            "additionalProperties": false,
+            "properties": {
+              "error": {
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/error_record"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "final_status": {
+                "description": "The final status snapshot (a status-snapshot document), written when the run ends. Its error records name the run's directories by placeholders, as execution.error does.",
+                "type": "object"
+              },
+              "finished_at": {
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/timestamp"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "isolation": {
+                "additionalProperties": false,
+                "description": "How each step's module instance was isolated, by step, every field resolved: mode in-process (in the runtime's process) or process (in a module host), whether its module host shared compiled models, and its sandbox profile. Outside the hashed section: it does not change the fingerprint.",
+                "patternProperties": {
+                  "^(?!(inputs|outputs)$)[a-z][a-z0-9_]*$": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "mode": {
+                        "$ref": "#/definitions/isolation_mode"
+                      },
+                      "sandbox": {
+                        "description": "The sandbox profile of the step's module host: none, or restricted.",
+                        "enum": [
+                          "none",
+                          "restricted"
+                        ]
+                      },
+                      "share_compiled_models": {
+                        "description": "Whether the step's module host shared compiled models with the other sharing steps' module hosts.",
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "mode",
+                      "share_compiled_models",
+                      "sandbox"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "type": "object"
+              },
+              "manifests": {
+                "additionalProperties": false,
+                "description": "Where each manifest of the run was found, relative to a search path named by its origin and index, never by an absolute path. Outside the hashed section: it does not change the fingerprint.",
+                "properties": {
+                  "services": {
+                    "additionalProperties": {
+                      "$ref": "#/definitions/manifest_location"
+                    },
+                    "description": "Where the provider manifest of each runtime service of the run was found, by <name>@<major>.",
+                    "propertyNames": {
+                      "$ref": "#/definitions/service_key"
+                    },
+                    "type": "object"
+                  },
+                  "steps": {
+                    "additionalProperties": false,
+                    "description": "Where the module manifest of each step was found, by step.",
+                    "patternProperties": {
+                      "^(?!(inputs|outputs)$)[a-z][a-z0-9_]*$": {
+                        "$ref": "#/definitions/manifest_location"
+                      }
+                    },
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "steps",
+                  "services"
+                ],
+                "type": "object"
+              },
+              "outputs": {
+                "additionalProperties": false,
+                "patternProperties": {
+                  "^(?!(inputs|outputs)$)[a-z][a-z0-9_]*$": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "file": {
+                        "type": "string"
+                      },
+                      "messages": {
+                        "$ref": "#/definitions/count"
+                      },
+                      "sha256": {
+                        "$ref": "#/definitions/sha256"
+                      }
+                    },
+                    "required": [
+                      "file",
+                      "sha256",
+                      "messages"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "type": "object"
+              },
+              "overrides": {
+                "additionalProperties": false,
+                "description": "The run settings the caller overrode (CLI flags or API options); empty when none.",
+                "properties": {
+                  "isolation": {
+                    "$ref": "#/definitions/isolation_mode"
+                  },
+                  "seed": {
+                    "$ref": "#/definitions/seed"
+                  },
+                  "ticks": {
+                    "$ref": "#/definitions/count"
+                  }
+                },
+                "type": "object"
+              },
+              "platform": {
+                "additionalProperties": false,
+                "properties": {
+                  "arch": {
+                    "type": "string"
+                  },
+                  "build_type": {
+                    "type": "string"
+                  },
+                  "compiler": {
+                    "type": "string"
+                  },
+                  "os": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "os",
+                  "arch",
+                  "compiler",
+                  "build_type"
+                ],
+                "type": "object"
+              },
+              "started_at": {
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/timestamp"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "status": {
+                "description": "The run's status: running from its start, then how it ended.",
+                "enum": [
+                  "running",
+                  "completed",
+                  "stopped",
+                  "failed"
+                ]
+              },
+              "ticks_completed": {
+                "$ref": "#/definitions/count"
+              },
+              "trace": {
+                "additionalProperties": false,
+                "properties": {
+                  "file": {
+                    "type": "string"
+                  },
+                  "messages": {
+                    "$ref": "#/definitions/count"
+                  },
+                  "sha256": {
+                    "$ref": "#/definitions/sha256"
+                  }
+                },
+                "type": "object"
+              },
+              "validation": {
+                "description": "Whether payloads were validated against their message types (strict) or not (off, for performance measurements).",
+                "enum": [
+                  "strict",
+                  "off"
+                ]
+              }
+            },
+            "required": [
+              "status",
+              "ticks_completed",
+              "platform",
+              "overrides",
+              "validation",
+              "manifests",
+              "isolation"
+            ],
+            "type": "object"
+          },
+          "fingerprint": {
+            "$ref": "#/definitions/fingerprint"
+          },
+          "format_version": {
+            "$ref": "#/definitions/semver"
+          },
+          "kind": {
+            "const": "run-record"
+          },
+          "reproducibility": {
+            "additionalProperties": false,
+            "properties": {
+              "catalog": {
+                "additionalProperties": {
+                  "$ref": "#/definitions/sha256"
+                },
+                "description": "Digest of every catalog entry used, by id@version.",
+                "type": "object"
+              },
+              "inputs": {
+                "additionalProperties": false,
+                "patternProperties": {
+                  "^(?!(inputs|outputs)$)[a-z][a-z0-9_]*$": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "columns": {
+                        "additionalProperties": {
+                          "type": "string"
+                        },
+                        "type": "object"
+                      },
+                      "digest": {
+                        "$ref": "#/definitions/sha256"
+                      },
+                      "source": {
+                        "enum": [
+                          "observation-csv",
+                          "json-document"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "source",
+                      "digest"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "type": "object"
+              },
+              "seed": {
+                "$ref": "#/definitions/seed"
+              },
+              "services": {
+                "additionalProperties": {
+                  "$ref": "#/definitions/resolved_service"
+                },
+                "description": "Every runtime service a provider serves to the run, by <name>@<major>.",
+                "propertyNames": {
+                  "$ref": "#/definitions/service_key"
+                },
+                "type": "object"
+              },
+              "steps": {
+                "additionalProperties": false,
+                "patternProperties": {
+                  "^(?!(inputs|outputs)$)[a-z][a-z0-9_]*$": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "capability": {
+                        "$ref": "#/definitions/capability_ref"
+                      },
+                      "module": {
+                        "additionalProperties": false,
+                        "properties": {
+                          "library_sha256": {
+                            "$ref": "#/definitions/sha256"
+                          },
+                          "manifest_sha256": {
+                            "$ref": "#/definitions/sha256"
+                          },
+                          "name": {
+                            "$ref": "#/definitions/module_name"
+                          },
+                          "sdk_version": {
+                            "$ref": "#/definitions/semver"
+                          },
+                          "version": {
+                            "$ref": "#/definitions/semver"
+                          }
+                        },
+                        "required": [
+                          "name",
+                          "version",
+                          "manifest_sha256",
+                          "library_sha256",
+                          "sdk_version"
+                        ],
+                        "type": "object"
+                      },
+                      "parameters": {
+                        "type": "object"
+                      },
+                      "seed": {
+                        "$ref": "#/definitions/seed"
+                      },
+                      "services": {
+                        "description": "The keys of the top-level services that the step's module may use, sorted.",
+                        "items": {
+                          "$ref": "#/definitions/service_key"
+                        },
+                        "type": "array",
+                        "uniqueItems": true
+                      },
+                      "timeouts": {
+                        "$ref": "#/definitions/timeouts"
+                      }
+                    },
+                    "required": [
+                      "capability",
+                      "module",
+                      "parameters",
+                      "seed",
+                      "services"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "type": "object"
+              },
+              "ticks": {
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/count"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The run's tick count; null when the run lasts until its replay inputs are exhausted."
+              },
+              "time": {
+                "$ref": "#/definitions/time_base"
+              },
+              "timeouts": {
+                "$ref": "#/definitions/timeouts"
+              },
+              "versions": {
+                "additionalProperties": false,
+                "properties": {
+                  "abi": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "major": {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "minor": {
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "major",
+                      "minor"
+                    ],
+                    "type": "object"
+                  },
+                  "pmp": {
+                    "$ref": "#/definitions/semver"
+                  },
+                  "runtime": {
+                    "$ref": "#/definitions/semver"
+                  }
+                },
+                "required": [
+                  "runtime",
+                  "abi",
+                  "pmp"
+                ],
+                "type": "object"
+              },
+              "workflow": {
+                "additionalProperties": false,
+                "properties": {
+                  "digest": {
+                    "$ref": "#/definitions/sha256"
+                  },
+                  "name": {
+                    "$ref": "#/definitions/catalog_id"
+                  },
+                  "version": {
+                    "$ref": "#/definitions/semver"
+                  }
+                },
+                "required": [
+                  "name",
+                  "version",
+                  "digest"
+                ],
+                "type": "object"
+              }
+            },
+            "required": [
+              "versions",
+              "workflow",
+              "catalog",
+              "time",
+              "seed",
+              "ticks",
+              "timeouts",
+              "inputs",
+              "services",
+              "steps"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "kind",
+          "format_version",
+          "fingerprint",
+          "reproducibility",
+          "execution"
+        ],
+        "title": "Praenora run record",
+        "type": "object"
+      },
+      "status-snapshot": {
+        "$id": "urn:praenora:schema:status-snapshot:0.1",
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "additionalProperties": false,
+        "definitions": {
+          "catalog_id": {
+            "pattern": "^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)*$",
+            "type": "string"
+          },
+          "count": {
+            "maximum": 9007199254740991,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "duration_ns": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "error_record": {
+            "additionalProperties": false,
+            "description": "The last error of the workflow or of a step. In a status file, its strings (message, location.file, and every string of details and cause) name each directory the run knows by a placeholder, the rest of a path kept: <output>, <configuration>, <modules:ORIGIN:INDEX> or <modules:installation>, <providers:ORIGIN:INDEX> or <providers:installation>, <home>; in a snapshot taken in the process they hold absolute paths.",
+            "properties": {
+              "at": {
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/timestamp"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "cause": {
+                "type": [
+                  "object",
+                  "null"
+                ]
+              },
+              "code": {
+                "type": "integer"
+              },
+              "details": {
+                "description": "The error's code-specific details, or null when it has none.",
+                "minProperties": 1,
+                "type": [
+                  "object",
+                  "null"
+                ]
+              },
+              "location": {
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/source_location"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Where the error was found: the parts of its location that are set, or null when none is."
+              },
+              "message": {
+                "type": "string"
+              },
+              "name": {
+                "pattern": "^[A-Z][A-Z0-9_]*$",
+                "type": "string"
+              },
+              "tick": {
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/count"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "code",
+              "name",
+              "message",
+              "location",
+              "details"
+            ],
+            "type": "object"
+          },
+          "module_name": {
+            "pattern": "^[a-z][a-z0-9-]*(\\.[a-z][a-z0-9-]*)*$",
+            "type": "string"
+          },
+          "name": {
+            "pattern": "^(?!(inputs|outputs)$)[a-z][a-z0-9_]*$",
+            "type": "string"
+          },
+          "semver": {
+            "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$",
+            "type": "string"
+          },
+          "source_location": {
+            "additionalProperties": false,
+            "dependencies": {
+              "column": [
+                "line"
+              ]
+            },
+            "description": "A file (UTF-8 path), a 1-based line and column (columns count bytes; a column only with a line) and a JSON pointer into the document.",
+            "minProperties": 1,
+            "properties": {
+              "column": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "file": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "line": {
+                "minimum": 1,
+                "type": "integer"
+              },
+              "pointer": {
+                "minLength": 1,
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "timestamp": {
+            "description": "RFC 3339 UTC time with exactly 9 fractional digits.",
+            "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}\\.[0-9]{9}Z$",
+            "type": "string"
+          }
+        },
+        "description": "The state, health and per-step metrics of a workflow at one moment.",
+        "patternProperties": {
+          "^x-": {}
+        },
+        "properties": {
+          "format_version": {
+            "$ref": "#/definitions/semver"
+          },
+          "generated_at": {
+            "$ref": "#/definitions/timestamp"
+          },
+          "kind": {
+            "const": "status-snapshot"
+          },
+          "pid": {
+            "type": "integer"
+          },
+          "runtime_version": {
+            "$ref": "#/definitions/semver"
+          },
+          "steps": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "cancelled": {
+                  "$ref": "#/definitions/count"
+                },
+                "failed": {
+                  "$ref": "#/definitions/count"
+                },
+                "invocations": {
+                  "$ref": "#/definitions/count"
+                },
+                "last_duration_ns": {
+                  "$ref": "#/definitions/duration_ns"
+                },
+                "last_error": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/definitions/error_record"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "last_invocation_at": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/definitions/timestamp"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "last_success_at": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/definitions/timestamp"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "max_duration_ns": {
+                  "$ref": "#/definitions/duration_ns"
+                },
+                "mean_duration_ns": {
+                  "minimum": 0,
+                  "type": "number"
+                },
+                "min_duration_ns": {
+                  "$ref": "#/definitions/duration_ns"
+                },
+                "module_name": {
+                  "$ref": "#/definitions/module_name"
+                },
+                "module_version": {
+                  "$ref": "#/definitions/semver"
+                },
+                "state": {
+                  "enum": [
+                    "loaded",
+                    "created",
+                    "ready",
+                    "busy",
+                    "finalized",
+                    "destroyed",
+                    "failed",
+                    "unresponsive",
+                    "crashed"
+                  ]
+                },
+                "step": {
+                  "$ref": "#/definitions/name"
+                },
+                "succeeded": {
+                  "$ref": "#/definitions/count"
+                },
+                "timed_out": {
+                  "$ref": "#/definitions/count"
+                },
+                "total_duration_ns": {
+                  "$ref": "#/definitions/duration_ns"
+                }
+              },
+              "required": [
+                "step",
+                "module_name",
+                "module_version",
+                "state",
+                "invocations",
+                "succeeded",
+                "failed",
+                "timed_out",
+                "cancelled"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "workflow": {
+            "additionalProperties": false,
+            "properties": {
+              "current_tick": {
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/count"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "fingerprint": {
+                "pattern": "^([0-9a-f]{64})?$",
+                "type": "string"
+              },
+              "health": {
+                "enum": [
+                  "unknown",
+                  "healthy",
+                  "degraded",
+                  "unhealthy"
+                ]
+              },
+              "last_error": {
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/error_record"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "last_tick_duration_ns": {
+                "$ref": "#/definitions/duration_ns"
+              },
+              "logical_time": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "name": {
+                "$ref": "#/definitions/catalog_id"
+              },
+              "started_at": {
+                "anyOf": [
+                  {
+                    "$ref": "#/definitions/timestamp"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "state": {
+                "enum": [
+                  "created",
+                  "starting",
+                  "ready",
+                  "running",
+                  "stopping",
+                  "completed",
+                  "stopped",
+                  "failed"
+                ]
+              },
+              "ticks_completed": {
+                "$ref": "#/definitions/count"
+              },
+              "uptime_ns": {
+                "$ref": "#/definitions/duration_ns"
+              },
+              "version": {
+                "$ref": "#/definitions/semver"
+              }
+            },
+            "required": [
+              "name",
+              "version",
+              "fingerprint",
+              "state",
+              "health",
+              "uptime_ns",
+              "ticks_completed"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "kind",
+          "format_version",
+          "generated_at",
+          "runtime_version",
+          "pid",
+          "workflow",
+          "steps"
+        ],
+        "title": "Praenora status snapshot",
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "bearer": {
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "description": "The control and status API of the Praenora runtime, served by praenora run --listen (run mode: the one run of the process, id 1) and praenora serve (serve mode: runs opened on request from configurations under a configuration root). Over a Unix socket every request has the read and control scopes; over TCP without tokens only the read scope; over TCP with tokens, every request but GET /v0/health needs \"Authorization: Bearer <token>\". TCP requests need a Host header that names the server. A known path with another method answers 405 with Allow. Every POST, stop included, needs Content-Type: application/json (stop's body may be empty), else 415. Bodies are compact JSON in UTF-8; errors are error documents. The runtime's schemas below are JSON Schema draft-07, embedded with their own $schema and $id.",
+    "license": {
+      "identifier": "MIT",
+      "name": "MIT"
+    },
+    "title": "Praenora control API",
+    "version": "0.1.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/metrics": {
+      "get": {
+        "operationId": "getMetrics",
+        "responses": {
+          "200": {
+            "content": {
+              "text/plain; version=0.0.4": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrometheusText"
+                }
+              }
+            },
+            "description": "The answer."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "UNAUTHENTICATED: a TCP listener with tokens got no valid bearer token.",
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "enum": [
+                    "Bearer"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "PERMISSION_DENIED: the Host header names no address of the server (details.reason host), or the credentials lack the route's scope (details.reason scope)."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "An error of category execution, environment or internal; INTERNAL, without its text, for anything unexpected."
+          }
+        },
+        "summary": "The metrics of every run the server holds, in the Prometheus text format 0.0.4.",
+        "x-praenora-scope": "read"
+      }
+    },
+    "/v0/health": {
+      "get": {
+        "operationId": "getHealth",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            },
+            "description": "The answer."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "PERMISSION_DENIED: the Host header names no address of the server (details.reason host), or the credentials lack the route's scope (details.reason scope)."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "An error of category execution, environment or internal; INTERNAL, without its text, for anything unexpected."
+          }
+        },
+        "security": [],
+        "summary": "Whether the server answers; needs no credentials.",
+        "x-praenora-scope": "none"
+      }
+    },
+    "/v0/openapi.json": {
+      "get": {
+        "operationId": "getOpenApiDocument",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OpenApiDocument"
+                }
+              }
+            },
+            "description": "The answer."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "UNAUTHENTICATED: a TCP listener with tokens got no valid bearer token.",
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "enum": [
+                    "Bearer"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "PERMISSION_DENIED: the Host header names no address of the server (details.reason host), or the credentials lack the route's scope (details.reason scope)."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "An error of category execution, environment or internal; INTERNAL, without its text, for anything unexpected."
+          }
+        },
+        "summary": "This OpenAPI document.",
+        "x-praenora-scope": "read"
+      }
+    },
+    "/v0/runs": {
+      "get": {
+        "operationId": "listRuns",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunList"
+                }
+              }
+            },
+            "description": "The answer."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "UNAUTHENTICATED: a TCP listener with tokens got no valid bearer token.",
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "enum": [
+                    "Bearer"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "PERMISSION_DENIED: the Host header names no address of the server (details.reason host), or the credentials lack the route's scope (details.reason scope)."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "An error of category execution, environment or internal; INTERNAL, without its text, for anything unexpected."
+          }
+        },
+        "summary": "The runs the server holds, in id order.",
+        "x-praenora-scope": "read"
+      },
+      "post": {
+        "operationId": "createRun",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunRequest"
+              }
+            }
+          },
+          "description": "A JSON object, with Content-Type: application/json.",
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunEntry"
+                }
+              }
+            },
+            "description": "The run was opened and started: its entry. Location names it.",
+            "headers": {
+              "Location": {
+                "description": "The new run's path, /v0/runs/<id>.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "INVALID_ARGUMENT: the body breaks its schema, or a value is refused."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "UNAUTHENTICATED: a TCP listener with tokens got no valid bearer token.",
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "enum": [
+                    "Bearer"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "PERMISSION_DENIED: the Host header names no address of the server (details.reason host), or the credentials lack the route's scope (details.reason scope)."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "NOT_FOUND: no such run or configuration; in run mode, POST /v0/runs and DELETE /v0/runs/{id}."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "INVALID_STATE: the run, its run record or the server does not allow it now."
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "INVALID_ARGUMENT: the request's body is larger than 64 KiB, the limit of a listener; it is refused before the route sees it."
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "INVALID_ARGUMENT: the POST does not name exactly one Content-Type application/json, its charset, if any, utf-8; every POST needs it, also one with an empty body, as stop's may be."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "The configuration did not validate: the error document of Runtime::open(), its validation report in details."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "An error of category execution, environment or internal; INTERNAL, without its text, for anything unexpected."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "RESOURCE_EXHAUSTED: as many runs as --max-runs are held."
+          }
+        },
+        "summary": "Opens and starts a run of a configuration under the configuration root (serve mode; 404 in run mode).",
+        "x-praenora-scope": "control"
+      }
+    },
+    "/v0/runs/{id}": {
+      "delete": {
+        "operationId": "deleteRun",
+        "parameters": [
+          {
+            "description": "The run id: decimal, without leading zeros.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "The run is forgotten; its files are kept."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "UNAUTHENTICATED: a TCP listener with tokens got no valid bearer token.",
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "enum": [
+                    "Bearer"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "PERMISSION_DENIED: the Host header names no address of the server (details.reason host), or the credentials lack the route's scope (details.reason scope)."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "NOT_FOUND: no such run or configuration; in run mode, POST /v0/runs and DELETE /v0/runs/{id}."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "INVALID_STATE: the run, its run record or the server does not allow it now."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "An error of category execution, environment or internal; INTERNAL, without its text, for anything unexpected."
+          }
+        },
+        "summary": "Forgets a finished run, its files kept (serve mode; 404 in run mode).",
+        "x-praenora-scope": "control"
+      },
+      "get": {
+        "operationId": "getRunStatus",
+        "parameters": [
+          {
+            "description": "The run id: decimal, without leading zeros.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/status-snapshot"
+                }
+              }
+            },
+            "description": "The answer."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "UNAUTHENTICATED: a TCP listener with tokens got no valid bearer token.",
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "enum": [
+                    "Bearer"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "PERMISSION_DENIED: the Host header names no address of the server (details.reason host), or the credentials lack the route's scope (details.reason scope)."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "NOT_FOUND: no such run or configuration; in run mode, POST /v0/runs and DELETE /v0/runs/{id}."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "An error of category execution, environment or internal; INTERNAL, without its text, for anything unexpected."
+          }
+        },
+        "summary": "The run's status snapshot, its error records naming the run's directories by placeholders.",
+        "x-praenora-scope": "read"
+      }
+    },
+    "/v0/runs/{id}/metrics": {
+      "get": {
+        "operationId": "getRunMetrics",
+        "parameters": [
+          {
+            "description": "The run id: decimal, without leading zeros.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Metrics"
+                }
+              }
+            },
+            "description": "The answer."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "UNAUTHENTICATED: a TCP listener with tokens got no valid bearer token.",
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "enum": [
+                    "Bearer"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "PERMISSION_DENIED: the Host header names no address of the server (details.reason host), or the credentials lack the route's scope (details.reason scope)."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "NOT_FOUND: no such run or configuration; in run mode, POST /v0/runs and DELETE /v0/runs/{id}."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "An error of category execution, environment or internal; INTERNAL, without its text, for anything unexpected."
+          }
+        },
+        "summary": "The run's metric points.",
+        "x-praenora-scope": "read"
+      }
+    },
+    "/v0/runs/{id}/outputs": {
+      "get": {
+        "operationId": "getRunOutputs",
+        "parameters": [
+          {
+            "description": "The run id: decimal, without leading zeros.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Outputs"
+                }
+              }
+            },
+            "description": "The answer."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "UNAUTHENTICATED: a TCP listener with tokens got no valid bearer token.",
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "enum": [
+                    "Bearer"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "PERMISSION_DENIED: the Host header names no address of the server (details.reason host), or the credentials lack the route's scope (details.reason scope)."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "NOT_FOUND: no such run or configuration; in run mode, POST /v0/runs and DELETE /v0/runs/{id}."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "An error of category execution, environment or internal; INTERNAL, without its text, for anything unexpected."
+          }
+        },
+        "summary": "The newest envelope of each of the run's workflow outputs.",
+        "x-praenora-scope": "read"
+      }
+    },
+    "/v0/runs/{id}/record": {
+      "get": {
+        "operationId": "getRunRecord",
+        "parameters": [
+          {
+            "description": "The run id: decimal, without leading zeros.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/run-record"
+                }
+              }
+            },
+            "description": "The answer."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "UNAUTHENTICATED: a TCP listener with tokens got no valid bearer token.",
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "enum": [
+                    "Bearer"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "PERMISSION_DENIED: the Host header names no address of the server (details.reason host), or the credentials lack the route's scope (details.reason scope)."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "NOT_FOUND: no such run or configuration; in run mode, POST /v0/runs and DELETE /v0/runs/{id}."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "INVALID_STATE: the run, its run record or the server does not allow it now."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "An error of category execution, environment or internal; INTERNAL, without its text, for anything unexpected."
+          }
+        },
+        "summary": "The run's run record as last written (409 before it exists).",
+        "x-praenora-scope": "read"
+      }
+    },
+    "/v0/runs/{id}/stop": {
+      "post": {
+        "operationId": "stopRun",
+        "parameters": [
+          {
+            "description": "The run id: decimal, without leading zeros.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StopRequest"
+              }
+            }
+          },
+          "description": "Empty, or a JSON object. Content-Type: application/json is required all the same: a POST without it answers 415, also one with an empty body.",
+          "required": false
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunEntry"
+                }
+              }
+            },
+            "description": "The stop was requested: the run's entry. The run ends in its own time."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "INVALID_ARGUMENT: the body breaks its schema, or a value is refused."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "UNAUTHENTICATED: a TCP listener with tokens got no valid bearer token.",
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "enum": [
+                    "Bearer"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "PERMISSION_DENIED: the Host header names no address of the server (details.reason host), or the credentials lack the route's scope (details.reason scope)."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "NOT_FOUND: no such run or configuration; in run mode, POST /v0/runs and DELETE /v0/runs/{id}."
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "INVALID_ARGUMENT: the request's body is larger than 64 KiB, the limit of a listener; it is refused before the route sees it."
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "INVALID_ARGUMENT: the POST does not name exactly one Content-Type application/json, its charset, if any, utf-8; every POST needs it, also one with an empty body, as stop's may be."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "An error of category execution, environment or internal; INTERNAL, without its text, for anything unexpected."
+          }
+        },
+        "summary": "Asks the run to stop; idempotent.",
+        "x-praenora-scope": "control"
+      }
+    },
+    "/v0/server": {
+      "get": {
+        "operationId": "getServer",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerInfo"
+                }
+              }
+            },
+            "description": "The answer."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "UNAUTHENTICATED: a TCP listener with tokens got no valid bearer token.",
+            "headers": {
+              "WWW-Authenticate": {
+                "schema": {
+                  "enum": [
+                    "Bearer"
+                  ],
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "PERMISSION_DENIED: the Host header names no address of the server (details.reason host), or the credentials lack the route's scope (details.reason scope)."
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            },
+            "description": "An error of category execution, environment or internal; INTERNAL, without its text, for anything unexpected."
+          }
+        },
+        "summary": "The server: the API and runtime versions, its mode, process and start, and the scopes of this request.",
+        "x-praenora-scope": "read"
+      }
+    }
+  },
+  "security": [
+    {
+      "bearer": []
+    },
+    {}
+  ]
+}

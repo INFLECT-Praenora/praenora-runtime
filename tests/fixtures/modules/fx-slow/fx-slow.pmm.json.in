@@ -18,7 +18,8 @@
     "properties": {
       "sleep_ms": { "type": "integer", "minimum": 0, "default": 100 },
       "finalize_sleep_ms": { "type": "integer", "minimum": 0, "default": 0 },
-      "cooperative": { "type": "boolean", "default": true }
+      "cooperative": { "type": "boolean", "default": true },
+      "entered_file": { "type": "string", "minLength": 1 }
     },
     "additionalProperties": false
   },

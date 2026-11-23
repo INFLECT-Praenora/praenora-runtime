@@ -16,6 +16,7 @@ int command_modules(const std::vector<std::string>& args);
 int command_providers(const std::vector<std::string>& args);
 int command_graph(const std::vector<std::string>& args);
 int command_run(const std::vector<std::string>& args);
+int command_serve(const std::vector<std::string>& args);
 int command_status(const std::vector<std::string>& args);
 int command_catalog(const std::vector<std::string>& args);
 int command_schema(const std::vector<std::string>& args);

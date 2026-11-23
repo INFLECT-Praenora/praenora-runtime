@@ -2,8 +2,9 @@
 // (src/python), share so that they report the same documents and failures: the JSON of a module, of
 // a service provider, of a catalog entry and of a run's summary, the failure of a validation and of
 // the contract checks, the tables of the names that they take (catalog kinds, graph formats, log
-// levels, log formats and isolation modes), from which their lookups, the lists of names in
-// messages and the praenora tool's usage texts come, and the limit of seeds and tick counts.
+// levels, log formats, isolation modes and path forms), from which their lookups, the lists of
+// names in messages and the praenora tool's usage texts come, the limit of seeds and tick counts,
+// and paths from UTF-8 text.
 // Header-only and internal: the target praenora_frontend is neither installed nor exported.
 #ifndef PRAENORA_FRONTEND_FRONTEND_HPP
 #define PRAENORA_FRONTEND_FRONTEND_HPP
@@ -18,6 +19,7 @@
 #include <charconv>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -234,6 +236,18 @@ inline std::optional<IsolationMode> isolation_mode(std::string_view name) {
     return value_named(kIsolationModes, name);
 }
 
+// The path forms of a status snapshot's error records by the names that the Python keyword
+// `path_form` of Workflow.status() takes.
+inline constexpr Named<PathForm> kPathForms[] = {
+    {"absolute", PathForm::absolute},
+    {"placeholders", PathForm::placeholders},
+};
+
+// The path form that `name`, exactly as written, stands for, or nullopt.
+inline std::optional<PathForm> path_form(std::string_view name) {
+    return value_named(kPathForms, name);
+}
+
 // The log levels and formats by their canonical names, which the front ends take in any case.
 inline constexpr Named<LogLevel> kLogLevels[] = {
     {"trace", LogLevel::trace}, {"debug", LogLevel::debug}, {"info", LogLevel::info},
@@ -252,6 +266,17 @@ inline std::string_view log_level_name(LogLevel level) {
 
 inline std::string_view log_format_name(LogFormat format) {
     return name_of(kLogFormats, format, "text");
+}
+
+// The path that the UTF-8 text `utf8` names, as the public API spells paths (on Windows, whatever
+// the code page). The front ends' own files (token files, configuration roots, address files) are
+// named this way.
+inline std::filesystem::path path_from_utf8(std::string_view utf8) {
+#if defined(__cpp_char8_t)
+    return std::filesystem::path(std::u8string(utf8.begin(), utf8.end()));
+#else
+    return std::filesystem::u8path(utf8.begin(), utf8.end());
+#endif
 }
 
 // `text` with the ASCII letters A-Z in lower case and every other byte as it is, whatever the

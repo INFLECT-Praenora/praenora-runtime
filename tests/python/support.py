@@ -1,11 +1,13 @@
 """What the tests of tests/python share: the environment that CTest sets for python.unittest,
-the paths of the fixtures, and a way to keep the runtime's log records out of the test output.
+the paths of the fixtures, a way to keep the runtime's log records out of the test output, and
+what a test does where a local listener is refused.
 
 CTest's environment names the fixture modules (PRAENORA_TEST_MODULES_DIR), the fixture service
 providers (PRAENORA_TEST_PROVIDERS_DIR), the test catalog (PRAENORA_TEST_CATALOG_DIR), the example
 configuration (PRAENORA_EXAMPLE_CONFIG) and, when the examples are built, the example modules
 (PRAENORA_EXAMPLE_MODULES_DIR). It sets PRAENORA_LOG_LEVEL to off, so the runtime logs nothing
-unless a test asks for it.
+unless a test asks for it, and OTEL_SDK_DISABLED to true, so the runtime exports nothing unless a
+test of the export removes it.
 """
 
 import contextlib
@@ -54,6 +56,21 @@ SERVICE_CONFIG = FIXTURES / "configs" / "cli" / "service" / "workflow.yaml"
 # runtime of this repository can use, and in its subdirectory shadowed/ another version of it, which
 # the first shadows.
 UNUSABLE_PROVIDERS = FIXTURES / "configs" / "cli" / "providers"
+
+
+# What a test that opens a local listener skips with where the listener is refused (a sandbox's
+# EPERM), followed by the reason; the C++ listener tests use the same words.
+LISTENER_REFUSED = "local listener refused: "
+
+
+def listener_refused(test, reason):
+    """Skips `test` because a local listener was refused for `reason`, or, with
+    PRAENORA_TESTS_REQUIRE_LISTENERS=1 (the ci-* test presets set it), fails it: python.unittest is
+    one CTest test, which a skip would let pass."""
+    if os.environ.get("PRAENORA_TESTS_REQUIRE_LISTENERS", "") == "1":
+        test.fail("PRAENORA_TESTS_REQUIRE_LISTENERS=1 requires local listeners, and one was not "
+                  f"allowed: {reason}")
+    test.skipTest(LISTENER_REFUSED + str(reason))
 
 
 @contextlib.contextmanager

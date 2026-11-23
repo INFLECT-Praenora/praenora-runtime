@@ -1,0 +1,13 @@
+# fx-echo in one tick, keeping a status file beside this file; the CLI tests
+# cli.run.configured_status_file and cli.run.empty_status_file copy this file and source.json into
+# the build tree and run it there, the second with --status-file "", which means no status file.
+kind: workflow-config
+format_version: "0.1.0"
+workflow: { name: test.single, version: "0.1.0" }
+run: { ticks: 1 }
+inputs:
+  source: { source: json-document, path: source.json }
+steps:
+  a:
+    module: { name: fx-echo, version: "0.1.0" }
+observability: { status_file: status.json }

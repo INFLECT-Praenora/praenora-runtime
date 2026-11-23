@@ -21,6 +21,7 @@ with `find_package` in CONFIG mode:
 | json-schema-validator (pboettch) | 2.3 | the runtime |
 | yaml-cpp | 0.8 (0.7 through a target shim) | the runtime |
 | spdlog (with fmt) | 1.10 | the runtime |
+| cpp-httplib, header-only | 0.67 (0.67.x only) | the runtime's OTLP export, the control API, and the tests that open local listeners ([platforms.md](platforms.md#cpp-httplib)) |
 | GoogleTest | 1.11 | the tests |
 | SWIG | 4.0 | the Python bindings |
 | Python, with its headers | 3.10 | the Python bindings |
@@ -30,7 +31,9 @@ with `find_package` in CONFIG mode:
 The third-party libraries link privately into the runtime, so neither the installed headers nor the
 installed CMake package mention them. The commands that install them on each platform are in
 [platforms.md](platforms.md); json-schema-validator, which Homebrew, apt and dnf do not package, is
-built from source as [platforms.md](platforms.md#json-schema-validator) shows.
+built from source as [platforms.md](platforms.md#json-schema-validator) shows, and cpp-httplib is
+installed header-only into a local prefix as [platforms.md](platforms.md#cpp-httplib) shows (a
+package whose header is compiled into a library is refused).
 
 **Offline by default.** A default configuration uses installed packages only and never touches the
 network. With `PRAENORA_FETCH_DEPENDENCIES=ON`, CMake's FetchContent still tries `find_package`
@@ -44,8 +47,9 @@ cmake --preset dev -DPRAENORA_FETCH_DEPENDENCIES=ON
 
 With every package installed, as where this was run, that configuration finds them all and downloads
 nothing. An actual download is verified by CI for yaml-cpp, spdlog and GoogleTest, which the CI
-presets download ([CI presets](#ci-presets)), and not yet for nlohmann/json and
-json-schema-validator. `PRAENORA_FETCH_JSON_SCHEMA_VALIDATOR=ON` is the
+presets download ([CI presets](#ci-presets)), and not yet for nlohmann/json, json-schema-validator
+and cpp-httplib (whose fetched sources were checked from a local copy of the pinned commit,
+[platforms.md](platforms.md#cpp-httplib)). `PRAENORA_FETCH_JSON_SCHEMA_VALIDATOR=ON` is the
 one option that builds a dependency even when it is installed: json-schema-validator, from its
 pinned sources, downloaded unless a local copy is named, so that sanitizer builds instrument it
 ([Sanitizer builds](#sanitizer-builds)). Configuring prints one line per dependency, saying where it
@@ -54,6 +58,7 @@ came from:
 ```text
 -- Praenora: dependency nlohmann_json 3.12.0 (found at /opt/homebrew/share/cmake/nlohmann_json)
 -- Praenora: dependency yaml-cpp 0.9.0 (found at /opt/homebrew/lib/cmake/yaml-cpp)
+-- Praenora: dependency cpp-httplib 0.67.0 (found at <prefix>/lib/cmake/httplib; header-only)
 ```
 
 ## Local presets
@@ -76,7 +81,8 @@ Then edit its hidden `dev-local` preset:
 
 | Cache variable | Set it to |
 |---|---|
-| `CMAKE_PREFIX_PATH` | Your dependency prefixes, separated by `;` (for example Homebrew's prefix and the prefix of json-schema-validator). |
+| `CMAKE_PREFIX_PATH` | Your dependency prefixes, separated by `;` (for example Homebrew's prefix and the prefixes of json-schema-validator and cpp-httplib). |
+| `httplib_DIR` | Only instead of cpp-httplib's prefix in `CMAKE_PREFIX_PATH`: its `<prefix>/lib/cmake/httplib`, so that the prefix's other packages are not found there. |
 | `Python3_EXECUTABLE` | The interpreter to build the Python bindings for. |
 | `PRAENORA_BUILD_PYTHON` | `ON` to build the bindings (needs SWIG and Python), `OFF` otherwise. |
 | `PRAENORA_FETCH_DEPENDENCIES` | `OFF`, or `ON` to download missing dependencies. |
@@ -208,22 +214,21 @@ the environment variable `PRAENORA_RUNTIME_DEPS`, which the fetch script prints
 | `LLVM_INSTALL_PREFIX` | The bundle's `llvm`. |
 | `PRAENORA_THIRD_PARTY_LICENSE_DIRS` | The bundle's `licenses` ([License files](#license-files)). |
 | `PRAENORA_WITH_ROADRUNNER`, `PRAENORA_WITH_ANTIMONY`, `PRAENORA_BUILD_PYTHON`, `PRAENORA_WARNINGS_AS_ERRORS`, `PRAENORA_FETCH_DEPENDENCIES` | `ON` |
-| `CMAKE_DISABLE_FIND_PACKAGE_yaml-cpp`, `CMAKE_DISABLE_FIND_PACKAGE_spdlog`, `CMAKE_DISABLE_FIND_PACKAGE_googletest` | `ON` |
+| `CMAKE_DISABLE_FIND_PACKAGE_yaml-cpp`, `CMAKE_DISABLE_FIND_PACKAGE_spdlog`, `CMAKE_DISABLE_FIND_PACKAGE_googletest`, `CMAKE_DISABLE_FIND_PACKAGE_httplib` | `ON` |
 | `CMAKE_OSX_DEPLOYMENT_TARGET` | `ci-macos-arm64-release` only: `14.0`, the macOS bundle's. |
 | `CMAKE_TRY_COMPILE_CONFIGURATION` | `ci-windows-x64-*` only: `Release` or `Debug`, the configuration of the bundle. The antimony provider's probe links the bundle's libraries when the build is configured, and the Visual Studio generator builds such a program in Debug unless this says otherwise, with another MSVC runtime library than a Release bundle's. |
 
 A tree of these presets builds both providers, the Python bindings and the tests, with warnings as
 errors. nlohmann/json and json-schema-validator come from the bundle, which is first on
-`CMAKE_PREFIX_PATH`. yaml-cpp, spdlog and GoogleTest are built from the commits that
-[`cmake/PraenoraDependencies.cmake`](../cmake/PraenoraDependencies.cmake) pins, whatever is
-installed, so that what a job builds does not depend on what its runner has installed: FetchContent
-first looks for an installed package with `find_package()` under the dependency's content name
-(`googletest` for GoogleTest; `CMAKE_DISABLE_FIND_PACKAGE_GTest` would have no effect), and the
-three `CMAKE_DISABLE_FIND_PACKAGE_<name>` variables turn those calls off. Their status lines then
-read `fetched into` the tree's `_deps/<name>-src`, as the CI jobs' logs show. The presets do not
-set `Python3_EXECUTABLE`: pass `-DPython3_EXECUTABLE=<python>` on the configure line, or
-FindPython takes the first suitable
-interpreter it finds.
+`CMAKE_PREFIX_PATH`. yaml-cpp, spdlog, GoogleTest and cpp-httplib (header-only) are built from the
+commits that [`cmake/PraenoraDependencies.cmake`](../cmake/PraenoraDependencies.cmake) pins,
+whatever is installed, so that what a job builds does not depend on what its runner has installed:
+FetchContent first looks for an installed package with `find_package()` under the dependency's
+content name (`googletest` for GoogleTest; `CMAKE_DISABLE_FIND_PACKAGE_GTest` would have no
+effect), and the four `CMAKE_DISABLE_FIND_PACKAGE_<name>` variables turn those calls off. Their
+status lines then read `fetched into` the tree's `_deps/<name>-src`, as the CI jobs' logs show. The
+presets do not set `Python3_EXECUTABLE`: pass `-DPython3_EXECUTABLE=<python>` on the configure
+line, or FindPython takes the first suitable interpreter it finds.
 
 **The bundle check.** When the cache variable `PRAENORA_RUNTIME_DEPS` is defined, as these presets
 define it, the configuration stops before any dependency is looked up unless it is the absolute path
@@ -249,29 +254,45 @@ cmake --build --preset ci-macos-arm64-release
 ctest --preset ci-macos-arm64-release
 ```
 
-As in a job, that configuration downloads yaml-cpp, spdlog and GoogleTest. To use installed
-packages instead and download nothing, turn the three variables off on the configure line;
+As in a job, that configuration downloads yaml-cpp, spdlog, GoogleTest and cpp-httplib. To use
+installed packages instead and download nothing, turn the four variables off on the configure line;
 `-DFETCHCONTENT_FULLY_DISCONNECTED=ON` makes a package that is not found stop the configuration
 instead of being downloaded. The presets' `CMAKE_PREFIX_PATH` names only the bundle, so the packages
 are then searched in CMake's default places, such as the prefix of each directory on `PATH`
 (`/opt/homebrew` for `/opt/homebrew/bin`), in the order of `PATH`; the environment variable
-`CMAKE_PREFIX_PATH` is searched before those. Homebrew's libraries target the macOS release they
-were built on, so with them also raise the deployment target to that release, or the linker warns
-about each of them ([Local presets](#local-presets)):
+`CMAKE_PREFIX_PATH` is searched before those (after the bundle, so the bundle's
+json-schema-validator still wins). Name there cpp-httplib's prefix too, such as
+`$HOME/.local/opt/praenora-deps`, where [platforms.md](platforms.md#cpp-httplib) installs it.
+Homebrew's libraries target the macOS release they were built on, so with them also raise the
+deployment target to that release, or the linker warns about each of them
+([Local presets](#local-presets)):
 
 ```bash
-CMAKE_PREFIX_PATH=/opt/homebrew cmake --preset ci-macos-arm64-release \
+CMAKE_PREFIX_PATH=/opt/homebrew:$HOME/.local/opt/praenora-deps \
+    cmake --preset ci-macos-arm64-release \
     -DPython3_EXECUTABLE=<python> -DFETCHCONTENT_FULLY_DISCONNECTED=ON \
     -DCMAKE_DISABLE_FIND_PACKAGE_yaml-cpp=OFF -DCMAKE_DISABLE_FIND_PACKAGE_spdlog=OFF \
-    -DCMAKE_DISABLE_FIND_PACKAGE_googletest=OFF -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0
+    -DCMAKE_DISABLE_FIND_PACKAGE_googletest=OFF -DCMAKE_DISABLE_FIND_PACKAGE_httplib=OFF \
+    -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0
 ```
 
 Give these values again whenever you run `cmake --preset` on that tree. On macOS arm64 the preset
 was checked this way, against a bundle built locally from praenora-runtime-deps with AppleClang 17
 and Homebrew's yaml-cpp, spdlog and GoogleTest: configure, build without warnings, and every test,
 those of the restricted sandbox profile from a shell outside any sandbox
-([testing.md](testing.md#module-hosts)). CI verifies the four CI presets on their runners, with
-fetched yaml-cpp, spdlog and GoogleTest ([releasing.md](releasing.md#what-the-runs-verified)).
+([testing.md](testing.md#module-hosts)); and again since cpp-httplib is a dependency, with
+cpp-httplib 0.67.0 from a local header-only prefix: configure and build without warnings, and
+every test from a shell outside any sandbox, which its test preset needs, since it requires
+listeners (below). CI verified the four CI presets on their runners, with fetched yaml-cpp, spdlog
+and GoogleTest, before cpp-httplib was added ([releasing.md](releasing.md#what-the-runs-verified));
+with it, they are not yet verified there.
+
+**Their test presets.** The CI test presets set the environment variable
+`PRAENORA_TESTS_REQUIRE_LISTENERS=1`: a test that opens a local listener then fails where the
+listener is refused, instead of skipping ([testing.md](testing.md#listeners)), so a job's run never
+passes without them. Every test preset of `CMakePresets.json` sets `OTEL_SDK_DISABLED=true`, so no
+test exports telemetry to a collector that the caller's environment names; the tests of the OTLP
+export set the variables they read themselves.
 
 ## Configure, build and test
 
@@ -291,7 +312,7 @@ Options are cache variables, set in a preset or on the configure line
 |---|---|---|
 | `PRAENORA_BUILD_TESTS` | ON at top level | The tests (GoogleTest, CTest labels). |
 | `PRAENORA_BUILD_EXAMPLES` | ON at top level | The example modules (`build/<preset>/modules`). |
-| `PRAENORA_BUILD_CLI` | ON | The `praenora` tool. |
+| `PRAENORA_BUILD_CLI` | ON | The `praenora` tool, and with it the control API's server (`praenora_server`, `src/server/`) and its tests. |
 | `PRAENORA_BUILD_PYTHON` | OFF | The Python bindings ([python.md](python.md)). |
 | `PRAENORA_FETCH_DEPENDENCIES` | OFF | Download missing dependencies at pinned commits. |
 | `PRAENORA_FETCH_JSON_SCHEMA_VALIDATOR` | OFF | Build json-schema-validator from its pinned sources even when one is installed, so that a sanitizer build instruments it ([platforms.md](platforms.md#json-schema-validator)). |
@@ -349,16 +370,16 @@ its own license, so installations hold license files in `share/praenora/licenses
 | Path below `share/praenora/licenses/` | Content |
 |---|---|
 | `praenora-runtime/LICENSE` | This repository's license. |
-| `<name>/` | For each dependency built in the tree with FetchContent (`nlohmann_json`, `nlohmann_json_schema_validator`, `yaml-cpp`, `spdlog`; never GoogleTest, which only the tests link), the files at the top of its sources whose names begin with `LICENSE`, `COPYING` or `NOTICE`, in any case, and, for spdlog, the license of the fmt library it bundles (a file whose name holds `license` in `include/spdlog/fmt/bundled/`), each under its path in the sources. A dependency built in the tree without a `LICENSE` or `COPYING` file stops the configuration. Checked with the sources of json-schema-validator 2.4.1 and nlohmann/json 3.12.0; not yet verified with fetched yaml-cpp and spdlog sources, nor the name of spdlog 1.17.0's fmt license file (`fmt.license.rst` is expected: a file named otherwise is not installed, and nothing says so). |
+| `<name>/` | For each dependency built in the tree with FetchContent (`nlohmann_json`, `nlohmann_json_schema_validator`, `yaml-cpp`, `spdlog`, `httplib`, which is header-only and compiled into the runtime; never GoogleTest, which only the tests link), the files at the top of its sources whose names begin with `LICENSE`, `COPYING` or `NOTICE`, in any case, and, for spdlog, the license of the fmt library it bundles (a file whose name holds `license` in `include/spdlog/fmt/bundled/`), each under its path in the sources. A dependency built in the tree without a `LICENSE` or `COPYING` file stops the configuration. Checked with the sources of json-schema-validator 2.4.1, nlohmann/json 3.12.0 and cpp-httplib 0.67.0 (`httplib/LICENSE`); not yet verified with fetched yaml-cpp and spdlog sources, nor the name of spdlog 1.17.0's fmt license file (`fmt.license.rst` is expected: a file named otherwise is not installed, and nothing says so). |
 | the entries of each directory of `PRAENORA_THIRD_PARTY_LICENSE_DIRS` | Its contents, as they are. A dependency bundle's `licenses/` directory holds `<component>/` with the license files of each library in the bundle (libRoadRunner, LLVM, libroadrunner-deps' libraries, libAntimony, nlohmann/json, json-schema-validator) and `praenora-runtime-deps/LICENSE`. An entry that is not the absolute path of a directory stops the configuration. |
 
 The build cannot tell where an installed package keeps its license files, so a static or
 header-only library found with `find_package()` brings them into the installation only through
 `PRAENORA_THIRD_PARTY_LICENSE_DIRS`. The providers' engines (libRoadRunner, LLVM, libSBML,
-libAntimony), the json-schema-validator of a dependency bundle and an installed nlohmann/json
-(header-only, as in the `dev` build) are such libraries, and so is an installed spdlog used through
-its header-only target: when the prefixes come from a bundle, name its `licenses/` directory, for
-example in the hidden `dev-local` preset of `CMakeUserPresets.json`:
+libAntimony), the json-schema-validator of a dependency bundle and an installed nlohmann/json or
+cpp-httplib (header-only, as in the `dev` build) are such libraries, and so is an installed spdlog
+used through its header-only target: when the prefixes come from a bundle, name its `licenses/`
+directory, for example in the hidden `dev-local` preset of `CMakeUserPresets.json`:
 
 ```json
 "PRAENORA_THIRD_PARTY_LICENSE_DIRS": "/path/to/bundle/licenses"
@@ -655,7 +676,8 @@ The runtime logs through its own spdlog loggers, never spdlog's default logger, 
 that uses spdlog keeps its own settings. The loggers are `praenora.runtime`, `praenora.engine`,
 `module.<step>` (a step's module messages and the events of its instance) and `module.check`.
 Per-step, per-call and per-tick events (`step.ready`, `invocation.completed`, `tick.completed`)
-are at level `debug`, and the start and end of a run at `info`:
+are at level `debug`, and the start and end of a run at `info`. Every attribute key carries the
+prefix `praenora.`, except `logger`:
 
 ```bash
 PRAENORA_LOG_LEVEL=debug ./build/dev/bin/praenora run examples/workflows/estimate-predict/workflow.yaml \
@@ -663,7 +685,7 @@ PRAENORA_LOG_LEVEL=debug ./build/dev/bin/praenora run examples/workflows/estimat
 ```
 
 ```text
-2026-11-11T18:49:38.378297000Z DEBUG praenora.engine [run.fingerprint=a4d251a5be737c49fe7cc73b30aa65367f3bc8e55cb2818ebb12bbafed93f46d event=invocation.completed tick=0 step=estimate module=example-estimator@0.1.0 duration_ns=257458] invocation completed
+2026-11-11T18:49:38.378297000Z DEBUG praenora.engine [praenora.run.fingerprint=a4d251a5be737c49fe7cc73b30aa65367f3bc8e55cb2818ebb12bbafed93f46d praenora.event=invocation.completed praenora.tick=0 praenora.step=estimate praenora.module=example-estimator@0.1.0 praenora.duration_ns=257458] invocation completed
 ```
 
 The level, format and file are each resolved on their own, from the run's options, the environment,
@@ -679,6 +701,25 @@ configuration sets its module logger whatever the run's level. JSON lines and a 
 
 Records are flushed one by one, so a log survives a crash inside a module. The full description,
 with the JSON fields and every event, is in [specs/observability.md](specs/observability.md#logs).
+
+**OTLP export.** With an endpoint, the runtime also sends its log records and metrics to an
+OpenTelemetry collector over OTLP/HTTP with JSON
+([specs/observability.md](specs/observability.md#otlp-export)); the tool and Python take the
+settings from the `OTEL_*` variables, C++ also from `RuntimeOptions::telemetry`:
+
+```bash
+OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318 OTEL_METRIC_EXPORT_INTERVAL=1000 \
+    ./build/dev/bin/praenora run examples/workflows/estimate-predict/workflow.yaml \
+    --module-path build/dev/modules
+```
+
+A collector that is down or refuses the export changes nothing in the run: each failure is
+counted, and logged as the warning `telemetry.export_failed` at most once a minute per signal, and
+the end of the process waits for what is left at most about one export timeout (10 s by default,
+`OTEL_EXPORTER_OTLP_TIMEOUT`). A value the export cannot use is ignored with the warning
+`telemetry.setting_ignored`, never an error. `OTEL_SDK_DISABLED=true` turns the export off, as
+every test does; the tests of the export send to a fake collector of their own
+([testing.md](testing.md#listeners)).
 
 ## Sanitizer builds
 

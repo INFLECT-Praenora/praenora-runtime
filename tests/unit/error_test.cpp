@@ -48,8 +48,9 @@ Diagnostic diagnostic(Severity severity, ErrorCode code, std::string message, So
 TEST(ErrorTaxonomy, EveryCodeHasUniqueNameAndInfo) {
     const auto& codes = all_error_codes();
     // Every code of the taxonomy table plus 406 CATALOG_ENTRY_DUPLICATE, 407 SERVICE_UNAVAILABLE,
-    // 503 MODULE_HOST_UNAVAILABLE and 706 MODULE_CRASHED.
-    EXPECT_EQ(codes.size(), 53u);
+    // 503 MODULE_HOST_UNAVAILABLE, 706 MODULE_CRASHED, 900 UNAUTHENTICATED and 901
+    // PERMISSION_DENIED.
+    EXPECT_EQ(codes.size(), 55u);
     std::set<std::string> names;
     std::set<std::int32_t> values;
     std::int32_t previous = -1;
@@ -175,6 +176,34 @@ TEST(ErrorTaxonomy, ModuleCrashedIs706) {
     EXPECT_EQ(error_code_from_name("MODULE_CRASHED"), ErrorCode::MODULE_CRASHED);
 }
 
+// The codes of the control API (9xx): the caller's usage errors (exit 2), never worth a retry
+// unchanged. They are runtime codes: the C header of the general codes does not know them.
+TEST(ErrorTaxonomy, UnauthenticatedIs900) {
+    EXPECT_EQ(static_cast<int>(ErrorCode::UNAUTHENTICATED), 900);
+    const auto& info = error_code_info(ErrorCode::UNAUTHENTICATED);
+    EXPECT_EQ(info.name, "UNAUTHENTICATED");
+    EXPECT_EQ(info.category, ErrorCategory::usage);
+    EXPECT_EQ(info.exit_code, 2);
+    EXPECT_EQ(info.owner, "caller");
+    EXPECT_FALSE(info.retryable);
+    EXPECT_EQ(info.summary, "The request carries no valid credentials.");
+    EXPECT_EQ(error_code_from_name("UNAUTHENTICATED"), ErrorCode::UNAUTHENTICATED);
+    EXPECT_STREQ(praenora_status_name(900), "UNKNOWN");
+}
+
+TEST(ErrorTaxonomy, PermissionDeniedIs901) {
+    EXPECT_EQ(static_cast<int>(ErrorCode::PERMISSION_DENIED), 901);
+    const auto& info = error_code_info(ErrorCode::PERMISSION_DENIED);
+    EXPECT_EQ(info.name, "PERMISSION_DENIED");
+    EXPECT_EQ(info.category, ErrorCategory::usage);
+    EXPECT_EQ(info.exit_code, 2);
+    EXPECT_EQ(info.owner, "caller");
+    EXPECT_FALSE(info.retryable);
+    EXPECT_EQ(info.summary, "The credentials do not allow the operation.");
+    EXPECT_EQ(error_code_from_name("PERMISSION_DENIED"), ErrorCode::PERMISSION_DENIED);
+    EXPECT_STREQ(praenora_status_name(901), "UNKNOWN");
+}
+
 TEST(ErrorTaxonomy, SpotChecksAgainstTheTable) {
     const auto& parse = error_code_info(ErrorCode::PARSE_ERROR);
     EXPECT_EQ(static_cast<int>(parse.code), 100);
@@ -182,9 +211,11 @@ TEST(ErrorTaxonomy, SpotChecksAgainstTheTable) {
     EXPECT_EQ(parse.owner, "user");
     EXPECT_FALSE(parse.retryable);
 
+    // A file, or a connection.
     const auto& io = error_code_info(ErrorCode::IO_ERROR);
     EXPECT_EQ(io.category, ErrorCategory::environment);
     EXPECT_TRUE(io.retryable);
+    EXPECT_EQ(io.summary, "Reading or writing a file or a connection failed.");
 
     const auto& target = error_code_info(ErrorCode::TARGET_DATA_INVALID);
     EXPECT_EQ(static_cast<int>(target.code), 800);

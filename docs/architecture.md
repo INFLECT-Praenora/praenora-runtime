@@ -9,7 +9,8 @@ the [ADRs](adr/README.md).
 
 - **Runtime (host).** The shared library `praenora_runtime` (`Praenora::Runtime`). It validates a
   workflow configuration, discovers and loads modules, runs the workflow in ticks and reports
-  status, metrics and logs.
+  status, metrics and logs, which it can also export to an OpenTelemetry collector over OTLP
+  ([OTLP export](#otlp-export)).
 - **Module SDK.** `Praenora::ModuleSDK`: the C ABI v0 headers, the optional header-only C++
   adapter, the in-process test kit and the CMake helper `praenora_add_module()`. Modules build
   against it and nothing else ([module-developer-guide.md](module-developer-guide.md)).
@@ -19,8 +20,10 @@ the [ADRs](adr/README.md).
   AsyncAPI documents in [`spec/asyncapi/`](../spec/asyncapi/). Schemas and catalog are embedded in
   the runtime.
 - **Surfaces.** The public C++ API (`praenora::Runtime`, `praenora::Workflow`), the `praenora`
-  command-line tool ([user-guide.md](user-guide.md)) and the Python package `praenora.runtime`
-  ([python.md](python.md)). The tool and the Python package are thin layers over the C++ API.
+  command-line tool ([user-guide.md](user-guide.md)), the control and status API over HTTP, which
+  the tool serves ([The control API](#the-control-api)), and the Python package
+  `praenora.runtime` ([python.md](python.md)). The tool, the control API's server and the Python
+  package are thin layers over the C++ API: its front ends.
 
 Modules are not part of this repository: they are independently built libraries, each described by
 a manifest, that the runtime finds on module search paths and loads at run time. The repository
@@ -60,7 +63,10 @@ flowchart LR
     libraries -->|"service tables from get_service"| providers
     engine --> files["outputs, message trace,<br/>run record"]
     engine --> observability["logs, metrics, status,<br/>health, status file"]
-    observability --> surfaces["C++ API, praenora CLI,<br/>praenora.runtime (Python)"]
+    surfaces["C++ API, praenora CLI,<br/>control API (HTTP),<br/>praenora.runtime (Python)"]
+    observability --> surfaces
+    observability --> otlp["OTLP export<br/>(one exporter per Runtime)"]
+    otlp -->|"OTLP/HTTP, JSON"| collector["OpenTelemetry collector"]
     files --> surfaces
 ```
 
@@ -82,7 +88,7 @@ The runtime's internals live in `src/runtime/`, one directory per component, in 
 | `graph/` | Validating a workflow definition's graph and computing its schedule. |
 | `engine/` | Running ticks: routing messages, building envelopes, checking results, failure handling. |
 | `io/` | Input sources (observation CSV replay, JSON documents), output files, the message trace, the run record. |
-| `observability/` | Logging, metrics, status snapshots, health, the status-file writer, and the path anchors that name a run's directories by placeholders in the error records of the run record and the status file. |
+| `observability/` | Logging, metrics, status snapshots, health, the status-file writer, and the path anchors that name a run's directories by placeholders in the error records of the run record, the status file and the control API's status answers; and in `otlp/` the OTLP export: its settings, JSON encoders, HTTP client (the runtime's only source that includes cpp-httplib's header), exporter thread and log sink. |
 | `api/` | The public `Runtime` and `Workflow`, the validation sequence, graph export and the contract checks. |
 | `platform/` | Operating-system calls: environment variables, the user's home directory, the runtime's own location, shared libraries, child processes (`posix_spawn`). |
 
@@ -95,8 +101,9 @@ Outside the runtime:
 | `src/sdk/` | The `Praenora::ModuleSDK` target and the generated `version.h`. |
 | `src/providers/` | Service providers built with the runtime: `roadrunner/`, only with `PRAENORA_WITH_ROADRUNNER`; `antimony/`, only with `PRAENORA_WITH_ANTIMONY`; `common/`, what providers share (header-only, never installed). |
 | `src/module_host/` | The module host `praenora-module-host` (its `main.cpp`; POSIX only), installed in `libexec/praenora/`. |
-| `src/frontend/` | What the CLI and the Python extension share (header-only, internal). |
-| `src/cli/` | The `praenora` tool. |
+| `src/frontend/` | What the CLI, the Python extension and the control API's server share (header-only, internal). |
+| `src/server/` | The control API's server, `praenora_server` (static, internal, linked by the tool only): addresses, tokens and scopes, the routes over a run source, the runs of both modes, the Prometheus text, the OpenAPI document, the listener and the client ([The control API](#the-control-api)). |
+| `src/cli/` | The `praenora` tool, with the listener flags and the server of `run --listen` and `serve` (`serving.cpp`). |
 | `src/python/`, `python/praenora/runtime/` | The SWIG facade and the pure-Python package. |
 
 ## Build structure
@@ -110,6 +117,9 @@ flowchart TB
     shared --> blackbox["integration tests"]
     frontend["praenora_frontend<br/>(header-only)"] --> cli
     frontend --> python
+    shared --> server["praenora_server<br/>(STATIC, internal: the control API)"]
+    frontend --> server
+    server --> cli
     sdk["Praenora::ModuleSDK<br/>(INTERFACE)"] --> modules["module libraries<br/>(MODULE, built with praenora_add_module)"]
     shared -.->|"loads at run time, never links"| modules
     shared -.->|"loads on demand, never links"| providers["service providers<br/>(MODULE, built with praenora_add_provider)"]
@@ -121,9 +131,14 @@ flowchart TB
 - The runtime compiles once, into an OBJECT library. The shared library exports only the public
   API (the `praenora` namespace); statically linked dependencies stay internal. White-box tests link
   the objects directly, so they can test internals.
-- Third-party libraries (nlohmann/json, json-schema-validator, yaml-cpp, spdlog) link privately.
-  Public headers use only the standard library and Praenora types
-  ([ADR-0023](adr/ADR-0023-public-cpp-api.md)).
+- Third-party libraries (nlohmann/json, json-schema-validator, yaml-cpp, spdlog, and cpp-httplib,
+  header-only, through the internal target `praenora_httplib`) link privately. Public headers use
+  only the standard library and Praenora types ([ADR-0023](adr/ADR-0023-public-cpp-api.md)).
+- The control API's server is a static library over the shared library's public API, linked by the
+  `praenora` tool only: the runtime library itself holds no server and opens no listener. The
+  OTLP export is part of the runtime library, since C++, the CLI and Python all export
+  ([ADR-0042](adr/ADR-0042-control-and-status-api-over-http.md),
+  [ADR-0043](adr/ADR-0043-otlp-export-of-metrics-and-logs.md)).
 - Modules are always `MODULE` libraries and the runtime always a `SHARED` library;
   `BUILD_SHARED_LIBS` is never read. The runtime never links against a module: it opens module
   libraries with `dlopen` (POSIX) or `LoadLibraryExW` (Windows) and calls them only through the
@@ -300,7 +315,10 @@ created instance, and a stop before `create` leaves the instance `loaded`.
 | The caller's thread | Runs the workflow: validation, `start()`, every tick, `close()`. One module call is in flight at a time. |
 | `praenora:<step>` | One worker per module instance. Every call into that instance, from create to destroy, runs here, so module state is thread-affine. The caller waits for each call on a deadline. |
 | `praenora:status` | Rewrites the status file, when one is configured. |
+| `praenora:otlp` | The OTLP exporter of a `Runtime`, when an endpoint is configured: takes the log records its sinks queued apart, encodes the open workflows' metrics, and sends both to the collector. |
 | The CLI's signal watcher | Turns SIGINT and SIGTERM (Ctrl+C on Windows) into `Workflow::request_stop()`. |
+| The control API's listener | With `praenora run --listen` or `praenora serve`: one thread accepts connections and 8 workers answer them. A handler queries runs and asks them to stop, and in serve mode opens and deletes them; it never runs a tick. |
+| A served run's driver | `praenora serve` drives each run it opened on a thread of its own, which calls `Workflow::run()`. |
 | A module host's reader | For a step in process mode, takes the module host's frames (log records, lookups, sink writes, results) as they arrive, and answers its requests of the shared compiled models. In the module host, a reader takes the runtime's frames and one thread makes every call of the instance. |
 
 Status and metrics queries, and `request_stop()`, may come from any thread while a run is in
@@ -381,6 +399,62 @@ manifest, that brings an engine for one or more runtime services
 - **Records.** The run record names each service the run uses, with its provider's identity,
   digests and engine, so the run fingerprint changes when the engine does.
 
+## The control API
+
+The control and status API lets another process watch and stop a run, and with `praenora serve`
+open runs, over HTTP ([specs/control-api.md](specs/control-api.md),
+[ADR-0042](adr/ADR-0042-control-and-status-api-over-http.md), Accepted).
+
+```mermaid
+flowchart LR
+    client["client<br/>(praenora status --server, curl)"]
+    listener["listener<br/>(cpp-httplib, 8 workers)"]
+    client -->|"HTTP on a Unix socket<br/>or a TCP address"| listener
+    listener --> api["ControlApi::handle()<br/>Host check, credentials,<br/>scopes, routes"]
+    api --> source["run source: SingleRun (run mode)<br/>or RunRegistry (serve mode)"]
+    source --> workflow["Workflow<br/>(public C++ API)"]
+    driver["a served run's driver thread"] -->|"Workflow::run()"| workflow
+```
+
+- **A third front end.** The server, `praenora_server` (`src/server/`), uses only the public C++
+  API and is linked by the `praenora` tool only. Its logic is plain functions over plain request
+  and response types, `ControlApi::handle()` over a run source, tested without sockets; only its
+  listener and its client include cpp-httplib's header.
+- **Two modes.** `praenora run --listen ADDR` serves the one run of the process, as run `1`,
+  from before it starts until it is over. `praenora serve` opens a run for each `POST /v0/runs`,
+  from a configuration under its configuration root, with one `Runtime`, and writes run `k` to
+  `<output-root>/run-<k>/`; on SIGINT or SIGTERM it stops listening, asks every run to stop, waits
+  for each one to end and exits with 0.
+- **Access.** A Unix socket (POSIX) is created with mode 0600, and whoever may connect may also
+  control. Over TCP with tokens, which the server reads from files, every request but
+  `GET /v0/health` needs a bearer token, and only the control token may control runs; without
+  tokens only loopback addresses listen, and only queries are answered. Every TCP request's `Host`
+  header is checked, against DNS rebinding, and no CORS header is ever sent.
+- **What it answers.** Each run's status snapshot (its error records naming the run's directories
+  by placeholders, as in the status file), metrics, run record and latest outputs, the
+  Prometheus text of every run (`GET /metrics`), and its OpenAPI 3.1 document, generated from the
+  route table and committed in [`spec/openapi/`](../spec/openapi/).
+- **Same results.** A listener and its requests change no run: its outputs, run record and
+  fingerprint are those of the same run without one.
+
+## OTLP export
+
+The runtime exports its metrics and log records to an OpenTelemetry collector over OTLP/HTTP with
+the JSON encoding, when an endpoint is configured by the `OTEL_*` variables or
+`RuntimeOptions::telemetry` ([specs/observability.md](specs/observability.md#otlp-export),
+[ADR-0043](adr/ADR-0043-otlp-export-of-metrics-and-logs.md), Accepted).
+
+- **One exporter per `Runtime`**, in the state that its copies and its workflows share, with one
+  thread, `praenora:otlp`. A sink on the `Runtime`'s log hub and on every workflow's only appends
+  each record to the exporter's queue, so export never holds up a tick; the thread sends the
+  records in batches, and the metrics of every open workflow at each interval and once more when
+  a workflow closes. Its end sends what is left within one export timeout.
+- **Module hosts export nothing.** The records that a module host passes on are exported by the
+  runtime's process, with its `process.pid`.
+- **Failures change nothing.** A failed export is counted and logged at warn level, at a limited
+  rate; it never changes a run's health, snapshots or results. Every attribute key that the
+  runtime writes carries the prefix `praenora.`, but `logger`, which in OTLP is the scope's name.
+
 ## What is configured, and what is not
 
 - **Topology is catalog data.** Which steps a workflow has, which capability each step needs and how
@@ -413,11 +487,15 @@ manifest, that brings an engine for one or more runtime services
   ([specs/module-abi.md](specs/module-abi.md#trust)). A module host keeps a module's crash from
   ending the runtime, but runs the module with the same privileges: it contains failures, not a
   hostile module.
-- **No network access.** The runtime opens no network connection: it reads and writes files only,
-  and other processes follow a run through its status file
-  ([ADR-0015](adr/ADR-0015-observability.md); a network endpoint is OQ-9). A module, being native
-  code, is not bound by this. A default build downloads nothing either
-  ([ADR-0017](adr/ADR-0017-dependency-management.md)).
+- **No listener in the library.** The runtime library opens no listener: other processes follow
+  a run through its status file ([ADR-0015](adr/ADR-0015-observability.md)) or through the
+  control API, which only the `praenora` tool serves: on a Unix socket of mode 0600, or on a TCP
+  address with a check of the `Host` header, where controlling a run needs a bearer token and
+  without tokens only loopback addresses answer queries
+  ([specs/control-api.md](specs/control-api.md#security-rules)). The only network connections the
+  library makes are the OTLP export's, to the collector that its settings name, and only when
+  they name one. A module, being native code, is not bound by this. A default build downloads
+  nothing ([ADR-0017](adr/ADR-0017-dependency-management.md)).
 - **Documents are data.** Configurations, catalog entries, manifests and messages are parsed and
   checked against their schemas, never evaluated as code, and a message's content, a model source
   included, is the receiving module's to interpret
@@ -429,6 +507,10 @@ manifest, that brings an engine for one or more runtime services
 - [ADR-0003](adr/ADR-0003-native-module-abi-v0.md), [ADR-0006](adr/ADR-0006-threading-model.md),
   [ADR-0011](adr/ADR-0011-tick-based-synchronous-execution.md),
   [ADR-0023](adr/ADR-0023-public-cpp-api.md): the decisions this structure follows.
+- [ADR-0042](adr/ADR-0042-control-and-status-api-over-http.md),
+  [ADR-0043](adr/ADR-0043-otlp-export-of-metrics-and-logs.md): the control API and the OTLP
+  export (Proposed).
 - [specs/module-abi.md](specs/module-abi.md), [specs/protocol.md](specs/protocol.md),
-  [specs/observability.md](specs/observability.md): the normative details.
+  [specs/observability.md](specs/observability.md), [specs/control-api.md](specs/control-api.md):
+  the normative details.
 - [developer-guide.md](developer-guide.md): building, debugging and changing the runtime.

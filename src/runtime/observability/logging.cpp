@@ -46,29 +46,9 @@ spdlog::level::level_enum to_spdlog(LogLevel level) {
     return spdlog::level::off;
 }
 
-struct SeverityName {
-    std::string_view text;
-    int number;
-};
-
 // OpenTelemetry log data model severity numbers.
-SeverityName severity_of(spdlog::level::level_enum level) {
-    switch (level) {
-    case spdlog::level::trace:
-        return {"TRACE", 1};
-    case spdlog::level::debug:
-        return {"DEBUG", 5};
-    case spdlog::level::info:
-        return {"INFO", 9};
-    case spdlog::level::warn:
-        return {"WARN", 13};
-    case spdlog::level::err:
-        return {"ERROR", 17};
-    case spdlog::level::critical:
-        return {"CRITICAL", 21};
-    default:
-        return {"INFO", 9};
-    }
+LogSeverity severity_of(spdlog::level::level_enum level) {
+    return log_severity(log_level_from_spdlog(level));
 }
 
 // A JSON string; invalid UTF-8 is replaced rather than fatal.
@@ -128,7 +108,7 @@ public:
     void format(const spdlog::details::log_msg& msg, spdlog::memory_buf_t& dest) override {
         const Event event = decode(std::string_view(msg.payload.data(), msg.payload.size()));
         const std::string_view logger(msg.logger_name.data(), msg.logger_name.size());
-        const SeverityName severity = severity_of(msg.level);
+        const LogSeverity severity = severity_of(msg.level);
         std::string line = format_ == LogFormat::text ? text(msg, event, logger, severity)
                                                       : json(msg, event, logger, severity);
         line += '\n';
@@ -152,7 +132,7 @@ private:
     }
 
     static std::string text(const spdlog::details::log_msg& msg, const Event& event,
-                            std::string_view logger, const SeverityName& severity) {
+                            std::string_view logger, const LogSeverity& severity) {
         std::string line = timestamp(msg);
         line += ' ';
         line += severity.text;
@@ -172,7 +152,7 @@ private:
     }
 
     static std::string json(const spdlog::details::log_msg& msg, const Event& event,
-                            std::string_view logger, const SeverityName& severity) {
+                            std::string_view logger, const LogSeverity& severity) {
         std::string line = "{\"timestamp\":\"" + timestamp(msg) + "\",\"severity_text\":\"";
         line += severity.text;
         line += "\",\"severity_number\":" + std::to_string(severity.number);
@@ -343,6 +323,43 @@ LogLevel log_level_from_abi(std::int32_t level) noexcept {
         return LogLevel::critical;
     default:
         return level < PRAENORA_LOG_TRACE ? LogLevel::trace : LogLevel::critical;
+    }
+}
+
+LogSeverity log_severity(LogLevel level) noexcept {
+    switch (level) {
+    case LogLevel::trace:
+        return {"TRACE", 1};
+    case LogLevel::debug:
+        return {"DEBUG", 5};
+    case LogLevel::info:
+        return {"INFO", 9};
+    case LogLevel::warn:
+        return {"WARN", 13};
+    case LogLevel::error:
+        return {"ERROR", 17};
+    case LogLevel::critical:
+        return {"CRITICAL", 21};
+    case LogLevel::off:
+        break;
+    }
+    return {"INFO", 9};
+}
+
+LogLevel log_level_from_spdlog(spdlog::level::level_enum level) noexcept {
+    switch (level) {
+    case spdlog::level::trace:
+        return LogLevel::trace;
+    case spdlog::level::debug:
+        return LogLevel::debug;
+    case spdlog::level::warn:
+        return LogLevel::warn;
+    case spdlog::level::err:
+        return LogLevel::error;
+    case spdlog::level::critical:
+        return LogLevel::critical;
+    default:
+        return LogLevel::info;
     }
 }
 

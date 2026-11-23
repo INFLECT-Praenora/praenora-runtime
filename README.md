@@ -11,7 +11,9 @@ its predictions current. The modules are developed in their own, separately vers
 runtime library (`Praenora::Runtime`), which validates a workflow configuration, discovers and
 loads modules, and runs the workflow deterministically; the module SDK (`Praenora::ModuleSDK`)
 with its stable C ABI; the Praenora Module Protocol (PMP) and Praenora Module Manifest (PMM)
-formats; the `praenora` command-line tool; and Python bindings (`praenora.runtime`). Heavy engines
+formats; the `praenora` command-line tool, which also serves a control and status API over HTTP;
+and Python bindings (`praenora.runtime`). The runtime can export its metrics and logs to an
+OpenTelemetry collector over OTLP. Heavy engines
 come from service providers that the runtime loads on demand: modules simulate models through the
 simulation service `praenora.simulation@0`, and translate them from one format to another, such as
 Antimony to SBML, through the model conversion service `praenora.model-conversion@0`, without
@@ -57,9 +59,9 @@ not have it in this version.
 
 Fetch mode is verified by CI for yaml-cpp, spdlog and GoogleTest
 ([docs/releasing.md](docs/releasing.md#what-the-runs-verified)). Not yet verified anywhere:
-downloading nlohmann/json and json-schema-validator in fetch mode (CI takes them from the bundle),
-and a Python wheel build that downloads its build requirements (a wheel built offline is verified
-on macOS arm64).
+downloading nlohmann/json and json-schema-validator in fetch mode (CI takes them from the bundle)
+and cpp-httplib (which the CI presets download; no CI run has done so yet), and a Python wheel
+build that downloads its build requirements (a wheel built offline is verified on macOS arm64).
 WebAssembly and compiling module code through libRoadRunner are designs only
 ([feasibility designs](docs/index.md#feasibility-designs)).
 
@@ -68,6 +70,23 @@ of the dependency bundles (Linux x86-64, macOS arm64, Windows x86-64 Release and
 the pinned bundles of praenora-runtime-deps, and drafts the releases, with an archive per platform
 ([docs/releasing.md](docs/releasing.md)). It first passed on every platform key on 2026-11-22,
 and the first release, v0.2.0, was published from it the same day.
+
+Since that release: a control and status API over HTTP and an OTLP export, both accepted
+([ADR-0042](docs/adr/ADR-0042-control-and-status-api-over-http.md),
+[ADR-0043](docs/adr/ADR-0043-otlp-export-of-metrics-and-logs.md)). The `praenora` tool serves the
+API on a Unix socket or a TCP address, for the run it runs (`praenora run --listen`) or for runs
+it opens on request from an operator's configuration directory (`praenora serve`), and
+`praenora status --server` reads it: another process can watch a run, stop it, and read its
+metrics, run record and latest outputs, with tokens and scopes, an OpenAPI 3.1 document and
+Prometheus text ([docs/specs/control-api.md](docs/specs/control-api.md)). The runtime exports its
+metrics and logs to an OpenTelemetry collector over OTLP/HTTP with JSON, configured by the
+standard `OTEL_*` variables, from C++, the CLI and Python
+([docs/specs/observability.md](docs/specs/observability.md#otlp-export)); every attribute key of
+the logs and the metrics now carries the prefix `praenora.` (but `logger`). Neither changes a
+run's results. They need cpp-httplib 0.67, header-only
+([docs/platforms.md](docs/platforms.md#cpp-httplib)), and are verified on macOS arm64 only: not
+yet on Linux or Windows, where CI has not built them yet, nor with cpp-httplib downloaded in
+fetch mode.
 
 ## Quick start
 
@@ -139,7 +158,7 @@ failed, 2 usage, 3 validation, 4 load, 5 timeout, 70 internal, 74 I/O, 130 inter
 ## Where to go next
 
 - [docs/user-guide.md](docs/user-guide.md): the `praenora` tool, the example workflow, outputs,
-  status and troubleshooting.
+  status, watching and running over HTTP, the OTLP export, and troubleshooting.
 - [docs/configuration.md](docs/configuration.md): writing a workflow configuration.
 - [docs/module-developer-guide.md](docs/module-developer-guide.md): writing a module.
 - [docs/python.md](docs/python.md): the Python API.

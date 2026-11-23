@@ -7,6 +7,7 @@
 #include <praenora/runtime/error.hpp>
 #include <praenora/runtime/options.hpp>
 #include <praenora/runtime/runtime.hpp>
+#include <praenora/runtime/status.hpp>
 
 #include <gtest/gtest.h>
 #include <nlohmann/json.hpp>
@@ -57,6 +58,7 @@ TEST(Frontend, NameListsComeFromTheTables) {
     EXPECT_EQ(frontend::names_of(frontend::kLogFormats, "|", "|"), "text|json");
     EXPECT_EQ(frontend::names_of(frontend::kIsolationModes), "in-process or process");
     EXPECT_EQ(frontend::names_of(frontend::kIsolationModes, "|", "|"), "in-process|process");
+    EXPECT_EQ(frontend::names_of(frontend::kPathForms), "absolute or placeholders");
 
     constexpr frontend::Named<int> kOne[] = {{"one", 1}};
     EXPECT_EQ(frontend::names_of(kOne), "one");
@@ -83,6 +85,13 @@ TEST(Frontend, LookupsTakeTheNamesOfTheirTables) {
     EXPECT_EQ(frontend::isolation_mode("Process"), std::nullopt);
     EXPECT_EQ(frontend::isolation_mode("in_process"), std::nullopt);
     EXPECT_EQ(frontend::isolation_mode(""), std::nullopt);
+
+    // Path forms: exactly as written, as the Python keyword path_form takes them.
+    EXPECT_EQ(frontend::path_form("absolute"), praenora::PathForm::absolute);
+    EXPECT_EQ(frontend::path_form("placeholders"), praenora::PathForm::placeholders);
+    EXPECT_EQ(frontend::path_form("Absolute"), std::nullopt);
+    EXPECT_EQ(frontend::path_form("placeholder"), std::nullopt);
+    EXPECT_EQ(frontend::path_form(""), std::nullopt);
 
     for (const auto& level : frontend::kLogLevels) {
         EXPECT_EQ(frontend::log_level_name(level.value), level.name);

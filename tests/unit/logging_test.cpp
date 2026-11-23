@@ -59,10 +59,10 @@ TEST(Logging, JsonLineHasOtelFields) {
     const LogCapture capture(hub);
     const auto logger = hub.logger("praenora.engine");
     log_event(*logger, LogLevel::info, "invocation completed",
-              {{"tick", 3},
-               {"step", "estimate"},
-               {"module", "example-estimator@0.1.0"},
-               {"duration_ns", 1234567}});
+              {{"praenora.tick", 3},
+               {"praenora.step", "estimate"},
+               {"praenora.module", "example-estimator@0.1.0"},
+               {"praenora.duration_ns", 1234567}});
 
     const auto lines = capture.lines();
     ASSERT_EQ(lines.size(), 1u);
@@ -80,10 +80,10 @@ TEST(Logging, JsonLineHasOtelFields) {
     EXPECT_EQ(entry.at("body"), "invocation completed");
     const auto& attributes = entry.at("attributes");
     EXPECT_EQ(attributes.at("logger"), "praenora.engine");
-    EXPECT_EQ(attributes.at("tick"), 3);
-    EXPECT_EQ(attributes.at("step"), "estimate");
-    EXPECT_EQ(attributes.at("module"), "example-estimator@0.1.0");
-    EXPECT_EQ(attributes.at("duration_ns"), 1234567);
+    EXPECT_EQ(attributes.at("praenora.tick"), 3);
+    EXPECT_EQ(attributes.at("praenora.step"), "estimate");
+    EXPECT_EQ(attributes.at("praenora.module"), "example-estimator@0.1.0");
+    EXPECT_EQ(attributes.at("praenora.duration_ns"), 1234567);
     EXPECT_EQ(entry.size(), 5u) << entry.dump();
 }
 
@@ -92,14 +92,15 @@ TEST(Logging, TextLineContainsAttributes) {
     const LogCapture capture(hub);
     const auto logger = hub.logger("praenora.engine");
     log_event(*logger, LogLevel::info, "invocation completed (1.2 ms)",
-              {{"tick", 3}, {"step", "estimate"}});
+              {{"praenora.tick", 3}, {"praenora.step", "estimate"}});
     log_event(*logger, LogLevel::warn, "no attributes");
     log_event(*logger, LogLevel::error, "quoted", {{"path", "a dir/x"}, {"ok", true}});
 
     const auto lines = capture.lines();
     ASSERT_EQ(lines.size(), 3u);
     const std::regex line(
-        R"(^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{9}Z INFO  praenora\.engine \[tick=3 step=estimate\] invocation completed \(1\.2 ms\)$)");
+        R"(^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{9}Z INFO  praenora\.engine )"
+        R"(\[praenora\.tick=3 praenora\.step=estimate\] invocation completed \(1\.2 ms\)$)");
     EXPECT_TRUE(std::regex_match(lines[0], line)) << lines[0];
     EXPECT_NE(lines[1].find(" WARN  praenora.engine no attributes"), std::string::npos) << lines[1];
     EXPECT_NE(lines[2].find(" ERROR praenora.engine [path=\"a dir/x\" ok=true] quoted"),
@@ -234,8 +235,8 @@ TEST(Logging, AnEventIsTakenApartAgainFromWhatASinkReceives) {
     hub.add_sink(sink);
     const auto logger = hub.logger("provider.p");
     log_event(*logger, LogLevel::info, "loaded and started \xE2\x9C\x93",
-              {{"provider", "p@0.1.0"},
-               {"event", "provider.loaded"},
+              {{"praenora.provider", "p@0.1.0"},
+               {"praenora.event", "provider.loaded"},
                {"count", 3},
                {"logger", "dropped"},
                {"nested", {{"b", 1}, {"a", {true, nullptr}}}},
@@ -246,7 +247,8 @@ TEST(Logging, AnEventIsTakenApartAgainFromWhatASinkReceives) {
         praenora::detail::decode_logged_event(sink->payloads[0]);
     EXPECT_EQ(event.message, "loaded and started \xE2\x9C\x93");
     ASSERT_EQ(event.attributes.size(), 5u);
-    const std::vector<std::string> keys = {"provider", "event", "count", "nested", "text"};
+    const std::vector<std::string> keys = {"praenora.provider", "praenora.event", "count", "nested",
+                                           "text"};
     for (std::size_t i = 0; i < keys.size(); ++i) {
         EXPECT_EQ(event.attributes[i].key, keys[i]);
     }

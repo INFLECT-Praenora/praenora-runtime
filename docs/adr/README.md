@@ -66,3 +66,5 @@ Some ADRs have a split status, for example "Accepted (shape) / Proposed (details
 | [ADR-0039](ADR-0039-restricted-sandbox-profile-for-module-hosts.md) | A restricted sandbox profile for module hosts | Accepted (macOS profile) / Proposed (signed programs) | 2026-11-20 |
 | [ADR-0040](ADR-0040-mit-license.md) | MIT license | Accepted | 2026-11-21 |
 | [ADR-0041](ADR-0041-ci-and-releases-against-pinned-dependency-bundles.md) | CI and releases against pinned dependency bundles | Accepted | 2026-11-21 |
+| [ADR-0042](ADR-0042-control-and-status-api-over-http.md) | Control and status API over HTTP | Accepted | 2026-11-22 |
+| [ADR-0043](ADR-0043-otlp-export-of-metrics-and-logs.md) | OTLP export of metrics and logs | Accepted | 2026-11-22 |

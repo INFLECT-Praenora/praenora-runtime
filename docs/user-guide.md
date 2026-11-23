@@ -107,8 +107,10 @@ published on 2026-11-22.
 | `praenora modules check <manifest>` | The contract checks of a module ([module-developer-guide.md](module-developer-guide.md#contract-checks)), with the services its manifest declares served by their providers. `--vectors F` uses other test vectors. |
 | `praenora providers list` | Every service provider manifest on the provider search paths: the services each offers and whether the runtime can use it ([Finding service providers](#finding-service-providers)). |
 | `praenora graph <config>` or `--workflow <name>@<version>` | A workflow definition's schedule and connections: `--format text` (default), `json`, `dot` or `asyncapi`. |
-| `praenora run <config>` | Validates and runs a workflow. Options: `--ticks N`, `--seed S`, `--output-dir D`, `--overwrite`, `--trace`, `--status-file F`, `--isolation in-process\|process`. |
+| `praenora run <config>` | Validates and runs a workflow. Options: `--ticks N`, `--seed S`, `--output-dir D`, `--overwrite`, `--trace`, `--status-file F`, `--isolation in-process\|process`; `--listen ADDR` serves the run through the control API while it runs ([Watching and running over HTTP](#watching-and-running-over-http)). |
+| `praenora serve --listen ADDR --config-root D --output-root D` | A long-running server of the control API that opens runs on request ([Watching and running over HTTP](#watching-and-running-over-http)). |
 | `praenora status <file>` | Prints the status file a run keeps. |
+| `praenora status --server ADDR` | The runs of a server of the control API, or with `--run ID` one run's status. |
 | `praenora catalog list` / `catalog show <id>@<version>` | The protocol catalog's entries (`--kind workflows`, `capabilities` or `messages`), or one entry's document. |
 | `praenora schema list` / `schema show <kind>` | The embedded JSON Schemas; `--format-version V` picks a version. |
 | `praenora help [<command>]` | The usage of the tool or of a command, as `--help` does. |
@@ -380,9 +382,10 @@ directory is fine. The formats are specified in
 
 ## Status and health
 
-A status file (`--status-file`, or `observability.status_file`) holds a status snapshot that the run
-rewrites atomically at each state change and every `status_interval` (1 s by default), so another
-process can read it at any time:
+A status file (`--status-file`, or `observability.status_file`; `--status-file ""` keeps none, in
+place of the configuration's) holds a status snapshot that the run rewrites atomically at each
+state change and every `status_interval` (1 s by default), so another process can read it at any
+time:
 
 ```bash
 ./build/dev/bin/praenora status "$RUN/status.json"
@@ -415,7 +418,10 @@ The status file and the run record are written for others to read, so their erro
 directories the run knows by placeholders: `<output>`, `<configuration>`, `<modules:caller:0>` and
 the other search paths, and `<home>`. `praenora status` then shows, for example, the last error
 `IO_ERROR: cannot create directory '<output>/outputs': File exists`. The tool's own error output and
-the logs keep the absolute paths. The placeholders and the rules are in
+the logs keep the absolute paths. A program that runs the workflow itself gets the snapshot in
+either form: `Workflow::status_json(PathForm::placeholders)` in C++ and
+`Workflow.status(path_form="placeholders")` in Python give the status file's, `status_json()` and
+`status()` the absolute paths. The placeholders and the rules are in
 [specs/observability.md](specs/observability.md#known-directories-in-the-files-of-a-run).
 
 ## Stopping a run
@@ -424,6 +430,70 @@ Ctrl+C or SIGTERM asks a run to stop: the module call in progress is asked to ca
 call starts, the modules are finalized and destroyed, the run record is written with status
 `stopped`, and the tool exits with 130. A second signal ends the tool at once. A tool started with
 SIGINT ignored, as a shell starts a background command, keeps ignoring it.
+
+## Watching and running over HTTP
+
+The control API lets another process watch a run and stop it, over a Unix socket or a TCP
+address; `praenora serve` also opens runs on request. Its routes, rules and answers are specified
+in [specs/control-api.md](specs/control-api.md).
+
+`praenora run --listen ADDR` serves the one run of the process, as run `1`, from before it starts
+until it is over; then the tool prints its summary and exits as it would without a listener:
+
+```bash
+rm -f "$RUN/address"
+./build/dev/bin/praenora run examples/workflows/estimate-predict/workflow.yaml \
+    --module-path build/dev/modules --listen "unix:$HOME/.praenora.sock" \
+    --address-file "$RUN/address" &
+while [ ! -s "$RUN/address" ]; do sleep 0.1; done
+curl --unix-socket "$HOME/.praenora.sock" http://localhost/v0/runs/1
+curl --unix-socket "$HOME/.praenora.sock" -X POST -H 'Content-Type: application/json' \
+    http://localhost/v0/runs/1/stop
+```
+
+`praenora serve` runs until SIGINT or SIGTERM (Ctrl+C) and opens a run for each `POST /v0/runs`,
+from a configuration under its configuration root; run `k` writes to `<output-root>/run-<k>/` and
+logs to `<output-root>/run-<k>.log`:
+
+```bash
+rm -f "$RUN/address"
+./build/dev/bin/praenora serve --listen 127.0.0.1:0 --address-file "$RUN/address" \
+    --config-root examples/workflows/estimate-predict --output-root "$RUN/served" \
+    --module-path build/dev/modules --token-file "$HOME/.praenora.token" &
+while [ ! -s "$RUN/address" ]; do sleep 0.1; done
+./build/dev/bin/praenora status --server "$(cat "$RUN/address")" \
+    --token-file "$HOME/.praenora.token"
+```
+
+- **Addresses.** `unix:<path>` (POSIX), `<IPv4>:<port>` or `[<IPv6>]:<port>`; port 0 lets the
+  system choose. Host names, `localhost` included, are refused, and so is an IPv4-mapped IPv6
+  address such as `[::ffff:127.0.0.1]:8080` (give `127.0.0.1:8080`). The tool prints
+  `praenora: listening on <address>` with the real port, and `--address-file F` writes the address
+  to `F` before the first request is answered, so a script can wait for that file (remove it
+  first: the tool leaves it in place when it ends).
+- **Who may do what.** A Unix socket is created with mode 0600: whoever may connect may also
+  stop and open runs. Over TCP without tokens, only loopback addresses are allowed and only the
+  queries are answered; `--token-file F` (both scopes) and `--read-token-file F` (queries only)
+  name files that hold a token of at least 32 characters on their first line, readable by their
+  owner only (`chmod 600`), which clients send as `Authorization: Bearer <token>`. A TCP request's
+  `Host` header must name the listener's address, `localhost` on a loopback listener, or a name
+  given with `--allow-host`.
+- **Socket files.** A path that exists is refused, unless it is a socket that nobody listens on,
+  as a crashed server leaves it, which is replaced; the tool removes its socket when it stops
+  listening.
+- **Shutting down.** On SIGINT or SIGTERM, `serve` stops listening, asks every run to stop, waits
+  for each one to end (a run in a call that does not return ends at its own deadline, or when its
+  module host is killed) and exits with 0. A second signal ends it at once with 130, leaving its
+  socket file behind, which the next server replaces.
+- **Isolation.** In serve mode a crash in an in-process module ends every run of the server:
+  `--isolation process` (POSIX) is recommended.
+- **Errors.** A wrong address, token file or `--allow-host` is a usage error (exit 2); a listener
+  the system refuses (an address in use, a path that is not a socket) is `IO_ERROR` (exit 74).
+  `praenora status --server` reports the server's errors with their own codes and exit codes, and
+  a connection that fails as `IO_ERROR` (exit 74).
+
+No listener and no request changes a run: its outputs, run record and fingerprint are those of the
+same configuration and seed run without one.
 
 ## Logging
 
@@ -434,13 +504,35 @@ configuration's `observability` section; which source wins is specified in
 object per record, with OpenTelemetry field names:
 
 ```text
-{"timestamp":"2026-11-11T18:34:17.178992000Z","severity_text":"INFO","severity_number":9,"body":"run started","attributes":{"logger":"praenora.engine","run.fingerprint":"a4d251a5be737c49fe7cc73b30aa65367f3bc8e55cb2818ebb12bbafed93f46d","event":"run.started","workflow":"example.estimate-predict@0.1.0"}}
+{"timestamp":"2026-11-11T18:34:17.178992000Z","severity_text":"INFO","severity_number":9,"body":"run started","attributes":{"logger":"praenora.engine","praenora.run.fingerprint":"a4d251a5be737c49fe7cc73b30aa65367f3bc8e55cb2818ebb12bbafed93f46d","praenora.event":"run.started","praenora.workflow":"example.estimate-predict@0.1.0"}}
 ```
 
 A step whose configuration sets its own `log_level` keeps that level whatever the run's level: the
 example's `predict` step logs at `debug` even with `--log-level warn`. Logging never changes the
 fingerprint. The loggers, events and formats are in
-[specs/observability.md](specs/observability.md#logs).
+[specs/observability.md](specs/observability.md#logs). Every attribute key of a record carries the
+prefix `praenora.`, except `logger`.
+
+**Exporting to an OpenTelemetry collector.** With an endpoint in the environment, the tool also
+sends its log records and metrics to a collector over OTLP/HTTP with JSON, whatever it logs to
+standard error or a file:
+
+```bash
+OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318 OTEL_SERVICE_NAME=forecast \
+    ./build/dev/bin/praenora run examples/workflows/estimate-predict/workflow.yaml \
+    --module-path build/dev/modules
+```
+
+Metrics go to `<endpoint>/v1/metrics` every minute (`OTEL_METRIC_EXPORT_INTERVAL`, in
+milliseconds) and when the run ends, log records to `<endpoint>/v1/logs` within a second; each
+carries the run's number and fingerprint (`praenora.run.number`, `praenora.run.fingerprint`). Only
+`http://` endpoints and the protocol `http/json` are supported: a value the export cannot use is
+ignored with a warning (`telemetry.setting_ignored`), and the run goes on. A collector that is
+down or refuses the export does not change the run, its health or its exit code: the failure is
+logged as a warning (`telemetry.export_failed`) at most once a minute, and the tool waits for the
+export at its end at most about the export timeout (10 s by default, `OTEL_EXPORTER_OTLP_TIMEOUT`).
+`OTEL_SDK_DISABLED=true` turns it off. Every variable, and what is exported, is in
+[specs/observability.md](specs/observability.md#otlp-export).
 
 ## Troubleshooting
 
@@ -484,6 +576,8 @@ step, module and `details` (for example the service, the search paths and the pr
 | `MODULE_HOST_UNAVAILABLE`, exit 4 | No module host could be started for a step in process mode: `details.reason` says why (`missing`: no `libexec/praenora/praenora-module-host` beside the runtime library, as in an installation from the Python wheel; `spawn`, `handshake`, `build`; `sandbox`: the restricted profile cannot be applied, as when the runtime itself runs in a sandbox). Run the step in process mode from a build tree or a full installation, or set it to `in-process`; run a restricted step outside any other sandbox, or set its `sandbox` to `none`. |
 | `UNSUPPORTED`, exit 3 | A step in process mode on Windows: set its `isolation.mode` to `in-process`. A step with `sandbox: restricted` anywhere but on macOS (located at its `isolation.sandbox`): set it to `none`. |
 | `RUN_STOPPED`, exit 130 | The run was stopped on request. |
+| `cannot listen on <address>`, `IO_ERROR`, exit 74 | `run --listen` or `serve` could not open its listener: the message gives the system's error (`bind()`: an address in use, or listeners refused, as some sandboxes refuse them all), or says that a Unix socket's path is a file that is not a socket, or a socket that another process listens on. |
+| `UNAUTHENTICATED`, `PERMISSION_DENIED`, exit 2 | `praenora status --server` (or another client) sent no valid token (`--token-file`), a read token where control is needed, or, over TCP, a `Host` header that names neither the listener's address nor a name of `--allow-host` ([Watching and running over HTTP](#watching-and-running-over-http)). |
 
 The [error taxonomy's triage table](specs/error-taxonomy.md#triage) says where to look for every
 code. For problems with a module itself, `praenora modules check <manifest>` runs its contract

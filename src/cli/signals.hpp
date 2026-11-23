@@ -1,10 +1,11 @@
-// Stopping a run on a signal: SIGINT and SIGTERM on POSIX, Ctrl+C, Ctrl+Break and closing the
-// console on Windows. The first one asks the workflow being watched to stop (it ends as stopped,
-// its modules finalized and destroyed); a second one ends the process at once with exit code 130.
+// Stopping a run, or a server, on a signal: SIGINT and SIGTERM on POSIX, Ctrl+C, Ctrl+Break and
+// closing the console on Windows. The first one asks the workflow being watched to stop (it ends as
+// stopped, its modules finalized and destroyed) and wakes a thread waiting for it (a server, which
+// then stops its listener and its runs); a second one ends the process at once with exit code 130.
 // On POSIX, a signal that the process started with ignored (as a shell starts a command in the
 // background) stays ignored. On Windows, closing the console, logging off and shutting down end
 // the process once the handler returns: the handler then waits, at most 4 s (below the system's
-// limit of about 5 s), until the watched run is over.
+// limit of about 5 s), until the watched run is over or the StopOnSignal is destroyed.
 #ifndef PRAENORA_CLI_SIGNALS_HPP
 #define PRAENORA_CLI_SIGNALS_HPP
 
@@ -34,6 +35,10 @@ public:
     // signal that arrived earlier reaches the workflow at once. Once this returns, the watcher no
     // longer uses the workflow watched before.
     void watch(Workflow* workflow);
+
+    // Waits until a signal arrives (one that arrived earlier ends the wait at once): `praenora
+    // serve` waits here, then stops its listener and its runs.
+    void wait_for_signal();
 
 private:
     void loop();

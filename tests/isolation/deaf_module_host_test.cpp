@@ -78,7 +78,7 @@ private:
 
 bool has_event(const CapturedLogs& logs, const std::string& event) {
     for (const json& record : logs.events()) {
-        if (record.at("attributes").value("event", std::string()) == event) {
+        if (record.at("attributes").value("praenora.event", std::string()) == event) {
             return true;
         }
     }
@@ -201,7 +201,8 @@ TEST(Isolation, EndingAModuleHostThatDoesNotTakeAStoreAnswerEnds) {
         EXPECT_TRUE(praenora::test::process_gone(pid)) << pid;
         bool warned = false;
         for (const json& record : logs.events()) {
-            if (record.at("attributes").value("event", std::string()) == "module_host.terminated" &&
+            if (record.at("attributes").value("praenora.event", std::string()) ==
+                    "module_host.terminated" &&
                 record.at("severity_text") == "WARN" &&
                 record.at("body").get<std::string>().find(c.terminated) != std::string::npos) {
                 warned = true;
@@ -279,7 +280,7 @@ TEST(Isolation, AStopDuringACallTheModuleHostDoesNotTakeEndsTheRunWithoutAFailed
     const auto with_event = [&records](const std::string& event) {
         std::vector<json> found;
         for (const json& record : records) {
-            if (record.at("attributes").value("event", std::string()) == event) {
+            if (record.at("attributes").value("praenora.event", std::string()) == event) {
                 found.push_back(record);
             }
         }
@@ -290,15 +291,15 @@ TEST(Isolation, AStopDuringACallTheModuleHostDoesNotTakeEndsTheRunWithoutAFailed
     const std::vector<json> skipped = with_event("teardown.skipped");
     ASSERT_EQ(skipped.size(), 1u);
     EXPECT_EQ(skipped[0].at("severity_text"), "WARN");
-    EXPECT_EQ(skipped[0].at("attributes").at("step"), "a");
-    EXPECT_EQ(skipped[0].at("attributes").at("state"), "ready");
+    EXPECT_EQ(skipped[0].at("attributes").at("praenora.step"), "a");
+    EXPECT_EQ(skipped[0].at("attributes").at("praenora.state"), "ready");
     EXPECT_NE(skipped[0].at("body").get<std::string>().find(
                   "is neither finalized nor destroyed: its module host was ended"),
               std::string::npos)
         << skipped[0].at("body");
     const std::vector<json> terminated = with_event("module_host.terminated");
     ASSERT_EQ(terminated.size(), 1u);
-    EXPECT_TRUE(praenora::test::gone_within(terminated[0].at("attributes").at("pid"),
+    EXPECT_TRUE(praenora::test::gone_within(terminated[0].at("attributes").at("praenora.pid"),
                                             std::chrono::seconds(5)));
 }
 

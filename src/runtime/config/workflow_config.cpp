@@ -364,7 +364,10 @@ void apply_overrides(const WorkflowOptions& overrides, WorkflowConfig& config,
         config.trace_messages = *overrides.trace_messages;
     }
     if (overrides.status_file) {
-        if (auto path = caller_path(*overrides.status_file, "status file", report)) {
+        // An empty one means none, in place of the configuration's.
+        if (overrides.status_file->empty()) {
+            config.status_file.reset();
+        } else if (auto path = caller_path(*overrides.status_file, "status file", report)) {
             config.status_file = std::move(*path);
         }
     }

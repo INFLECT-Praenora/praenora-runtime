@@ -8,8 +8,9 @@
 The runtime reports what a run is doing through structured logs, in-process metrics, status
 snapshots with a health value, an optional status file that other processes can read, and an
 optional message trace. Logs and metrics follow the names of the OpenTelemetry log data model and
-metric conventions; no OpenTelemetry exporter is built in ([open-questions.md](../open-questions.md),
-OQ-9). Everything here is available from C++, the CLI and Python.
+metric conventions, and the runtime can export both to an OpenTelemetry collector over OTLP/HTTP
+with the JSON encoding ([OTLP export](#otlp-export)); tracing spans are not exported. Everything
+here is available from C++, the CLI and Python.
 
 ## Logs
 
@@ -19,11 +20,11 @@ unaffected.
 
 | Logger | What it records | Events |
 |---|---|---|
-| `praenora.runtime` | The `Runtime`. | `runtime.ready` (module and provider search paths, number of modules, providers and catalog entries) |
-| `praenora.engine` | A run. | `run.started`, `step.ready`, `invocation.completed`, `tick.completed`, `run.completed`, `run.stopped`, `run.failed`, `run.output_failed`, `trace.skipped`, `teardown.finalize_failed`, `teardown.destroy_failed` (a `destroy` that did not return within its deadline plus the cancellation grace, or whose module host crashed), `teardown.skipped` (an instance left as it is: kept, or gone with the module host that a stop ended before it took a call) |
-| `module.<step>` | The messages a step's module logs through the host API, and events about the step's instance. | `call.deadline`, `instance.unresponsive`, `call.refused`, `call.failed`, `library.refused` (a call not made: an abandoned call may still be running in the library), `instance.kept` (an instance kept because its `finalize` or `destroy` was refused), `service.lookup`; for an instance in a module host ([process-isolation.md](process-isolation.md)), with the attributes `module` and `pid`: `module_host.started` (debug), `module_host.exited` (debug), `module_host.terminated` (warn: killed after a call that never returned, after it did not exit when asked, when a stop came during its start, its load or the write of a call, or when it broke the channel's protocol while it was being ended), `module_host.crashed` (error: how it ended, or how it broke the channel's protocol), `module_host.directory_left` (warn: its temporary directory, under the restricted sandbox profile, could not be removed, and is left); for a module host that shares compiled models ([process-isolation.md](process-isolation.md#shared-compiled-models)), with the attributes `module`, `pid`, `provider` and `key`: `compiled_models.hit` (debug, with `size`), `compiled_models.miss` (debug), `compiled_models.saved` (debug, with `size` and `evicted`), `compiled_models.refused` (debug: over a limit, with `key_size` and `size`) |
+| `praenora.runtime` | The `Runtime`. | `runtime.ready` (module and provider search paths, number of modules, providers and catalog entries: `praenora.module_search_paths`, `praenora.provider_search_paths`, `praenora.modules`, `praenora.providers`, `praenora.catalog_entries`); the OTLP export's `telemetry.setting_ignored` (warn, with `praenora.variable` and `praenora.reason`) and `telemetry.export_failed` (warn, with `praenora.signal`, `praenora.failures` and `praenora.reason`) ([OTLP export](#otlp-export)) |
+| `praenora.engine` | A run. | `run.started` (with `praenora.workflow`, `name@version`), `step.ready`, `invocation.completed`, `tick.completed` (with `praenora.logical_time`), `run.completed`, `run.stopped`, `run.failed` (with `praenora.code`, the name of the error code, unless the run failed while it was being ended), `run.output_failed`, `trace.skipped`, `teardown.finalize_failed`, `teardown.destroy_failed` (a `destroy` that did not return within its deadline plus the cancellation grace, or whose module host crashed), `teardown.skipped` (an instance left as it is: kept, or gone with the module host that a stop ended before it took a call; with `praenora.state`, the instance's state) |
+| `module.<step>` | The messages a step's module logs through the host API, and events about the step's instance. | `call.deadline`, `instance.unresponsive`, `call.refused`, `call.failed`, `library.refused` (a call not made: an abandoned call may still be running in the library), `instance.kept` (an instance kept because its `finalize` or `destroy` was refused), `service.lookup`; for an instance in a module host ([process-isolation.md](process-isolation.md)), with the attributes `praenora.module` and `praenora.pid`: `module_host.started` (debug), `module_host.exited` (debug), `module_host.terminated` (warn: killed after a call that never returned, after it did not exit when asked, when a stop came during its start, its load or the write of a call, or when it broke the channel's protocol while it was being ended), `module_host.crashed` (error: how it ended, or how it broke the channel's protocol), `module_host.directory_left` (warn: its temporary directory, under the restricted sandbox profile, could not be removed, and is left); for a module host that shares compiled models ([process-isolation.md](process-isolation.md#shared-compiled-models)), with the attributes `praenora.module`, `praenora.pid`, `praenora.provider` and `praenora.key`: `compiled_models.hit` (debug, with `praenora.size`), `compiled_models.miss` (debug), `compiled_models.saved` (debug, with `praenora.size` and `praenora.evicted`), `compiled_models.refused` (debug: over a limit, with `praenora.key_size` and `praenora.size`) |
 | `module.check` | Module messages during the contract checks, and events about the checks' instances. | the events of `module.<step>` |
-| `provider.<name>` | The messages a service provider logs through its host, with the attribute `provider` (`name@version`), and events about it, in the logs of the run (or, for `validate --load` and the contract checks, of the `Runtime`) that loaded it last ([runtime-services.md](runtime-services.md#loading)); from a provider in a step's module host too, with the same attributes ([process-isolation.md](process-isolation.md#service-providers)). | `provider.loaded` (once per process, a module host's included, with `library_sha256`) |
+| `provider.<name>` | The messages a service provider logs through its host, with the attribute `praenora.provider` (`name@version`), and events about it, in the logs of the run (or, for `validate --load` and the contract checks, of the `Runtime`) that loaded it last ([runtime-services.md](runtime-services.md#loading)); from a provider in a step's module host too, with the same attributes ([process-isolation.md](process-isolation.md#service-providers)). | `provider.loaded` (once per process, a module host's included, with `praenora.library_sha256`) |
 
 Records go to standard error, without colors, unless `RuntimeOptions::logging.to_stderr` is false;
 and, when a log file is set, also to that file, which is appended to, created with its parent
@@ -36,7 +37,7 @@ inside a module.
 
 ```text
 <timestamp> <LEVEL, padded to 5> <logger> [<key>=<value> ...] <message>
-2026-11-11T16:59:35.006413000Z DEBUG praenora.engine [run.fingerprint=4664e72704c1c728dea594dfc214e4494d51a852d79e2bb36d6ba61a098ec918 event=invocation.completed tick=0 step=estimate module=example-estimator@0.1.0 duration_ns=232375] invocation completed
+2026-11-11T16:59:35.006413000Z DEBUG praenora.engine [praenora.run.fingerprint=4664e72704c1c728dea594dfc214e4494d51a852d79e2bb36d6ba61a098ec918 praenora.event=invocation.completed praenora.tick=0 praenora.step=estimate praenora.module=example-estimator@0.1.0 praenora.duration_ns=232375] invocation completed
 ```
 
 Attribute values consisting only of `A-Z a-z 0-9 . _ : / @ + -` are written as they are, and other
@@ -55,9 +56,14 @@ with `logger`. Bytes that are not UTF-8 are replaced.
 | `error` | `ERROR` | 17 |
 | `critical` | `CRITICAL` | 21 |
 
-The level `off` records nothing. Timestamps are RFC 3339 UTC with nine fractional digits. Common
-attributes are `run.fingerprint` (every record of a run), `event`, `tick`, `step`, `module`
-(`name@version`) and `duration_ns`; the attribute name `logger` is reserved.
+The level `off` records nothing. Timestamps are RFC 3339 UTC with nine fractional digits. Every
+attribute key that the runtime writes carries the prefix `praenora.`
+([ADR-0043](../adr/ADR-0043-otlp-export-of-metrics-and-logs.md)). Common attributes are
+`praenora.run.fingerprint` (every record of a run), `praenora.event`, `praenora.tick`,
+`praenora.step`, `praenora.module` (`name@version`) and `praenora.duration_ns`; the others are
+named with their events above. The attribute name `logger`, the logger's name, is reserved and has
+no prefix. A provider's records that a module host passes on keep the keys they were logged with
+there ([process-isolation.md](process-isolation.md#service-providers)).
 
 ### Settings
 
@@ -96,15 +102,16 @@ Each run keeps an in-process metrics registry:
   the last error.
 
 `Workflow::metrics_json()` (Python `Workflow.metrics()`) exports them as points named in
-OpenTelemetry style, `{"metrics": [{"name", "unit", "kind", "attributes", "value" | "summary"}, ...]}`:
+OpenTelemetry style, every attribute key with the prefix `praenora.`,
+`{"metrics": [{"name", "unit", "kind", "attributes", "value" | "summary"}, ...]}`:
 
 | Name | Kind | Unit | Attributes | Value |
 |---|---|---|---|---|
-| `praenora.step.invocations` | counter | `{invocation}` | `step`, `module`, `outcome` | The step's invocations with that outcome; one point per outcome, zeros included. |
-| `praenora.step.invocation.duration` | summary | `ns` | `step`, `module` | `{count, sum, min, max, last}`. |
-| `praenora.workflow.ticks` | counter | `{tick}` | `workflow` (`name@version`) | The ticks completed. |
-| `praenora.workflow.tick.duration` | gauge | `ns` | `workflow` | The last tick's duration. |
-| `praenora.workflow.uptime` | gauge | `ns` | `workflow` | The uptime. |
+| `praenora.step.invocations` | counter | `{invocation}` | `praenora.step`, `praenora.module`, `praenora.outcome` | The step's invocations with that outcome; one point per outcome, zeros included. |
+| `praenora.step.invocation.duration` | summary | `ns` | `praenora.step`, `praenora.module` | `{count, sum, min, max, last}`. |
+| `praenora.workflow.ticks` | counter | `{tick}` | `praenora.workflow` (`name@version`) | The ticks completed. |
+| `praenora.workflow.tick.duration` | gauge | `ns` | `praenora.workflow` | The last tick's duration. |
+| `praenora.workflow.uptime` | gauge | `ns` | `praenora.workflow` | The uptime. |
 
 ## Status snapshot
 
@@ -138,10 +145,16 @@ from a copy of the metrics, so it never waits for a module call.
   none (text that is not a JSON object is kept as `{"text": ...}`). Every key is always written. A
   record that does not come from an error, such as `RUN_STOPPED`, has a null `location` and null
   `details`. A step's last error stays until a later error replaces it; a stop sets no error.
-- The error records of the snapshots that stay in the process (`Workflow::status()`,
-  `status_json()`, `StatusSnapshot::to_json()`, Python `Workflow.status()`) hold absolute paths.
-  Those of the status file, and of the run record, name the directories the run knows by
-  placeholders ([below](#known-directories-in-the-files-of-a-run)).
+- A snapshot's error records come in two path forms (`praenora::PathForm`). In the form
+  `absolute` they hold absolute paths: those of the snapshots that stay in the process
+  (`Workflow::status()`, `status_json()`, `status_json(PathForm::absolute)`,
+  `StatusSnapshot::to_json()`, Python `Workflow.status()` and
+  `Workflow.status(path_form="absolute")`). In the form `placeholders` they name the directories
+  the run knows by placeholders ([below](#known-directories-in-the-files-of-a-run)), as those of
+  the status file and of the run record do. `Workflow::status_json(PathForm::placeholders)`
+  (Python `Workflow.status(path_form="placeholders")`) gives a snapshot in this form, made by the
+  code that writes the status file: a status file written at the same moment holds the same
+  document. Python refuses another name with `INVALID_ARGUMENT`.
 - Instants are RFC 3339 strings, and an unset instant is `null` (except `generated_at`, which is
   always set). The document is compact JSON.
 
@@ -150,8 +163,8 @@ from a copy of the metrics, so it never waits for a module call.
 The status file and the run record ([reproducibility.md](reproducibility.md#run-record)) are
 written for others to read. In their error records, every directory that the run knows is named by
 a placeholder, so they name neither the machine's directories nor, through the home directory, the
-user. What stays in the process (the thrown `praenora::Error`, `RunSummary`, the snapshots above,
-the CLI's error output and the logs) keeps absolute paths.
+user. What stays in the process (the thrown `praenora::Error`, `RunSummary`, the snapshots above
+in the form `absolute`, the CLI's error output and the logs) keeps absolute paths.
 
 | Placeholder | Directory |
 |---|---|
@@ -216,8 +229,10 @@ These rules are provisional (OQ-23).
 
 ## Status file
 
-When the configuration's `observability.status_file` or the run's `--status-file` names a file, a
-writer keeps a status snapshot there for other processes:
+When the configuration's `observability.status_file` or the run's option names a file (the run's
+`--status-file`, `WorkflowOptions::status_file` or Python `status_file`, which wins over the
+configuration and, when empty, means none, as for the log file), a writer keeps a status snapshot
+there for other processes:
 
 - It writes the file when the run is opened, then, on a background thread named `praenora:status`,
   after every change of the workflow state and every `status_interval` after the previous write
@@ -228,9 +243,188 @@ writer keeps a status snapshot there for other processes:
   the health `degraded`, and the writer keeps going.
 - Its error records name the run's directories by placeholders
   ([above](#known-directories-in-the-files-of-a-run)), so they differ from those of
-  `Workflow::status_json()`, which keep absolute paths.
+  `Workflow::status_json()`, which keep absolute paths;
+  `Workflow::status_json(PathForm::placeholders)` gives the file's form.
 - `praenora status <file> [--json]` and `Runtime::read_status_file()` read it; a file of another kind
-  is `DOCUMENT_KIND_MISMATCH`. A network endpoint is future work (OQ-9).
+  is `DOCUMENT_KIND_MISMATCH`. Over the network, the control API answers a run's status in the
+  file's form, `GET /v0/runs/{id}` ([control-api.md](control-api.md)).
+
+## OTLP export
+
+The runtime exports its metrics and log records to an OpenTelemetry collector over OTLP/HTTP with
+the JSON encoding, when an endpoint is configured; without one, nothing is exported (there is no
+default endpoint). The exporter is the runtime's own (no OpenTelemetry SDK)
+([ADR-0043](../adr/ADR-0043-otlp-export-of-metrics-and-logs.md), Accepted). Tracing
+spans are not exported (OQ-33, [open-questions.md](../open-questions.md)).
+
+### Settings
+
+`RuntimeOptions::telemetry` (`TelemetryOptions`, C++ only) sets `metrics_endpoint` and
+`logs_endpoint` (full URLs such as `http://127.0.0.1:4318/v1/metrics`; empty: none), `headers`
+(sent with every export), `service_name` (default `praenora-runtime`), `resource_attributes`,
+`metric_export_interval_ms` (default 60000) and `export_timeout_ms` (default 10000). With
+`RuntimeOptions::use_environment`, the `Runtime` constructor reads these variables once and puts
+them over the options; the CLI and Python configure the export through them only:
+
+| Variable | Effect |
+|---|---|
+| `OTEL_SDK_DISABLED` | `true` (in any case): nothing is exported, and no other variable is read. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | A base URL: metrics go to `<base>/v1/metrics`, logs to `<base>/v1/logs` (one `/` between). |
+| `OTEL_EXPORTER_OTLP_METRICS_ENDPOINT`, `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` | That signal's URL, as it is; it wins over the base URL. |
+| `OTEL_EXPORTER_OTLP_PROTOCOL`, `OTEL_EXPORTER_OTLP_METRICS_PROTOCOL`, `OTEL_EXPORTER_OTLP_LOGS_PROTOCOL` | `http/json` only. |
+| `OTEL_EXPORTER_OTLP_HEADERS`, `OTEL_EXPORTER_OTLP_METRICS_HEADERS`, `OTEL_EXPORTER_OTLP_LOGS_HEADERS` | `k=v,k=v`, values percent-decoded; a signal's list replaces the general one, which replaces `TelemetryOptions::headers`. |
+| `OTEL_EXPORTER_OTLP_TIMEOUT`, `OTEL_EXPORTER_OTLP_METRICS_TIMEOUT`, `OTEL_EXPORTER_OTLP_LOGS_TIMEOUT` | Milliseconds, 1 to 2147483647. |
+| `OTEL_METRICS_EXPORTER`, `OTEL_LOGS_EXPORTER` | `otlp` (the default) or `none`, which exports nothing of that signal. |
+| `OTEL_METRIC_EXPORT_INTERVAL` | Milliseconds, 100 to 2147483647. |
+| `OTEL_SERVICE_NAME`, `OTEL_RESOURCE_ATTRIBUTES` | The resource (`k=v,k=v`, percent-decoded); `OTEL_SERVICE_NAME` wins over a `service.name` in the attributes, which wins over `TelemetryOptions::service_name`. |
+
+- An endpoint MUST be `http://<host>[:<port>][/<path>]`: a host name (letters, digits, `-` and
+  `.`), an IPv4 address or an IPv6 address in brackets, a port from 1 to 65535 (default 80), and a
+  path of printable ASCII characters. `https`, another scheme, credentials, a query or a fragment
+  are refused.
+- Unlike a `PRAENORA_*` variable, an `OTEL_*` value that is invalid or unsupported never throws, as
+  OpenTelemetry's specification of its environment variables asks: it is ignored with a warning,
+  event `telemetry.setting_ignored` (warn, on `praenora.runtime`, with `praenora.variable`, the
+  variable's or option's name such as `TelemetryOptions::metrics_endpoint`, and
+  `praenora.reason`), which never repeats the value. The same holds for the values of
+  `TelemetryOptions`. An empty variable counts as unset; enumerated values are compared in any
+  case.
+- Each setting comes from the first source that sets it. A refused endpoint or protocol leaves its
+  signal without an export (it does not fall back to a source below it); any other refused value
+  falls back to the next source, or to the default.
+
+### Resource and identity
+
+- The resource's attributes are `service.name`, `service.version` (the runtime's version),
+  `service.instance.id` (a random UUID v4 drawn once per `Runtime` from `std::random_device`,
+  unless the configured attributes set one: the only random value the runtime draws outside the
+  run seed, and never part of outputs, run records, snapshots or fingerprints), `process.pid`
+  (the runtime's process; an integer), then the configured attributes. Nothing names the host or
+  the user unless the configured attributes do.
+- The instrumentation scope of a log record is its logger's name (`praenora.engine`,
+  `module.<step>`, ...; the attribute `logger` of the text and JSON lines is not repeated), that of
+  the metrics `praenora.runtime`; each scope's version is the runtime's.
+- Every metric point and log record of a run carries `praenora.run.number` (its workflow's
+  `run_number()`) and `praenora.run.fingerprint` after its own attributes (a record that has its
+  own `praenora.run.fingerprint` keeps it, once). The `Runtime`'s own records carry neither.
+
+### Lifetime
+
+- One exporter per `Runtime`, in the state that copies of the `Runtime` and its workflows share:
+  it is created by the `Runtime` constructor when a signal has an endpoint, and lives until the
+  last copy and the last workflow are gone. It has one thread, `praenora:otlp`.
+- The module host never creates one: it constructs no `Runtime`. The records that a module host
+  passes on are exported by the runtime's process, so every record of a run, a step's in a module
+  host included, carries the runtime's `process.pid`.
+- When it is destroyed, the exporter sends what is left, the metrics of the finished runs and of
+  those still open and every queued record, each signal in one request, with one attempt and no
+  wait between attempts, all of it within one export timeout (the largest of the signals') from
+  the start of its end. A request still in flight then ends within that time; when it fails, it
+  was its signal's attempt and is not sent again. Each attempt that follows gets what is left of
+  the time, and none is made once it is spent. A request that is not sent is dropped and counted as
+  a failed export. So a collector that is down or never answers holds up the end of a process by
+  about one export timeout, not one per signal or retry.
+
+### Metrics
+
+Every `metric_export_interval_ms`, the status snapshot of each open workflow is encoded; a
+workflow's final state is exported once more when it is closed (`Workflow::close()` hands it to the
+exporter and does not wait), and the queued log records are sent then too.
+
+| Point of `metrics_json()` | OTLP |
+|---|---|
+| `praenora.step.invocations` counter | `sum`, `isMonotonic: true`, cumulative (`aggregationTemporality` 2), `asInt` |
+| `praenora.step.invocation.duration` summary | `summary`: `count`, `sum`, and `quantileValues` 0 (the minimum) and 1 (the maximum), left out when the count is 0 |
+| its `last` | `gauge` `praenora.step.invocation.last_duration`, unit `ns`, `asInt` |
+| `praenora.workflow.ticks` counter | `sum`, monotonic, cumulative, `asInt` |
+| `praenora.workflow.tick.duration`, `praenora.workflow.uptime` gauges | `gauge`, `asInt` |
+
+- Each name is one metric of the request, with the points of every run in it. Sums and summaries
+  start at the run's `started_at` (its open time before it starts); every point is stamped with the
+  snapshot's `generated_at`. Units are those of `metrics_json()`.
+- The exporter's own metrics, with the scope `praenora.runtime` and without run attributes, go
+  with every export of metrics: `praenora.telemetry.exports.failed` (a cumulative sum, unit
+  `{export}`, one point per exported signal with `praenora.signal` `metrics` or `logs`) and
+  `praenora.telemetry.log_records.dropped` (a cumulative sum, unit `{record}`).
+
+### Logs
+
+- A sink is added to the `Runtime`'s log hub and to every workflow's, so it receives whatever the
+  hub's level lets through. It only appends the record, as it came, to the exporter's queue under
+  a short lock; the exporter takes it apart on its own thread. The queue holds at most 2048
+  records; a record beyond them is dropped and counted.
+- The exporter sends records in batches of at most 512, as soon as 512 wait and at the latest 1 s
+  after the oldest one was queued.
+- A record has `timeUnixNano` and `observedTimeUnixNano` (the event's time), `severityNumber` and
+  `severityText` (those of the JSON lines, [above](#formats)), `body.stringValue` (the message)
+  and `attributes` (the event's, in their order, then the run's). JSON values map to
+  `stringValue`, `intValue` (a decimal string; an unsigned value beyond the range of a signed 64-bit
+  integer becomes a `stringValue`), `doubleValue` (`"NaN"`, `"Infinity"` and `"-Infinity"` for the
+  values JSON has no number for), `boolValue`, `arrayValue` and `kvlistValue`; null is the empty
+  value `{}`.
+
+### Encoding and transport
+
+- Each export is a `POST` with `Content-Type: application/json` and the configured headers, of a
+  request in OTLP's JSON encoding: lowerCamelCase field names, 64-bit integers (`timeUnixNano`,
+  `asInt`, `count`, `intValue`) as decimal strings, enumerations as integers, canonical JSON
+  (nlohmann `dump()` without indentation). Bytes that are not UTF-8 are replaced, so a module's log
+  message that is not UTF-8 still makes a valid request.
+- Each request uses a connection of its own and gives up after about the export timeout
+  (connecting, writing and reading together). A host name is resolved with the system's resolver,
+  which the timeout does not bound.
+- Writes never raise `SIGPIPE`, whatever the process's disposition of it: a collector that closes
+  or resets the connection while a request is written fails that request (a connection failure,
+  retried as one), never the process, also in a process that keeps `SIGPIPE` at its default, as
+  `praenora run` and an application that embeds the runtime do (`SO_NOSIGPIPE` on macOS,
+  `MSG_NOSIGNAL` on other POSIX systems; Windows has no `SIGPIPE`).
+- 200 is success; a partial-success body is ignored. A connection failure (or a timeout), 429, 502,
+  503 and 504 are retried: up to 3 attempts, 1 s and then 2 s apart, or after the `Retry-After`
+  delay-seconds of the answer when it has them (at most 30). Anything else, or the last failed
+  attempt, drops the request and counts a failure.
+
+### Failures and health
+
+A failed export never changes a run, its health or any snapshot. It is counted
+(`praenora.telemetry.exports.failed`) and logged as event `telemetry.export_failed` (warn, on
+`praenora.runtime`, with `praenora.signal`, `praenora.failures`, the failures since the last such
+warning of that signal, and `praenora.reason`): the first failure, then at most once a minute per
+signal. The reason is `HTTP status <n>`; `no answer:` and the client's error (a connection that
+failed or timed out); `not sent: the request in flight at the end failed` or `not sent: the end's
+export timeout is spent`, for a request that the end of the exporter does not make
+([Lifetime](#lifetime)); or `the request could not be made`, for an error on the exporter's own
+thread, which drops that export. Export never holds up a tick, and outputs, run records'
+reproducibility sections, fingerprints and the message trace are byte-identical with and without
+it.
+
+## Prometheus text
+
+The points of `metrics_json()` are also served as Prometheus text, by the control API that the
+`praenora` tool serves: `GET /metrics` answers the points of every run the server holds in the
+text exposition format 0.0.4, `text/plain; version=0.0.4; charset=utf-8`
+([control-api.md](control-api.md#prometheus-text), which is normative for the route;
+[ADR-0043](../adr/ADR-0043-otlp-export-of-metrics-and-logs.md), Accepted). The runtime library
+itself serves nothing; the same text comes from `praenora::server::prometheus_text()` over each
+run's `metrics_json()` document.
+
+| Point | Prometheus |
+|---|---|
+| `praenora.step.invocations` | `praenora_step_invocations_total`, a counter |
+| `praenora.step.invocation.duration` | `praenora_step_invocation_duration_nanoseconds`, a summary: `{quantile="0"}` the minimum and `{quantile="1"}` the maximum (both left out at count 0), `_sum` and `_count` |
+| its `last` | `praenora_step_invocation_last_duration_nanoseconds`, a gauge (also at count 0) |
+| `praenora.workflow.ticks` | `praenora_workflow_ticks_total`, a counter |
+| `praenora.workflow.tick.duration` | `praenora_workflow_tick_duration_nanoseconds`, a gauge |
+| `praenora.workflow.uptime` | `praenora_workflow_uptime_nanoseconds`, a gauge |
+
+- The metrics come in the order of the table, each with one `# HELP` and one `# TYPE` line, then
+  the samples of every run, in id order; a metric without samples is left out, so a server
+  without runs answers an empty body.
+- A sample's labels are its point's attributes, each key with every character but
+  `A-Z a-z 0-9 _` replaced by `_` (`praenora_step`, `praenora_module`, `praenora_outcome`,
+  `praenora_workflow`), in the order of `metrics_json()` (sorted), then `praenora_run_number` (the
+  workflow's `run_number()`) and `praenora_run_fingerprint`, then the summary's `quantile`. Label
+  values escape `\` as `\\`, `"` as `\"` and the line feed as `\n`.
+- Points of other names, and points that lack the fields they map, are left out.
 
 ## Message trace
 
@@ -278,13 +472,18 @@ to `trace/messages.jsonl`:
   `features.diagnostics`.
 - The message trace.
 - `praenora graph` (text, JSON, DOT and AsyncAPI) for a workflow's schedule and connections.
-- Named threads: `praenora:<step>` for each instance, `praenora:status` for the status file.
+- Named threads: `praenora:<step>` for each instance, `praenora:status` for the status file,
+  `praenora:otlp` for the OTLP exporter.
 - `PRAENORA_DEBUG_KEEP_LIBRARIES=1`, which keeps every module library loaded for debuggers and leak
   checkers.
 
 ## References
 
 - [ADR-0015](../adr/ADR-0015-observability.md): observability.
+- [ADR-0043](../adr/ADR-0043-otlp-export-of-metrics-and-logs.md): the prefix `praenora.` of
+  attribute keys, and the OTLP export.
+- [OTLP specification](https://opentelemetry.io/docs/specs/otlp/) and
+  [OpenTelemetry environment variable specification](https://opentelemetry.io/docs/specs/otel/configuration/sdk-environment-variables/).
 - [ADR-0020](../adr/ADR-0020-message-envelope-and-asyncapi.md): the message trace's records.
 - [ADR-0032](../adr/ADR-0032-service-lookups-in-the-message-trace.md): service lookups in the
   message trace.

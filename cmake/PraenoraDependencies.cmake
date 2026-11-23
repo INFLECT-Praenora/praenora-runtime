@@ -23,8 +23,9 @@
 #
 # Afterwards these targets exist: nlohmann_json::nlohmann_json,
 # nlohmann_json_schema_validator::validator (IMPORTED when it is an installed library),
-# yaml-cpp::yaml-cpp, the spdlog target named by PRAENORA_SPDLOG_TARGET and, with tests,
-# GTest::gtest and GTest::gtest_main. One status line per dependency reports its version and where
+# yaml-cpp::yaml-cpp, the spdlog target named by PRAENORA_SPDLOG_TARGET, cpp-httplib's
+# httplib::httplib and the internal praenora_httplib (below) and, with tests, GTest::gtest and
+# GTest::gtest_main. One status line per dependency reports its version and where
 # it came from. PRAENORA_FETCHED_DEPENDENCIES lists, by their FetchContent names, the dependencies
 # that are built in this tree, which the runtime links statically (GoogleTest, which only the
 # tests link, left out), and PRAENORA_FETCHED_SOURCE_DIR_<name> holds the source directory of
@@ -42,6 +43,9 @@ set(PRAENORA_JSON_SCHEMA_VALIDATOR_MIN_VERSION 2.3)
 set(PRAENORA_YAML_CPP_MIN_VERSION 0.7)
 set(PRAENORA_SPDLOG_MIN_VERSION 1.10)
 set(PRAENORA_GTEST_MIN_VERSION 1.11)
+# cpp-httplib: 0.67 is the only version built and tested. Its package accepts only the same minor
+# version (0.67.x), whatever newer one is installed.
+set(PRAENORA_HTTPLIB_MIN_VERSION 0.67)
 
 # praenora_copy_runtime_dlls(<target>)
 #
@@ -129,6 +133,7 @@ macro(praenora_find_dependencies)
         endif()
         find_package(yaml-cpp ${PRAENORA_YAML_CPP_MIN_VERSION} CONFIG REQUIRED)
         find_package(spdlog ${PRAENORA_SPDLOG_MIN_VERSION} CONFIG REQUIRED)
+        find_package(httplib ${PRAENORA_HTTPLIB_MIN_VERSION} CONFIG REQUIRED)
         if(PRAENORA_BUILD_TESTS)
             find_package(GTest ${PRAENORA_GTEST_MIN_VERSION} CONFIG REQUIRED)
         endif()
@@ -162,6 +167,18 @@ macro(praenora_find_dependencies)
         set(JSON_VALIDATOR_INSTALL OFF)
         set(YAML_CPP_INSTALL OFF)
         set(SPDLOG_INSTALL OFF)
+        # cpp-httplib is used header-only and without TLS, compression or its non-blocking
+        # name resolution: every option that would find and link another library, compile the
+        # header into a library, build its tests or install it is off (the names are those of
+        # its 0.67.0 sources).
+        foreach(_praenora_httplib_option IN ITEMS
+                USE_OPENSSL_IF_AVAILABLE USE_WOLFSSL_IF_AVAILABLE USE_MBEDTLS_IF_AVAILABLE
+                USE_ZLIB_IF_AVAILABLE USE_BROTLI_IF_AVAILABLE USE_ZSTD_IF_AVAILABLE
+                REQUIRE_OPENSSL REQUIRE_WOLFSSL REQUIRE_MBEDTLS REQUIRE_ZLIB REQUIRE_BROTLI
+                REQUIRE_ZSTD USE_NON_BLOCKING_GETADDRINFO COMPILE TEST INSTALL)
+            set(HTTPLIB_${_praenora_httplib_option} OFF)
+        endforeach()
+        unset(_praenora_httplib_option)
 
         # CMake 3.25 and newer treat the fetched headers as system headers.
         set(_praenora_fetch_system "")
@@ -204,6 +221,13 @@ macro(praenora_find_dependencies)
                 GIT_TAG 79524ddd08a4ec981b7fea76afd08ee05f83755d # v1.17.0
                 ${_praenora_fetch_system}
                 FIND_PACKAGE_ARGS ${PRAENORA_SPDLOG_MIN_VERSION} CONFIG)
+            # The tag v0.67.0. Upstream's tag `latest` points at the same commit today, but it
+            # moves; the pin is the commit.
+            FetchContent_Declare(httplib
+                GIT_REPOSITORY https://github.com/yhirose/cpp-httplib.git
+                GIT_TAG 7800c3dc5b33285cbb18baa5998de4ff7ef63515 # v0.67.0
+                ${_praenora_fetch_system}
+                FIND_PACKAGE_ARGS ${PRAENORA_HTTPLIB_MIN_VERSION} CONFIG)
             # The content is named googletest, not GTest: GoogleTest's own gtest project would
             # otherwise clash with the gtest_SOURCE_DIR variable that FetchContent sets.
             FetchContent_Declare(googletest
@@ -212,7 +236,8 @@ macro(praenora_find_dependencies)
                 ${_praenora_fetch_system}
                 FIND_PACKAGE_ARGS ${PRAENORA_GTEST_MIN_VERSION} CONFIG NAMES GTest)
 
-            set(_praenora_fetched nlohmann_json nlohmann_json_schema_validator yaml-cpp spdlog)
+            set(_praenora_fetched
+                nlohmann_json nlohmann_json_schema_validator yaml-cpp spdlog httplib)
             if(PRAENORA_BUILD_TESTS)
                 list(APPEND _praenora_fetched googletest)
             endif()
@@ -271,6 +296,47 @@ macro(praenora_find_dependencies)
         message(FATAL_ERROR "spdlog provides neither the spdlog::spdlog nor the "
             "spdlog::spdlog_header_only target.")
     endif()
+    # cpp-httplib, header-only: its package's form with the header compiled into a library
+    # (HTTPLIB_COMPILE, as some distributions build it) is refused. praenora_httplib carries only
+    # its include directory, as a system directory, and ws2_32 on Windows: none of its compile
+    # definitions (the build defines no CPPHTTPLIB_*_SUPPORT) and none of its link libraries.
+    # It defines one of its own, on POSIX systems other than macOS: CPPHTTPLIB_SEND_FLAGS, as
+    # MSG_NOSIGNAL, so that no write of cpp-httplib raises SIGPIPE, whatever the process's
+    # disposition of it (a peer that resets a connection must not end the process). Every source
+    # that includes httplib.h gets it through this target, so all of them agree. macOS's send()
+    # documents no MSG_NOSIGNAL: there the two clients set SO_NOSIGPIPE on their sockets
+    # (src/runtime/observability/otlp/http_client.cpp, src/server/client.cpp), and the server
+    # ignores SIGPIPE (cpp-httplib's Server does). Windows has no SIGPIPE.
+    if(NOT TARGET httplib::httplib)
+        message(FATAL_ERROR "cpp-httplib provides no httplib::httplib target.")
+    endif()
+    get_target_property(_praenora_httplib_type httplib::httplib TYPE)
+    if(NOT _praenora_httplib_type STREQUAL "INTERFACE_LIBRARY" OR
+       (DEFINED HTTPLIB_IS_COMPILED AND HTTPLIB_IS_COMPILED))
+        message(FATAL_ERROR "cpp-httplib at '${httplib_DIR}' is compiled into a library "
+            "(HTTPLIB_COMPILE, target type ${_praenora_httplib_type}), and praenora-runtime "
+            "uses it header-only: install it header-only (docs/platforms.md#cpp-httplib), or "
+            "configure with -DPRAENORA_FETCH_DEPENDENCIES=ON and "
+            "-DCMAKE_DISABLE_FIND_PACKAGE_httplib=ON to build it from its pinned commit.")
+    endif()
+    unset(_praenora_httplib_type)
+    if(NOT TARGET praenora_httplib)
+        get_target_property(_praenora_httplib_includes httplib::httplib
+            INTERFACE_INCLUDE_DIRECTORIES)
+        if(NOT _praenora_httplib_includes)
+            message(FATAL_ERROR "cpp-httplib's httplib::httplib names no include directory.")
+        endif()
+        add_library(praenora_httplib INTERFACE)
+        target_include_directories(praenora_httplib SYSTEM INTERFACE
+            ${_praenora_httplib_includes})
+        if(WIN32)
+            target_link_libraries(praenora_httplib INTERFACE ws2_32)
+        elseif(NOT APPLE)
+            target_compile_definitions(praenora_httplib INTERFACE
+                CPPHTTPLIB_SEND_FLAGS=MSG_NOSIGNAL)
+        endif()
+        unset(_praenora_httplib_includes)
+    endif()
 
     # The dependencies built in this tree, whose license files the installation holds.
     set(PRAENORA_FETCHED_DEPENDENCIES "")
@@ -279,6 +345,7 @@ macro(praenora_find_dependencies)
         nlohmann_json_schema_validator::validator)
     _praenora_record_fetched(yaml-cpp yaml-cpp::yaml-cpp)
     _praenora_record_fetched(spdlog ${PRAENORA_SPDLOG_TARGET})
+    _praenora_record_fetched(httplib httplib::httplib)
     unset(_praenora_fetched)
 
     _praenora_report_dependency(nlohmann_json nlohmann_json nlohmann_json 3.12.0
@@ -288,6 +355,8 @@ macro(praenora_find_dependencies)
     _praenora_report_dependency(yaml-cpp yaml-cpp yaml-cpp 0.9.0 yaml-cpp::yaml-cpp)
     _praenora_report_dependency(spdlog spdlog spdlog 1.17.0 ${PRAENORA_SPDLOG_TARGET}
         "; target ${PRAENORA_SPDLOG_TARGET}")
+    _praenora_report_dependency(cpp-httplib httplib httplib 0.67.0 httplib::httplib
+        "; header-only")
     if(PRAENORA_BUILD_TESTS)
         _praenora_report_dependency(GTest ${_praenora_gtest_package} googletest 1.18.0 GTest::gtest)
     else()
