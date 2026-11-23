@@ -372,13 +372,15 @@ TEST(RunRegistry, OpensRunsUnderTheOutputRoot) {
     EXPECT_TRUE(body_of(api.handle(request("GET", "/v0/runs/1/outputs"))).is_object());
     const Response prometheus = api.handle(request("GET", "/metrics"));
     ASSERT_EQ(prometheus.status, 200);
-    EXPECT_TRUE(contains(prometheus.body,
-                         R"(praenora_workflow_ticks_total{praenora_workflow="test.single@0.1.0",)"
-                         R"(praenora_run_number=")" +
-                             std::to_string(entry.at("run_number").get<std::uint64_t>()) +
-                             R"(",praenora_run_fingerprint=")" +
-                             entry.at("fingerprint").get<std::string>() + "\"} 2\n"))
-        << prometheus.body;
+    // Built outside EXPECT_TRUE: MSVC's traditional preprocessor stringizes a macro argument as if
+    // the quotes inside raw strings delimited string literals, and the backslash before the quote
+    // of "\"} 2\n" then ended the stringized condition early, which no longer compiled.
+    const std::string ticks_line =
+        R"(praenora_workflow_ticks_total{praenora_workflow="test.single@0.1.0",)"
+        R"(praenora_run_number=")" +
+        std::to_string(entry.at("run_number").get<std::uint64_t>()) +
+        R"(",praenora_run_fingerprint=")" + entry.at("fingerprint").get<std::string>() + "\"} 2\n";
+    EXPECT_TRUE(contains(prometheus.body, ticks_line)) << prometheus.body;
 
     // Its files: the output directory with the trace, the log file beside it, no status file.
     EXPECT_TRUE(fs::is_regular_file(roots.outputs / "run-1" / "run-record.json"));

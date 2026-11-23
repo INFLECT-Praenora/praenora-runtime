@@ -272,6 +272,31 @@ notes are Proposed.
   build of the tool, both providers, the Python extension and the tests on Linux and Windows; and
   `StatusFile.AtomicReplaceAndParentCreation` in both Windows jobs. The macOS job got AppleClang
   21.0.0, the major version that the bundle's name gives.
+- **The seventh run's failure.** The seventh run, the first with the control API and the OTLP
+  export ([ADR-0042](ADR-0042-control-and-status-api-over-http.md),
+  [ADR-0043](ADR-0043-otlp-export-of-metrics-and-logs.md)), was run by hand on the branch
+  `feature/server` (run 45158294770, commit `72d86df`). The Linux and macOS jobs passed every step,
+  with cpp-httplib 0.67.0 downloaded at its pinned commit and the listener tests run with
+  `PRAENORA_TESTS_REQUIRE_LISTENERS=1`: on Linux 1356 tests, of which 15 skipped, and on macOS
+  1360, none skipped. Both Windows jobs, which downloaded cpp-httplib too, built every target but
+  `praenora_server_tests`, whose `tests/server/run_registry_test.cpp` did not compile. An
+  `EXPECT_TRUE` there had a condition holding raw strings with quotes inside them, followed by the
+  ordinary string `"\"} 2\n"`. MSVC's traditional preprocessor collects a macro's arguments with
+  each raw string as one token, but evidently stringizes an argument as if each of those inner
+  quotes began or ended a string literal: the backslash before the quote of `"\"} 2\n"`, which it
+  took for code, was left unescaped, the stringized condition ended there after 274 of its
+  characters (the `const char [275]` of the compiler's message), and what followed was no longer
+  C++ (C2017; the stray `}` closed the test's body, so the rest of the file was read outside any
+  function, up to MSVC's limit of 100 errors at its line 396). Many other assertions have raw
+  strings with quotes inside them in their arguments and compile: in none of them does a backslash
+  that MSVC takes for code come before a quote or make an escape that is not valid. A script that
+  stringizes every argument of every `EXPECT_*` and `ASSERT_*` macro of the repository in that way
+  (it gives this one's 274 characters) finds no other that breaks, the rest of that file included.
+  The expected line is now built in a variable before the assertion, rather than compiling with
+  MSVC's conforming preprocessor (`/Zc:preprocessor`), which every target and the headers it
+  includes would then go through for the first time. Not yet verified on GitHub: the file, from its
+  line 375 on, has not yet compiled with MSVC, and no Windows job has yet run any test of this
+  commit, nor made its archive.
 
 ## Alternatives considered
 
