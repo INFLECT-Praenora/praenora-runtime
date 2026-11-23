@@ -57,10 +57,10 @@ not have it in this version.
 | Linux x86-64 (GCC, Clang) | verified by CI with GCC 13.3 in a Release build; the other presets and Clang not yet verified |
 | Windows x86-64 (Visual Studio 2022) | verified by CI in Release and Debug builds; libraries from vcpkg or conda-forge not yet verified |
 
-Fetch mode is verified by CI for yaml-cpp, spdlog and GoogleTest
+Fetch mode is verified by CI for yaml-cpp, spdlog, GoogleTest and cpp-httplib
 ([docs/releasing.md](docs/releasing.md#what-the-runs-verified)). Not yet verified anywhere:
 downloading nlohmann/json and json-schema-validator in fetch mode (CI takes them from the bundle)
-and cpp-httplib (which the CI presets download; no CI run has done so yet), and a Python wheel
+and a Python wheel
 build that downloads its build requirements (a wheel built offline is verified on macOS arm64).
 WebAssembly and compiling module code through libRoadRunner are designs only
 ([feasibility designs](docs/index.md#feasibility-designs)).
@@ -84,9 +84,8 @@ standard `OTEL_*` variables, from C++, the CLI and Python
 ([docs/specs/observability.md](docs/specs/observability.md#otlp-export)); every attribute key of
 the logs and the metrics now carries the prefix `praenora.` (but `logger`). Neither changes a
 run's results. They need cpp-httplib 0.67, header-only
-([docs/platforms.md](docs/platforms.md#cpp-httplib)), and are verified on macOS arm64 only: not
-yet on Linux or Windows, where CI has not built them yet, nor with cpp-httplib downloaded in
-fetch mode.
+([docs/platforms.md](docs/platforms.md#cpp-httplib)), and are verified on macOS arm64 locally and
+by CI on every platform key, with cpp-httplib downloaded in fetch mode.
 
 ## Quick start
 

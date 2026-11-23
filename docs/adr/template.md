@@ -11,7 +11,7 @@ What problem or force makes a decision necessary? State constraints and requirem
 
 ## Decision
 
-What was decided. Mark parts that are provisional. Builder notes, if any, go in a "Builder notes" subsection here.
+What was decided. Mark parts that are provisional. Builder notes, if any, go in a "Builder notes" subsection here: calls and their reasons, never a log of runs, failures or fixes ([README.md](README.md#process)).
 
 ## Alternatives considered
 

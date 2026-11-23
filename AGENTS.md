@@ -95,13 +95,15 @@ with JSON, configured by the `OTEL_*` variables or `RuntimeOptions::telemetry`
 changes health, and every attribute key of the logs and the metrics carries the prefix
 `praenora.` (but `logger`, which in OTLP is the scope's name). Both use cpp-httplib 0.67,
 header-only and without TLS. Neither changes a run's outputs, run record or fingerprint. Verified
-on macOS arm64 only, with AppleClang: the Debug, Release, AddressSanitizer and ThreadSanitizer
+on macOS arm64 with AppleClang: the Debug, Release, AddressSanitizer and ThreadSanitizer
 builds and their tests, those that open listeners from a shell outside any sandbox in the Debug
 and ThreadSanitizer builds; the `ci-macos-arm64-release` preset with installed packages, offline,
-and its tests outside any sandbox; and a Python wheel built offline. Not yet verified: Linux and
-Windows, where none of it has been compiled yet (CI has not run since it was added); downloading
-cpp-httplib in fetch mode, which the CI presets do; the distributions' and vcpkg's cpp-httplib
-packages; and the OpenAPI document checked with official OpenAPI tooling. Tracing spans are not
+and its tests outside any sandbox; and a Python wheel built offline. CI then built and tested all
+of it on every platform key, with cpp-httplib downloaded at its pinned commit and the listener
+tests run with `PRAENORA_TESTS_REQUIRE_LISTENERS=1` (the workflow's run 45165537866;
+[docs/releasing.md](docs/releasing.md#what-the-runs-verified)).
+Not yet verified: the distributions' and vcpkg's cpp-httplib packages; and the OpenAPI document
+checked with official OpenAPI tooling. Tracing spans are not
 exported (OQ-33). The listener tests skip, saying "local listener refused:", where listeners are
 refused (in a sandbox, for example); the `ci-*` test presets make that refusal a failure.
 
@@ -256,8 +258,8 @@ with yaml-cpp, spdlog, GoogleTest and cpp-httplib built from their pinned commit
 that variable names no bundle ([docs/developer-guide.md](docs/developer-guide.md#ci-presets)).
 Their test presets set `PRAENORA_TESTS_REQUIRE_LISTENERS=1`, so a refused listener fails a test
 there instead of skipping it. The build jobs of `.github/workflows/build.yml` run them, which
-verified each on its runner, with yaml-cpp, spdlog and GoogleTest downloaded, before cpp-httplib
-was added: its download, and these presets with it, are not yet verified. Labels: `unit`,
+verified each on its runner, with yaml-cpp, spdlog, GoogleTest and cpp-httplib downloaded, the
+control API and the OTLP export included (run 45165537866). Labels: `unit`,
 `protocol`, `contract`, `negative`, `lifecycle`, `isolation`, `integration`, `cli`, `python`,
 `server`, `install`, `perf`, `docs`, `ci`. Every test runs with `OTEL_SDK_DISABLED=true` (the test
 presets, `praenora_add_gtest()`, the CLI, install and perf tests and `python.unittest` set it), so
@@ -589,7 +591,11 @@ docs/                         index.md, the guides (architecture, user-guide, co
   linked ADR accepted, in full or in part, or an Accepted ADR that is new or supersedes the linked
   one. Its row in `docs/open-questions.md` is then updated as the register's header says; an answer
   that only a Proposed ADR records leaves the row open. Calls made while building go into the
-  relevant ADR as "Builder notes" (Proposed).
+  relevant ADR as "Builder notes" (Proposed): a call and its reasons, never a log of CI runs,
+  their failures or the fixes they needed (those go in commit messages), nor what a run verified
+  (that goes in [docs/releasing.md](docs/releasing.md#what-the-runs-verified) and
+  [docs/platforms.md](docs/platforms.md#verification-status)); a note that a later fact makes
+  stale is rewritten, not followed by another ([docs/adr/README.md](docs/adr/README.md#process)).
 - Golden files, the committed AsyncAPI documents in `spec/asyncapi/` and the committed OpenAPI
   document in `spec/openapi/` are refreshed only with `PRAENORA_UPDATE_GOLDEN=1`, never
   implicitly; regenerate the AsyncAPI documents whenever a workflow definition, a message type or

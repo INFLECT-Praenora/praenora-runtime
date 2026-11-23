@@ -471,8 +471,8 @@ with `UNSUPPORTED`, which the tool reports as a usage error (`INVALID_ARGUMENT`,
 listeners work; Ctrl+C, Ctrl+Break and closing the console shut `praenora serve` down there.
 Token files' modes are checked on POSIX only. Serve mode's `--isolation process` needs the module
 host, which Windows does not have in this version
-([process-isolation.md](process-isolation.md#platforms)). On Linux and Windows the listeners and
-the client are not yet verified.
+([process-isolation.md](process-isolation.md#platforms)). CI built and tested the listeners and the
+client on Linux and Windows (run 45165537866).
 
 ## Not in this version
 

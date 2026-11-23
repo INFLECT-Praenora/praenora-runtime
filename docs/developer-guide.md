@@ -283,9 +283,8 @@ those of the restricted sandbox profile from a shell outside any sandbox
 ([testing.md](testing.md#module-hosts)); and again since cpp-httplib is a dependency, with
 cpp-httplib 0.67.0 from a local header-only prefix: configure and build without warnings, and
 every test from a shell outside any sandbox, which its test preset needs, since it requires
-listeners (below). CI verified the four CI presets on their runners, with fetched yaml-cpp, spdlog
-and GoogleTest, before cpp-httplib was added ([releasing.md](releasing.md#what-the-runs-verified));
-with it, they are not yet verified there.
+listeners (below). CI verified the four CI presets on their runners, with fetched yaml-cpp, spdlog,
+GoogleTest and cpp-httplib ([releasing.md](releasing.md#what-the-runs-verified)).
 
 **Their test presets.** The CI test presets set the environment variable
 `PRAENORA_TESTS_REQUIRE_LISTENERS=1`: a test that opens a local listener then fails where the

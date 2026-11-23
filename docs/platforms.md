@@ -11,13 +11,13 @@ are given as they should work and are marked "not yet verified".
 | Platform | Compiler | Status |
 |---|---|---|
 | macOS arm64 (macOS 15; macOS 26 in CI) | AppleClang 17; AppleClang 21 in CI | Verified: configure, build without warnings, and every test in the `dev` (Debug), `dev-release`, `dev-asan` and `dev-tsan` builds; an installation, moved; the Python bindings with CPython 3.12; a Python wheel built offline and installed into a fresh virtual environment ([python.md](python.md#building-a-wheel)); the roadrunner provider with libRoadRunner 2.11.0 and LLVM 13.0.1, every test in a Debug build and the labels `unit`, `contract`, `negative`, `lifecycle`, `integration` and `install` in a ThreadSanitizer build ([The roadrunner provider](#the-roadrunner-provider)); the antimony provider with libAntimony 3.3.0 built from source, every test in a Debug build and in a Debug build with both providers, and the labels `unit`, `contract` and `integration` in a ThreadSanitizer build ([The antimony provider](#the-antimony-provider)); process isolation in module hosts, with the shared compiled models and the restricted sandbox profile, whose tests run outside any other sandbox ([specs/process-isolation.md](specs/process-isolation.md)); the `ci-macos-arm64-release` preset against a dependency bundle built locally, with installed yaml-cpp, spdlog and GoogleTest instead of fetched ones ([The CI presets](#the-ci-presets)); and by CI, the `ci-macos-arm64-release` preset with AppleClang 21 on `macos-26`, against the dependency bundle, with fetched yaml-cpp, spdlog and GoogleTest: every test, those of the restricted sandbox profile included, and the archive ([releasing.md](releasing.md#what-the-runs-verified)). The control API and the OTLP export, with cpp-httplib 0.67.0 installed header-only, locally only: the `dev`, `dev-release`, `dev-asan` and `dev-tsan` builds without warnings and their tests, the listener tests ([testing.md](testing.md#listeners)) from a shell outside any sandbox in the `dev` and `dev-tsan` builds; the `ci-macos-arm64-release` preset with installed packages, its tests outside any sandbox; and a wheel built offline with cpp-httplib (built and imported; it holds no server, and its export test skips where listeners are refused). Not yet verified: these with CI, and cpp-httplib downloaded in fetch mode. |
-| Linux x86-64 | GCC 9+, Clang 10+ | Presets, a CI preset and portable code. Verified by CI ([releasing.md](releasing.md#what-the-runs-verified)): the `ci-linux-x64-release` preset with GCC 13.3 on `ubuntu-24.04`, against the dependency bundle: configure, build without warnings, and every test, with both providers, process isolation in module hosts, the Python bindings with CPython 3.12, the install tests and the archive (15 tests skip: the 12 of the restricted sandbox profile, which exists only on macOS, and 3 that need what the runner lacks). Not yet verified: the `linux-x64-debug`, `linux-x64-asan` and `linux-x64-tsan` presets, Clang, older GCC, and the distributions' packages ([Linux](#linux)); and the control API and the OTLP export, whose code CI has not built yet. |
-| Windows x86-64 | MSVC 19.29+ (Visual Studio 2022) | Presets, CI presets and portable code. Verified by CI ([releasing.md](releasing.md#what-the-runs-verified)): the `ci-windows-x64-release` and `ci-windows-x64-debug` presets with MSVC 19.44 (Visual Studio 2022) on `windows-2022`, against the dependency bundles: configure, build without warnings, and every test, with both providers, the Python bindings with CPython 3.12, the install tests and the archives (5 tests skip, which Windows cannot run). Process isolation is not available on Windows in this version. Not yet verified: older MSVC, and libraries from vcpkg or conda-forge ([Windows](#windows)); and the control API (TCP only on Windows) and the OTLP export, whose code CI has not built yet. |
+| Linux x86-64 | GCC 9+, Clang 10+ | Presets, a CI preset and portable code. Verified by CI ([releasing.md](releasing.md#what-the-runs-verified)): the `ci-linux-x64-release` preset with GCC 13.3 on `ubuntu-24.04`, against the dependency bundle: configure, build without warnings, and every test, with both providers, process isolation in module hosts, the Python bindings with CPython 3.12, the install tests and the archive (15 tests skip: the 12 of the restricted sandbox profile, which exists only on macOS, and 3 that need what the runner lacks). Not yet verified: the `linux-x64-debug`, `linux-x64-asan` and `linux-x64-tsan` presets, Clang, older GCC, and the distributions' packages ([Linux](#linux)). The control API and the OTLP export are built and tested there too. |
+| Windows x86-64 | MSVC 19.29+ (Visual Studio 2022) | Presets, CI presets and portable code. Verified by CI ([releasing.md](releasing.md#what-the-runs-verified)): the `ci-windows-x64-release` and `ci-windows-x64-debug` presets with MSVC 19.44 (Visual Studio 2022) on `windows-2022`, against the dependency bundles: configure, build without warnings, and every test, with both providers, the Python bindings with CPython 3.12, the install tests and the archives (5 tests skip, which Windows cannot run). Process isolation is not available on Windows in this version. Not yet verified: older MSVC, and libraries from vcpkg or conda-forge ([Windows](#windows)). The control API (TCP only on Windows) and the OTLP export are built and tested there too. |
 
 Fetch mode is verified by CI for yaml-cpp, spdlog and GoogleTest, which the CI presets download
 and build ([The CI presets](#the-ci-presets)), and the fetched yaml-cpp and spdlog end up static
-libraries: the archive check finds no library of theirs. The CI presets download cpp-httplib too;
-that download is not yet verified ([cpp-httplib](#cpp-httplib)). Which of the settings of
+libraries: the archive check finds no library of theirs. The CI presets download cpp-httplib too,
+which CI verified ([cpp-httplib](#cpp-httplib)). Which of the settings of
 [ADR-0017](adr/ADR-0017-dependency-management.md) brings that about, and that the fetched
 projects' install rules are off, no test shows. Not yet verified on any platform: downloading
 nlohmann/json and json-schema-validator in fetch mode (CI takes them from the bundle); building a
@@ -146,7 +146,7 @@ installation then holds its `LICENSE` in `share/praenora/licenses/httplib/`
 ([The CI presets](#the-ci-presets)). Checked on macOS arm64 without a download, with
 `FETCHCONTENT_SOURCE_DIR_HTTPLIB` naming a clone at the pinned commit: the build, the install
 tests (the license file listed, no header or CMake file of cpp-httplib installed) and the archive.
-The download is not yet verified.
+CI verified the download on every platform key (run 45165537866).
 
 ## The roadrunner provider
 
@@ -335,9 +335,9 @@ bindings and the tests, with warnings as errors
 
 | Preset | Bundle | Inherits | Status |
 |---|---|---|---|
-| `ci-linux-x64-release` | `linux-x64-release` | `linux-x64-release` | Verified by CI: configure, build without warnings and every test, with GCC 13.3 and fetched yaml-cpp, spdlog and GoogleTest. With cpp-httplib, the control API and the OTLP export, not yet verified. |
-| `ci-macos-arm64-release` | `macos-arm64-release` | `macos-arm64-release`, with `CMAKE_OSX_DEPLOYMENT_TARGET` 14.0, the bundle's | Verified by CI: configure, build without warnings and every test, with AppleClang 21 and fetched yaml-cpp, spdlog and GoogleTest. Locally also against a bundle built with AppleClang 17, with Homebrew's yaml-cpp, spdlog and GoogleTest instead of fetched ones, and so with their deployment target, 15.0, and since cpp-httplib is a dependency with it installed header-only: configure, build and every test, from a shell outside any sandbox ([developer-guide.md](developer-guide.md#ci-presets)). With fetched cpp-httplib, not yet verified. |
-| `ci-windows-x64-release` | `windows-x64-release` | `windows-x64-release`, with `CMAKE_TRY_COMPILE_CONFIGURATION` Release | Verified by CI: configure, build without warnings and every test, with MSVC 19.44 and fetched yaml-cpp, spdlog and GoogleTest. With cpp-httplib, the control API and the OTLP export, not yet verified. |
+| `ci-linux-x64-release` | `linux-x64-release` | `linux-x64-release` | Verified by CI: configure, build without warnings and every test, with GCC 13.3 and fetched yaml-cpp, spdlog and GoogleTest. With fetched cpp-httplib, the control API and the OTLP export too. |
+| `ci-macos-arm64-release` | `macos-arm64-release` | `macos-arm64-release`, with `CMAKE_OSX_DEPLOYMENT_TARGET` 14.0, the bundle's | Verified by CI: configure, build without warnings and every test, with AppleClang 21 and fetched yaml-cpp, spdlog and GoogleTest. Locally also against a bundle built with AppleClang 17, with Homebrew's yaml-cpp, spdlog and GoogleTest instead of fetched ones, and so with their deployment target, 15.0, and since cpp-httplib is a dependency with it installed header-only: configure, build and every test, from a shell outside any sandbox ([developer-guide.md](developer-guide.md#ci-presets)). With fetched cpp-httplib, verified by CI too. |
+| `ci-windows-x64-release` | `windows-x64-release` | `windows-x64-release`, with `CMAKE_TRY_COMPILE_CONFIGURATION` Release | Verified by CI: configure, build without warnings and every test, with MSVC 19.44 and fetched yaml-cpp, spdlog and GoogleTest. With fetched cpp-httplib, the control API and the OTLP export too. |
 | `ci-windows-x64-debug` | `windows-x64-debug` | `windows-x64-debug`, with `CMAKE_TRY_COMPILE_CONFIGURATION` Debug | Verified by CI, as for Release, and not yet with cpp-httplib. |
 
 The jobs of the CI workflow, `.github/workflows/build.yml`, run these presets, each on the runner
@@ -492,9 +492,8 @@ profile of a module host is not available on Linux in this version (validation r
 `sandbox: restricted` with `UNSUPPORTED`).
 
 The control API's Unix socket paths hold at most 107 bytes (`sun_path`), and a socket is given mode
-0600 with `fchmod()` before `bind()`, so its file is made with that mode (less the umask). The
-control API and the OTLP export are not yet verified on Linux: CI has not built them yet
-([specs/control-api.md](specs/control-api.md#platforms)).
+0600 with `fchmod()` before `bind()`, so its file is made with that mode (less the umask). CI
+builds and tests the control API and the OTLP export on Linux ([specs/control-api.md](specs/control-api.md#platforms)).
 
 ## Windows
 
@@ -563,8 +562,15 @@ and `lib` directory names.
   processes the tool starts. Ctrl+C, Ctrl+Break and closing the console shut `praenora serve`
   down, as they stop a run. Token files' modes are not checked. The listener tests that start the
   tool are POSIX only (they send it signals); the listener and the client have tests of their own
-  ([specs/control-api.md](specs/control-api.md#platforms), [testing.md](testing.md#listeners)).
-  Not yet verified.
+  ([specs/control-api.md](specs/control-api.md#platforms), [testing.md](testing.md#listeners)),
+  which CI runs ([releasing.md](releasing.md#what-the-runs-verified)).
+- A status file cannot be replaced while another handle holds it open without
+  `FILE_SHARE_DELETE`, as the C++ library's `std::ifstream` opens it (`praenora status` reading the
+  file, for example, or a virus scanner). The writer tries the replacement up to ten times, 10 ms
+  apart, then fails that write, which becomes the workflow's last error and makes the health
+  `degraded`, and writes again at its next change or interval
+  ([specs/observability.md](specs/observability.md#status-file)). A reader that keeps opening the
+  file while a run writes it can therefore degrade the run's health.
 
 ## References
 

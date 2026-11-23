@@ -10,6 +10,10 @@ your own machine is in [developer-guide.md](developer-guide.md#ci-presets), what
 
 ## What the runs verified
 
+This section says what the workflow's runs have verified, and is updated in place when a run
+verifies more. Runs that failed, and the fixes they needed, are for commit messages, not for this
+section or [ADR-0041](adr/ADR-0041-ci-and-releases-against-pinned-dependency-bundles.md).
+
 The workflow first passed on 2026-11-22, in two runs: on the pull request that brought it to
 `main` (run 45041491678, head commit `de4b0e8`), and on `main` with `publish` (run 45044102336,
 commit `bcc3775`), which drafted the first release, v0.2.0; an administrator published it the same
@@ -40,10 +44,11 @@ committed expected outputs; and the license review of distributing the providers
 
 These runs came before the control API and the OTLP export
 ([ADR-0042](adr/ADR-0042-control-and-status-api-over-http.md),
-[ADR-0043](adr/ADR-0043-otlp-export-of-metrics-and-logs.md)). No run has yet built them on any
-key, downloaded cpp-httplib at its pinned commit, installed its license, or run their listener
-tests with `PRAENORA_TESTS_REQUIRE_LISTENERS=1`: all of that is not yet verified, and the test
-counts above are those of the tree before them.
+[ADR-0043](adr/ADR-0043-otlp-export-of-metrics-and-logs.md)), so the test counts above are those
+of the tree before them. Run 45165537866, by hand on `feature/server`, built and tested every
+platform key with them: cpp-httplib downloaded at its pinned commit, its license installed, and the
+listener tests run with `PRAENORA_TESTS_REQUIRE_LISTENERS=1`; its test counts are not recorded
+here.
 
 ## The workflow
 
