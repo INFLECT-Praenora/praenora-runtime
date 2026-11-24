@@ -16,16 +16,16 @@ Linux and Windows are not yet verified ([platforms.md](platforms.md)).
 - A library of type `MODULE` (`<name>.so` on Linux and macOS, `<name>.dll` on Windows) that exports
   one C function, `praenora_module_get_api`, which returns a static table of C function pointers:
   ABI v0. Nothing else crosses between the runtime and the module: no C++ types, no exceptions, no
-  allocations that the other side frees.
+  allocations that the other side frees.  [LS NOTE: This seems a bit strict, but a reasonable initial goal?  And actually, I'm not sure what the C function pointers are going to do if they don't return some allocated thing that someone has to free?  I guess what I want here is a list of things the function pointers *can* do, instead of a list of things they can't do.  Unless I'm reading it wrong, and c++ types, exceptions, and allocations can indeed be returned/modified, as long as there's a C function pointer that declares it so?]
 - A manifest, `<name>.pmm.json`, beside the library: the module's name and version, the ABI,
   protocol and SDK versions it was built for, its platform, the capabilities it implements and the
   JSON Schema of its parameters. The runtime reads manifests to find and check modules without
   running any of their code.
-- Optionally, test vectors: inputs and expected outputs that the contract checks run.
+- Optionally, test vectors: inputs and expected outputs that the contract checks run. [LS NOTE: what format are these test vectors?  Is there a directory?  Expected filnames?]
 
-A module implements capabilities; it does not choose its inputs or its place in a workflow. A
-workflow definition gives each step a capability, and a workflow configuration binds the step to a
-module that implements it, so modules of the same capability are interchangeable.
+A module implements capabilities that are chosen by the group as a whole: an individual group does not choose its modules' inputs nor its place in a workflow. If certain capabilites turn out to be necessary that weren't forseen, this is worked out as a group, and cannot be changed unilaterally.
+
+A workflow definition gives each step a capability, and a workflow configuration binds the step to a module that implements it, so modules of the same capability are interchangeable.
 
 ## The SDK
 

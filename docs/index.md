@@ -19,6 +19,7 @@
 - [developer-guide.md](developer-guide.md): dependencies, presets, building, installing and
   archiving, debugging modules (in module hosts too), keeping libraries loaded, message tracing,
   logging, sanitizer builds, adding a module locally, conventions and the ADR process.
+- [group-interactions.md](group-interactions.md): formal processes for interactions between groups.
 - [module-developer-guide.md](module-developer-guide.md): writing a module: the SDK, ABI rules, the
   C++ adapter, the manifest, `praenora_add_module()`, the test kit, test vectors, the contract
   checks, a module in a module host and under the restricted sandbox profile, determinism and

@@ -10,45 +10,58 @@
 - **Requirement keywords:** MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are used as described in
   [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119).
 
-A runtime service is a function table that the runtime offers to modules: a module asks for one by
-name and major version through the host API's `get_service`
-([module-abi.md](module-abi.md#host-api)). Some services would carry a heavy engine, for example a
+A process holds at most one library, and so one engine, of each provider. Modules never link an
+engine: they reach it only through `get_service`, so a module may still be built with any compiler.
+
+This document specifies:
+* Services
+* Provider manifests
+* The provider interface
+* How the runtime finds providers and resolves a service to one of them
+* Which services a module sees
+* How runs, validation, and the contract checks load providers, in the runtime's process or in a step's module host
+* How the run fingerprint records them
+* How the runtime loads a provider
+
+Modules declare the services they require or can use in their manifests (`requires.services`, module manifest format 0.2; [manifest.md](manifest.md#fields)); a manifest of format 0.1 declares none.
+
+## Services
+
+A runtime service is a chunk of code that does a useful thing, and any module can request that the service do that thing, i.e. 'generate a new set of patient data', 'simulate a model', 'provide a set of models', etc.
+
+All runtime services are named in a function table that the runtime offers to modules: a module can request one by name and major version through the host API's `get_service`
+([module-abi.md](module-abi.md#host-api)). This way, complicated and code-intensive services only need be provided once, for example a
 simulation engine with a compiler of its own, which neither every module nor the runtime library
 itself should carry. Such services come from **service providers**: separately built shared
 libraries, shipped with the runtime and described by provider manifests, that the runtime loads only
 when something needs one of their services, starts once and keeps loaded for the rest of the process.
-A process holds at most one library, and so one engine, of each provider. Modules never link an
-engine: they reach it only through `get_service`, so a module may still be built with any compiler.
 
-This document specifies services, provider manifests, the provider interface, how the runtime finds
-providers and resolves a service to one of them, which services a module sees, how runs, validation
-and the contract checks load providers, in the runtime's process or in a step's module host, how
-the run fingerprint records them, and how the runtime loads a provider. Modules declare the
-services they require or can use in their manifests (`requires.services`, module manifest format
-0.2; [manifest.md](manifest.md#fields)); a manifest of format 0.1 declares none.
-
-## Services
+[LS GUESS] When a module provides a service, they provide a C++ object with an interface to that service.  This way, if a module needs to run some service in parallel or otherwise keep different runs of a service separate (i.e. simulate a set of different models for comparison), the service isn't bottlenecked to only run its code once.
 
 - A service has a **name**, a dotted identifier such as `praenora.simulation`
   (`^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)*$`, as module names), and a version `major.minor`.
-- Its table is a C struct that starts with `praenora_api_header`, whose `abi_major` is the service's
-  major and whose `struct_size` covers the fields the provider fills, as for module tables. A later
-  minor version only appends fields; a new major is a new table.
-- A provider **offers** a service at one minor of each major it serves. A **requirement**
-  `{name, major, minor}` is satisfied by an offer of the same name and major whose minor is at least
-  the required one.
-- A service's own specification states its documents, threading and ownership rules. The public
-  services of this version, whose tables are declared in the module SDK:
-  - `praenora.simulation@0`, simulating models ([simulation-service.md](simulation-service.md);
+- A service also has an **interface**: a C struct table that provides information about what services and settings it provides.  The first element of the C struct must be `praenora_api_header`, with three children [LS GUESS]:
+  - `abi_major`: the service's major version.  Services may change between major versions.  A new major version defines a new **interface** with a new table.
+  - `abi_minor`: the service's minor version.  Services must be backwards-compatible within minor versions: new services and settings maybe added to later minor versions, and bugs may be fixed. A new minor version may add new fields to the previous version's **interface**.
+  - `struct_size`: [LS GUESS] The number of fields the provider fills, as for module tables. [LS: not sure what this means]
+- [LS GUESS] The other elements of the C struct table are the services and settings it provides.  Each must provide the following:
+  - A `name`.  Must be unique. [LS NOTE: across what?]
+  - `minor_version_first` The first minor version that provided the service [LS NOTE:  I feel like some of the original text here provided a lot of extra detail we didn't need, like I *think* it wanted to provide information about previous major versions where it used to work?  Does anyone ever need that?].  This is so that a service consumer can know if they can use a previous version of the module, but know it will still provide the service.
+  - `minor_version_same_behavior`:  The earliest minor version that behaves the same as the current version, i.e. with no bug fixes or other behavioral changes.  [LS NOTE: we could also just have a single `minor_version` for the earliest minor version with the same behavior.]
+  - [LS NOTE: what is the general format of the rest of the interface?  Where do we say i.e. that the service is 'simulation' and choose the setting 'roadrunner'?]
+- A service's own specification states its documents, threading and ownership rules. The public services of this version, whose tables are declared in the module SDK:
+  - `praenora.simulation@0`, [LS NOTE: where did this '@0' come from?  Is that the minor version above?  Or perhaps the major version?] simulating models ([simulation-service.md](simulation-service.md);
     [`simulation.h`](../../include/praenora/sdk/simulation.h));
   - `praenora.model-conversion@0`, translating a model source from one format to another, such as
     Antimony to SBML ([model-conversion-service.md](model-conversion-service.md);
     [`model_conversion.h`](../../include/praenora/sdk/model_conversion.h)).
+  - [LS NOTE: If the above are examples, that's great, but the actual description of what they do and the format they're adhering to needs to be in this document.  I think.]
 
 ## Provider manifest
 
-The manifest of the test provider `test-echo`, as `praenora_add_provider()` generates it on macOS
-arm64:
+[LS NOTE: What is going on here?  We need some sort of desciption of what the provider manifest does, and why it's doing it.  Is this an example of the C struct table, above?  Or something else?]
+
+Here is an example manifest for a hypothetical provider `test-echo`, as `praenora_add_provider()` generates it on macOS arm64 [LS NOTE:  what's generating this?  From what?  Is the fact that it was macOS relevant?]:
 
 ```json
 {
@@ -67,16 +80,16 @@ arm64:
 | Field | Type | Required | Meaning |
 |---|---|---|---|
 | `kind` | `"provider-manifest"` | yes | The document kind. |
-| `format_version` | semantic version | yes | The format; 0.1.x is read with the 0.1 schema. |
-| `provider.name` | identifier | yes | The provider's name, with the rules of module names. |
-| `provider.version` | semantic version | yes | The provider's version. |
-| `runtime_version` | semantic version | yes | The version of the runtime the provider was built with. |
+| `format_version` | semantic version | yes | The version of this provider manifest file. 0.1.x is read with the 0.1 schema [LS NOTE: what does the 'x' mean, then, if not 'the particular schema you should use'?]. |
+| `provider.name` | identifier | yes | The name of the provider.  Must conform to the rules of module names. |
+| `provider.version` | semantic version | yes | The version of the provider. |
+| `runtime_version` | semantic version | yes | The version of the runtime the provider was built with. [LS NOTE: what's the 'runtime', in this context?]|
 | `abi.major`, `abi.minor` | integers from 0 to 4294967295 | yes | The provider interface version the library was built for. |
 | `library.path` | non-empty string | yes | The library file, relative to the manifest's directory. |
 | `library.sha256` | 64 lowercase hex digits | no | The library's SHA-256, which the runtime then verifies before loading it. |
 | `platform.os` | `linux`, `macos` or `windows` | yes | The operating system the library was built for. |
 | `platform.arch` | `x86_64` or `arm64` | yes | The architecture the library was built for. |
-| `services` | array of `{name, major, minor}`, at least one | yes | The services the provider offers; majors and minors are integers from 0 to 4294967295. |
+| `services` | array of `{name (string), major (int), minor (int)}`, at least one | yes | A list of all the services the provider offers, along with the earliest major and minor version number that provides the current implementation of that service. |
 | `engine` | object | yes | Describes the engine behind the services (`{}` for none). It is compared with the provider's `describe()`. |
 | `x-...` | any | no | Extension fields, at the top level only. |
 
@@ -84,12 +97,12 @@ Rules:
 
 - **File.** A provider manifest is a strict JSON file whose name ends in `.provider.json`, beside
   its library, encoded in UTF-8 and at most 16 MiB. It MUST be valid against the
-  `provider-manifest` schema: unknown properties are refused, except top-level properties whose
+  `provider-manifest` schema of the provided version: unknown properties are refused, except top-level properties whose
   names start with `x-`.
 - **Path.** `library.path` MUST be relative to the manifest's directory; a path that is absolute in
   POSIX or in Windows notation is refused on every platform, as in module manifests
   ([manifest.md](manifest.md#rules)).
-- **Services.** Each `(name, major)` MUST appear at most once.
+- **Services.** Each `(name, major)` MUST appear at most once.  [LS NOTE: Not sure we actually need multiple major versions for a given name.]
 
 The runtime reads a provider manifest without loading the library, in the order and with the errors
 of a module manifest ([manifest.md](manifest.md#reading-a-manifest)). Every error is located in the
