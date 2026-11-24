@@ -990,7 +990,6 @@
               "overrides",
               "validation",
               "manifests",
-              "inputs",
               "isolation"
             ],
             "type": "object"
