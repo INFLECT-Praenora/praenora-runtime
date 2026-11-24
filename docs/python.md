@@ -110,6 +110,7 @@ the run when it ends.
 | `metrics()` | `{"metrics": [...]}`: the metric points, such as `praenora.step.invocations`. |
 | `latest_outputs()` | The newest envelope of each workflow output, `{"<output>": envelope}`. |
 | `run_record()` | The run record as last written, the same document as its file, whose error records name the run's directories by placeholders such as `<output>`; `None` before the run starts. |
+| `diagnostics()` | What validation found when the run was opened and did not refuse it: the report of `validate()`, `{"ok": True, "diagnostics": [...]}`, whose diagnostics are warnings and notes (for example data rows before the run's start); `praenora run` prints the same ones. |
 | `state`, `fingerprint`, `run_number` | Read-only properties: the state name, the run fingerprint, and the run's number in the runtime that opened it (`Workflow::run_number()`), which is 1, since each `Workflow` opens its run with a runtime of its own. |
 
 ### Process isolation
