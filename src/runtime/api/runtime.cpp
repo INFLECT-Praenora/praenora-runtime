@@ -827,6 +827,7 @@ std::unique_ptr<Workflow> Runtime::open(const std::string& config_path,
     }
     auto impl = std::make_unique<Workflow::Impl>(impl_->context, std::move(*workflow), logging,
                                                  options.overwrite);
+    impl->diagnostics = std::move(report);
     std::unique_ptr<Workflow> opened(new Workflow(std::move(impl)));
     // Taken last, once nothing can fail any more: an open() that throws takes no number. The OTLP
     // export names the run by it from now on.

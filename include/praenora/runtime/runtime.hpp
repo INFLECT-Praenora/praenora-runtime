@@ -188,7 +188,8 @@ public:
     // that throws takes none. Throws praenora::Error: when validation reports an error, the
     // first error's code and location, the message "workflow validation failed: N error(s)" and
     // the whole report (ValidationReport::to_json()) as details; IO_ERROR when the output
-    // directory or the log file cannot be used.
+    // directory or the log file cannot be used. A configuration that is valid but has warnings
+    // opens; the workflow keeps them (Workflow::diagnostics()).
     std::unique_ptr<Workflow> open(const std::string& config_path,
                                    const WorkflowOptions& options = {}) const;
 

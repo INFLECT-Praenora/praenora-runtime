@@ -279,4 +279,6 @@ const std::string& Workflow::output_dir() const noexcept { return impl_->output_
 
 std::uint64_t Workflow::run_number() const noexcept { return impl_->run_number; }
 
+const ValidationReport& Workflow::diagnostics() const noexcept { return impl_->diagnostics; }
+
 } // namespace praenora

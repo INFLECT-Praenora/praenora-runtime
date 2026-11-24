@@ -78,6 +78,7 @@ struct Workflow::Impl {
     // The run as the OTLP export names it: its fingerprint, and the run number, which
     // Runtime::open() sets with run_number; none without an exporter.
     std::shared_ptr<detail::OtlpRun> telemetry_run;
+    ValidationReport diagnostics; // the warnings and notes of the validation that opened the run
     std::unique_ptr<detail::LogHub> logs;
     detail::MetricsRegistry metrics;
     // The run's metrics in the OTLP export, from its snapshots: finished by close(), which has the
