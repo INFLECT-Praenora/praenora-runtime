@@ -257,8 +257,16 @@ function(praenora_add_python_provider target)
     # The build tree's environment file: absolute paths. The core's is its directory, escaped as
     # the environment's is, and its file name, which CMake gives (the core's OUTPUT_NAME and the
     # platform's suffix, which need no escape): $<TARGET_FILE> could not be escaped.
+    # The directory is normalized first. On Windows with a multi-config generator it is
+    # <runtime directory>/$<CONFIG>/../lib/praenora/providers/python
+    # (praenora_build_tree_provider_dir()), so the file's own path, evaluated for each
+    # configuration, is one and the same, and the text of the step through $<CONFIG> would make its
+    # content differ from one configuration to the next, which file(GENERATE) refuses ("written
+    # multiple times with different content"). A path that does depend on the configuration keeps
+    # $<CONFIG> and gets a file of its own per configuration.
     _praenora_python_json_string(environment_literal "${PRAENORA_PYTHON_ENVIRONMENT_DIR}")
-    _praenora_python_json_escape(core_directory_text "${core_directory}")
+    cmake_path(SET core_directory_normal NORMALIZE "${core_directory}")
+    _praenora_python_json_escape(core_directory_text "${core_directory_normal}")
     set(environment_file "${directory}/python-environment.json")
     file(GENERATE OUTPUT "${environment_file}" CONTENT "{
   \"environment\": ${environment_literal},

@@ -58,7 +58,8 @@ foreach(_praenora_template IN LISTS _praenora_layout_templates)
 endforeach()
 
 # praenora_add_gtest(<name> LABEL <label> [WHITEBOX] [SANDBOX_SKIP] [LISTENER_SKIP]
-#                    [EMBEDS_PYTHON] SOURCES <source>... [LINK <library>...])
+#                    [EMBEDS_PYTHON] [LIBRARY_PATH <directory>] SOURCES <source>...
+#                    [LINK <library>...])
 # praenora_add_gtest(<name> NO_TESTS [WHITEBOX] [EMBEDS_PYTHON] SOURCES <source>...
 #                    [LINK <library>...])
 #
@@ -79,6 +80,13 @@ endforeach()
 # - EMBEDS_PYTHON: its tests run the Python environment in the test's process, so on Windows the
 #   executable gets the application manifest of the praenora tool, which allows long paths
 #   (praenora_add_long_path_manifest() below).
+# - LIBRARY_PATH: a directory with a shared library that the executable needs (through a library
+#   of LINK) and that the dynamic loader must take from there. On Linux the loader looks in the
+#   caller's LD_LIBRARY_PATH before the RUNPATH of the build tree, so a library of the same name
+#   (the libpython3.12.so.1.0 that actions/setup-python puts on LD_LIBRARY_PATH) wins over the one
+#   the build was linked against; its tests therefore run with LD_LIBRARY_PATH set to the directory
+#   alone. Windows copies the DLLs next to the executable, and macOS finds them through the rpath:
+#   there it does nothing.
 # - Otherwise the executable links only the shared library Praenora::Runtime.
 # Either way it links praenora_test_support, GTest::gtest_main and the LINK libraries. An
 # executable never links both the object library and the shared library, so LINK cannot add the
@@ -125,7 +133,8 @@ endfunction()
 
 function(praenora_add_gtest name)
     cmake_parse_arguments(PARSE_ARGV 1 arg
-        "WHITEBOX;NO_TESTS;SANDBOX_SKIP;LISTENER_SKIP;EMBEDS_PYTHON" "LABEL" "SOURCES;LINK")
+        "WHITEBOX;NO_TESTS;SANDBOX_SKIP;LISTENER_SKIP;EMBEDS_PYTHON" "LABEL;LIBRARY_PATH"
+        "SOURCES;LINK")
     if(arg_UNPARSED_ARGUMENTS)
         message(FATAL_ERROR
             "praenora_add_gtest(${name}): unexpected arguments: ${arg_UNPARSED_ARGUMENTS}")
@@ -183,10 +192,24 @@ function(praenora_add_gtest name)
     if(arg_SANDBOX_SKIP OR arg_LISTENER_SKIP)
         set(skip SKIP_REGULAR_EXPRESSION "${skip_texts}")
     endif()
+    # LIBRARY_PATH: where the loader finds the executable's shared library first (see above). The
+    # path is one value: gtest_discover_tests() writes it into brackets, and a ';' would split it.
+    set(library_path "")
+    if(arg_LIBRARY_PATH AND UNIX AND NOT APPLE)
+        if(arg_LIBRARY_PATH MATCHES "[];[]" OR NOT IS_DIRECTORY "${arg_LIBRARY_PATH}")
+            message(FATAL_ERROR "praenora_add_gtest(${name}): LIBRARY_PATH must be an existing "
+                "directory without ';', '[' or ']'; it is '${arg_LIBRARY_PATH}'")
+        endif()
+        if(NOT "${_praenora_test_environment}" STREQUAL "")
+            message(FATAL_ERROR "praenora_add_gtest(${name}): LIBRARY_PATH and the sanitizer's "
+                "ENVIRONMENT cannot both be one property")
+        endif()
+        set(library_path ENVIRONMENT "LD_LIBRARY_PATH=${arg_LIBRARY_PATH}")
+    endif()
     if(NOT arg_NO_TESTS)
         gtest_discover_tests(${name}
             DISCOVERY_MODE PRE_TEST
-            PROPERTIES LABELS ${arg_LABEL} ${_praenora_test_environment} ${skip}
+            PROPERTIES LABELS ${arg_LABEL} ${_praenora_test_environment} ${library_path} ${skip}
                 ${_praenora_no_telemetry})
     endif()
 endfunction()
@@ -663,9 +686,18 @@ endif()
 # executable links the core and calls its C interface (unit/python_core_test.cpp, with the fixture
 # classes of fixtures/python-core), and compiles the core's directory digest, which the core does
 # not export, to compare it with the CMake function's (unit/python_digest_test.cpp). It embeds
-# Python, so it exists only with the environment.
+# Python, so it exists only with the environment. It links the core, and so libpython, through the
+# dynamic loader, which no provider loader (src/providers/python/common/loader.cpp) steers to the
+# environment's libpython by its path, as it does for every other test: on Linux its tests run with
+# LD_LIBRARY_PATH set to that library's directory (LIBRARY_PATH above). Otherwise a libpython of the
+# same name on the caller's LD_LIBRARY_PATH, such as the one of actions/setup-python, is loaded
+# instead, and starts the environment's standard library without the modules that the
+# environment's own libpython has built in (_struct, for one).
 if(PRAENORA_WITH_PYTHON_ENVIRONMENT)
+    get_filename_component(_praenora_python_library_directory
+        "${PraenoraRuntimePyenv_PYTHON_LIBRARY}" DIRECTORY)
     praenora_add_gtest(praenora_python_core_tests LABEL unit EMBEDS_PYTHON
+        LIBRARY_PATH "${_praenora_python_library_directory}"
         SOURCES
             unit/python_core_test.cpp
             unit/python_digest_test.cpp

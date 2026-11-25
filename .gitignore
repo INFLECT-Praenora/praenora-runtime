@@ -12,3 +12,4 @@ dist/
 .DS_Store
 Testing/
 /compile_commands.json
+graphify-out/

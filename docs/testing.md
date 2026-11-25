@@ -402,7 +402,12 @@ embed Python, every one with the environment the build uses:
 - `PythonCore.*` and `PythonDigest.*` (`praenora_python_core_tests`, label `unit`): the Python core
   through its C interface (among them what Python keeps per thread lasting from one call on a
   thread to the next and released when the thread ends, and cached bytecode beside a source never
-  read), and its directory digest against the CMake function's;
+  read), and its directory digest against the CMake function's. The executable links the core, so
+  the dynamic loader, not the provider loader that starts the environment's libpython by its path
+  in every other test, finds libpython; on Linux its tests therefore run with `LD_LIBRARY_PATH` set
+  to the environment's `python/lib` alone (`praenora_add_gtest(... LIBRARY_PATH)`), since the
+  libpython that `actions/setup-python` puts on the runner's `LD_LIBRARY_PATH` would otherwise be
+  loaded, and has not the modules (`_struct`, for one) that the environment's own has built in;
 - `python.sdk` (label `python`): `praenora.sdk`'s own `unittest` tests, run by the environment's
   interpreter, isolated and with the standard library only (`-I -S -B`; among them the test kit
   creating a module through the class method of `sdk.Module` and refusing, as the runtime does, a
@@ -901,7 +906,8 @@ gate in every build that has them: the contract tests run the checks on them.
 - **The Python environment.** A test that runs Python in its process is registered only with
   `PRAENORA_WITH_PYTHON_ENVIRONMENT`, in an executable added with
   `praenora_add_gtest(... EMBEDS_PYTHON)`, which on Windows gets the tool's application manifest
-  that allows long paths. Add a Python fixture module with `praenora_add_python_fixture_module()`
+  that allows long paths; an executable that links the Python core itself also gives
+  `LIBRARY_PATH <directory of the environment's libpython>`. Add a Python fixture module with `praenora_add_python_fixture_module()`
   in
   [`tests/fixtures/modules/python/CMakeLists.txt`](../tests/fixtures/modules/python/CMakeLists.txt):
   its library builds in every tree, as it needs no Python. Fixtures use numpy and the standard

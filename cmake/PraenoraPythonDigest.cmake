@@ -73,7 +73,10 @@ function(praenora_python_directory_digest out_var)
                     "link; the digest covers regular files only, so remove or replace the link")
             endif()
         endforeach()
-        if(IS_DIRECTORY "${absolute}" AND file IN_LIST globbed)
+        # list(FIND), not if(... IN_LIST ...): a script run with cmake -P that sets no policy
+        # reads IN_LIST as a plain argument (CMP0057 is not set), and the if() fails.
+        list(FIND globbed "${file}" globbed_index)
+        if(IS_DIRECTORY "${absolute}" AND NOT globbed_index EQUAL -1)
             continue()
         endif()
         list(APPEND paths "${relative}")
