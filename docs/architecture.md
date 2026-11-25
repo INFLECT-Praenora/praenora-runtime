@@ -13,7 +13,10 @@ the [ADRs](adr/README.md).
   ([OTLP export](#otlp-export)).
 - **Module SDK.** `Praenora::ModuleSDK`: the C ABI v0 headers, the optional header-only C++
   adapter, the in-process test kit and the CMake helper `praenora_add_module()`. Modules build
-  against it and nothing else ([module-developer-guide.md](module-developer-guide.md)).
+  against it and nothing else ([module-developer-guide.md](module-developer-guide.md)). For
+  modules in Python, it adds the pure-Python package `praenora.sdk` with its test kit and
+  `praenora_add_python_module()`, which generates a Python module's native library
+  ([Python modules](#python-modules)).
 - **Protocol.** The Praenora Module Protocol (PMP) and the Praenora Module Manifest (PMM): the
   document schemas in [`spec/schemas/`](../spec/schemas/), the protocol catalog of message types,
   capabilities and workflow definitions in [`spec/catalog/`](../spec/catalog/), and the generated
@@ -39,8 +42,10 @@ Service providers are the runtime's own: separately built libraries, shipped wit
 bring heavy engines for runtime services, such as the simulation engine behind
 `praenora.simulation@0` and the conversion engine behind `praenora.model-conversion@0`
 ([Service providers](#service-providers)). The repository holds the optional providers `roadrunner`
-(`src/providers/roadrunner/`) and `antimony` (`src/providers/antimony/`) and the fixture providers
-of the tests (`tests/fixtures/providers/`).
+(`src/providers/roadrunner/`), `antimony` (`src/providers/antimony/`) and `python`
+(`src/providers/python/`), whose engine is the embedded interpreter of a pinned Python environment
+behind `praenora.python@0` ([Python modules](#python-modules)), and the fixture providers of the
+tests (`tests/fixtures/providers/`).
 
 ## Components
 
@@ -97,11 +102,12 @@ Outside the runtime:
 | Directory | Contents |
 |---|---|
 | `include/praenora/runtime/` | The public C++ API. |
-| `include/praenora/sdk/` | The module SDK: `abi.h`, `status.h`, `simulation.h` (the simulation service), `model_conversion.h` (the model conversion service), `module.hpp`, `testing.hpp`. |
+| `include/praenora/sdk/` | The module SDK: `abi.h`, `status.h`, `simulation.h` (the simulation service), `model_conversion.h` (the model conversion service), `python.h` (the Python service), `module.hpp`, `python_module.hpp` (the native side of Python modules), `testing.hpp`. |
 | `src/sdk/` | The `Praenora::ModuleSDK` target and the generated `version.h`. |
-| `src/providers/` | Service providers built with the runtime: `roadrunner/`, only with `PRAENORA_WITH_ROADRUNNER`; `antimony/`, only with `PRAENORA_WITH_ANTIMONY`; `common/`, what providers share (header-only, never installed). |
+| `python/praenora/sdk/` | The pure-Python package `praenora.sdk`: `Module`, the adapter, the Python core's hooks, the main module of child processes and the test kit. |
+| `src/providers/` | Service providers built with the runtime: `roadrunner/`, only with `PRAENORA_WITH_ROADRUNNER`; `antimony/`, only with `PRAENORA_WITH_ANTIMONY`; `python/`, only with `PRAENORA_WITH_PYTHON_ENVIRONMENT`: the Python core (`core/`), the loader and service glue that the providers that run Python link (`common/`) and the provider `python` (`provider/`); `common/`, what providers share (header-only, never installed). |
 | `src/module_host/` | The module host `praenora-module-host` (its `main.cpp`; POSIX only), installed in `libexec/praenora/`. |
-| `src/frontend/` | What the CLI, the Python extension and the control API's server share (header-only, internal). |
+| `src/frontend/` | What the CLI, the Python extension and the control API's server share (header-only, internal), and `python_environment.hpp`, the variables of the Python environment that the tool and the module host set. |
 | `src/server/` | The control API's server, `praenora_server` (static, internal, linked by the tool only): addresses, tokens and scopes, the routes over a run source, the runs of both modes, the Prometheus text, the OpenAPI document, the listener and the client ([The control API](#the-control-api)). |
 | `src/cli/` | The `praenora` tool, with the listener flags and the server of `run --listen` and `serve` (`serving.cpp`). |
 | `src/python/`, `python/praenora/runtime/` | The SWIG facade and the pure-Python package. |
@@ -126,6 +132,9 @@ flowchart TB
     objects --> modulehost["praenora-module-host<br/>(executable, POSIX)"]
     shared -.->|"starts per step in process mode"| modulehost
     modulehost -.->|"loads at run time, never links"| modules
+    core["Python core<br/>(SHARED, internal: embeds CPython)"]
+    providers -.->|"those that run Python load it at start"| core
+    core --> libpython["the environment's libpython"]
 ```
 
 - The runtime compiles once, into an OBJECT library. The shared library exports only the public
@@ -147,6 +156,11 @@ flowchart TB
   opened the same way and called only through the table of `praenora_provider_get_api`, the only
   symbol they export; the roadrunner and antimony providers link their engines statically behind
   that export list.
+- The Python core, `praenora-python-core`, is the one library that includes `Python.h` and links
+  the Python environment's libpython. The providers that run Python link no Python: at their start
+  they load libpython and then the core by absolute paths and check the core's build identity
+  against their own, so a provider library loads where the environment is missing, and a process
+  holds one interpreter whichever provider starts it ([Python modules](#python-modules)).
 
 ## A run, from configuration to outputs
 
@@ -399,6 +413,60 @@ manifest, that brings an engine for one or more runtime services
 - **Records.** The run record names each service the run uses, with its provider's identity,
   digests and engine, so the run fingerprint changes when the engine does.
 
+## Python modules
+
+Modules and service providers can use the Python packages of a pinned Python environment, a
+bundle of praenora-runtime-pyenv (CPython 3.12 and the packages its lock pins) that a build with
+`PRAENORA_WITH_PYTHON_ENVIRONMENT` names ([specs/python-service.md](specs/python-service.md),
+[ADR-0044](adr/ADR-0044-python-modules-and-providers-through-an-embedded-environment.md),
+[ADR-0045](adr/ADR-0045-python-environment-pinned-in-ci-and-installation.md), Proposed).
+
+```mermaid
+flowchart LR
+    module["Python module's library<br/>(generated, no Python link)"]
+    provider["provider python<br/>(no Python link)"]
+    echo["a provider implemented in Python<br/>(test-python-echo)"]
+    loader["loader<br/>(static, no Python)"]
+    core["Python core<br/>(embeds CPython)"]
+    interpreter["one interpreter per process:<br/>praenora.sdk, the module's class"]
+    module -->|"praenora.python@0<br/>from get_service"| provider
+    provider --> loader
+    echo --> loader
+    loader -->|"loads at start"| core
+    core --> interpreter
+```
+
+- **The service.** `praenora.python@0` (`python.h`) creates Python objects, from a directory of
+  sources and the name of a callable, and calls their methods with JSON documents. The provider
+  `python` offers it; its engine names the interpreter and the environment's lock, so the run
+  fingerprint does. A C or C++ module may use the service directly.
+- **A Python module** is a class derived from `praenora.sdk.Module` and a native module library
+  that `praenora_add_python_module()` generates, which needs no Python to build: its ABI v0 table
+  forwards each call through the service to the class, whose sources lie beside the library in
+  `<name>.python/`. The library carries the directory digest of those sources, so the fingerprint
+  follows them, and the service refuses sources that differ from it; the code of a path is fixed
+  for the life of a process.
+- **One interpreter per process.** The core starts the interpreter once, isolated, in UTF-8 mode,
+  with the hash seed 0 and without signal handlers, and never finalizes it. The calls of different
+  modules come from their own worker threads and take turns at the interpreter's lock. What Python
+  code prints or logs becomes a log record of the step whose call runs on the thread. A process
+  that runs another interpreter already, such as the Python front end's, refuses the provider's
+  start: the step runs in a module host, which starts its own.
+- **Child processes.** `multiprocessing` starts children with `spawn`, never by forking the
+  runtime, and runs the environment's interpreter in them; their standard output goes to the
+  process's standard error, never into the tool's `--json` output. A module host killed at its
+  deadline takes its children with it.
+- **Providers implemented in Python** keep their service's typed table: a native provider library
+  of this repository forwards each table function to a Python object of its own through shared
+  glue (`praenora_add_python_provider()`, internal). The fixture provider `test-python-echo` is the
+  only one in this version.
+- **In an installation.** The environment lies unchanged in `lib/praenora/python-environment/`,
+  beside the provider `python`, the core and `praenora.sdk` in `lib/praenora/providers/python/`;
+  the core finds libpython through a run path relative to itself, so the installation can be
+  moved. The `praenora` tool and the module host set the environment's path variables and
+  `PYTHONHASHSEED`, each only when unset, before any thread starts; another program that embeds
+  the runtime sets them itself.
+
 ## The control API
 
 The control and status API lets another process watch and stop a run, and with `praenora serve`
@@ -476,7 +544,9 @@ the JSON encoding, when an endpoint is configured by the `OTEL_*` variables or
   `roadrunner` and, in the tests, by the fixture provider `test-simulation`; the model conversion
   service `praenora.model-conversion@0`
   ([specs/model-conversion-service.md](specs/model-conversion-service.md)) by the optional provider
-  `antimony` and, in the tests, by the fixture provider `test-conversion`. Compiling module code
+  `antimony` and, in the tests, by the fixture provider `test-conversion`; the Python service
+  `praenora.python@0` ([specs/python-service.md](specs/python-service.md)) by the optional
+  provider `python`. Compiling module code
   through libRoadRunner ([feasibility/libroadrunner.md](feasibility/libroadrunner.md)) is a design
   only.
 
@@ -486,7 +556,10 @@ the JSON encoding, when an endpoint is configured by the `OTEL_*` variables or
   runs load only libraries named by manifests on the module search paths
   ([specs/module-abi.md](specs/module-abi.md#trust)). A module host keeps a module's crash from
   ending the runtime, but runs the module with the same privileges: it contains failures, not a
-  hostile module.
+  hostile module. A Python module is trusted code too: its Python sources, and the packages of the
+  environment it imports, run with the same privileges. The digest of a module's Python sources,
+  checked before they are imported, keeps a run from running other code than its fingerprint
+  names; it does not guard against one who can replace the library too.
 - **No listener in the library.** The runtime library opens no listener: other processes follow
   a run through its status file ([ADR-0015](adr/ADR-0015-observability.md)) or through the
   control API, which only the `praenora` tool serves: on a Unix socket of mode 0600, or on a TCP
@@ -509,8 +582,11 @@ the JSON encoding, when an endpoint is configured by the `OTEL_*` variables or
   [ADR-0023](adr/ADR-0023-public-cpp-api.md): the decisions this structure follows.
 - [ADR-0042](adr/ADR-0042-control-and-status-api-over-http.md),
   [ADR-0043](adr/ADR-0043-otlp-export-of-metrics-and-logs.md): the control API and the OTLP
-  export (Proposed).
+  export (Accepted).
+- [ADR-0044](adr/ADR-0044-python-modules-and-providers-through-an-embedded-environment.md),
+  [ADR-0045](adr/ADR-0045-python-environment-pinned-in-ci-and-installation.md): Python modules and
+  providers, and the Python environment in CI and in the installation (Proposed).
 - [specs/module-abi.md](specs/module-abi.md), [specs/protocol.md](specs/protocol.md),
-  [specs/observability.md](specs/observability.md), [specs/control-api.md](specs/control-api.md):
-  the normative details.
+  [specs/observability.md](specs/observability.md), [specs/control-api.md](specs/control-api.md),
+  [specs/python-service.md](specs/python-service.md): the normative details.
 - [developer-guide.md](developer-guide.md): building, debugging and changing the runtime.

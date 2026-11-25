@@ -19,7 +19,11 @@
 #   absolute path of a dependency bundle (a directory that holds praenora-runtime-deps.json), or
 #   the configuration stops before any dependency is looked up: those presets' CMAKE_PREFIX_PATH,
 #   LLVM_INSTALL_PREFIX and PRAENORA_THIRD_PARTY_LICENSE_DIRS name the bundle's directories. A
-#   tree that does not define it is not checked.
+#   tree that does not define it is not checked. Likewise, with PRAENORA_WITH_PYTHON_ENVIRONMENT,
+#   the cache variable PRAENORA_RUNTIME_PYENV, when defined, must be the absolute path of a Python
+#   environment bundle (a directory that holds praenora-runtime-pyenv.json), whose CMake package
+#   those presets name in PraenoraRuntimePyenv_DIR (cmake/PraenoraPythonEnvironment.cmake finds it
+#   after the dependencies).
 #
 # Afterwards these targets exist: nlohmann_json::nlohmann_json,
 # nlohmann_json_schema_validator::validator (IMPORTED when it is an installed library),
@@ -118,6 +122,17 @@ macro(praenora_find_dependencies)
                 "dependency bundle: set the environment variable PRAENORA_RUNTIME_DEPS to a "
                 "bundle directory, for example with cmake -P "
                 "cmake/praenora_fetch_runtime_deps.cmake (docs/developer-guide.md).")
+        endif()
+    endif()
+    # Their Python environment bundle, checked here too, so that a missing one stops the
+    # configuration before anything is downloaded.
+    if(PRAENORA_WITH_PYTHON_ENVIRONMENT AND DEFINED CACHE{PRAENORA_RUNTIME_PYENV})
+        if(NOT IS_ABSOLUTE "${PRAENORA_RUNTIME_PYENV}" OR
+           NOT EXISTS "${PRAENORA_RUNTIME_PYENV}/praenora-runtime-pyenv.json")
+            message(FATAL_ERROR "PRAENORA_RUNTIME_PYENV ('${PRAENORA_RUNTIME_PYENV}') is not a "
+                "Python environment bundle: set the environment variable PRAENORA_RUNTIME_PYENV "
+                "to a bundle directory, for example with cmake -P "
+                "cmake/praenora_fetch_runtime_pyenv.cmake (docs/developer-guide.md).")
         endif()
     endif()
 

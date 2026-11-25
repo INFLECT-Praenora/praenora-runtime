@@ -6,6 +6,7 @@
 #include "output.hpp"
 
 #include <frontend.hpp>
+#include <python_environment.hpp>
 
 #include <nlohmann/json.hpp>
 
@@ -145,10 +146,20 @@ int guarded(const std::vector<std::string>& args) {
 
 } // namespace
 
+#ifndef PRAENORA_PYTHON_ENVIRONMENT_FILE
+#error "PRAENORA_PYTHON_ENVIRONMENT_FILE must be defined (src/cli/CMakeLists.txt)"
+#endif
+
+// First thing in main(), before any thread starts: the variables of the Python environment, when
+// this tree has the provider python (src/frontend/python_environment.hpp), whose environment file
+// an installation holds at PRAENORA_PYTHON_ENVIRONMENT_FILE, relative to the tool's directory.
 #ifdef _WIN32
 // The arguments arrive as UTF-16 and become UTF-8, the encoding of every path the API takes. The
 // console shows UTF-8, and standard output and error are binary, so lines end in "\n" only.
 int wmain(int argc, wchar_t** argv) {
+    frontend::apply_python_environment(frontend::current_program_path(),
+                                       frontend::ProgramDirectory::bin,
+                                       PRAENORA_PYTHON_ENVIRONMENT_FILE);
     SetConsoleOutputCP(CP_UTF8);
     _setmode(_fileno(stdout), _O_BINARY);
     _setmode(_fileno(stderr), _O_BINARY);
@@ -166,6 +177,9 @@ int wmain(int argc, wchar_t** argv) {
 }
 #else
 int main(int argc, char** argv) {
+    frontend::apply_python_environment(frontend::current_program_path(),
+                                       frontend::ProgramDirectory::bin,
+                                       PRAENORA_PYTHON_ENVIRONMENT_FILE);
     std::vector<std::string> args;
     for (int i = 1; i < argc; ++i) {
         args.emplace_back(argv[i]);

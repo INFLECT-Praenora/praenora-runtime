@@ -26,7 +26,6 @@
 #include <pthread.h>
 #include <signal.h>
 #include <stdlib.h>
-#include <sys/resource.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -665,27 +664,6 @@ void read_requests() {
     }
 }
 
-// The stack of the thread that serves a load: a program's main thread's, as a load in the
-// runtime's process runs on its caller's thread (the main thread of the tool and of Python): the
-// soft limit of RLIMIT_STACK, at least 1 MiB and at most 1 GiB, in whole pages; 8 MiB when the
-// limit is unlimited or cannot be read.
-std::size_t load_stack_size() noexcept {
-    constexpr rlim_t kFallback = rlim_t{8} << 20;
-    constexpr rlim_t kLeast = rlim_t{1} << 20;
-    constexpr rlim_t kMost = rlim_t{1} << 30;
-    rlim_t size = kFallback;
-    rlimit limit{};
-    if (::getrlimit(RLIMIT_STACK, &limit) == 0 && limit.rlim_cur != RLIM_INFINITY) {
-        size = std::clamp(limit.rlim_cur, kLeast, kMost);
-    }
-    const long page = ::sysconf(_SC_PAGESIZE);
-    if (page > 0) {
-        const auto unit = static_cast<rlim_t>(page);
-        size = (size + unit - 1) / unit * unit;
-    }
-    return static_cast<std::size_t>(size);
-}
-
 // The thread that serves a load (`frame`, a const Frame*). An exception that escapes ends the
 // process, as one that escapes the call thread does.
 void* serve_load_thread(void* frame) noexcept {
@@ -694,14 +672,16 @@ void* serve_load_thread(void* frame) noexcept {
     return nullptr;
 }
 
-// Serves a load (static initializers, describe(), the providers' start()) on a thread with
-// load_stack_size() of stack, and waits for it; on this thread when no such thread can be made.
+// Serves a load (static initializers, describe(), the providers' start()) on a thread with a
+// main thread's stack (module_thread_stack_size(), platform/platform.hpp), as a load in the
+// runtime's process runs on its caller's thread (the main thread of the tool and of Python), and
+// waits for it; on this thread when no such thread can be made.
 void serve_load_on_a_main_stack(const Frame& frame) {
     pthread_attr_t attributes;
     if (::pthread_attr_init(&attributes) == 0) {
         pthread_t thread{};
         const bool made =
-            ::pthread_attr_setstacksize(&attributes, load_stack_size()) == 0 &&
+            ::pthread_attr_setstacksize(&attributes, module_thread_stack_size()) == 0 &&
             ::pthread_create(&thread, &attributes, &serve_load_thread,
                              const_cast<void*>(static_cast<const void*>(&frame))) == 0;
         static_cast<void>(::pthread_attr_destroy(&attributes));
@@ -714,7 +694,7 @@ void serve_load_on_a_main_stack(const Frame& frame) {
 }
 
 // The call thread: loads and calls, one at a time, in the order they came; a load on a thread of
-// its own, with a main thread's stack (serve_load_on_a_main_stack()).
+// its own (serve_load_on_a_main_stack()). Both have a main thread's stack.
 void serve_requests() {
     set_current_thread_name("praenora:module");
     Server& state = server();
@@ -853,10 +833,10 @@ int run_module_host(int argc, char** argv) {
 
     std::thread(&read_requests).detach();
     // The module's calls run on a thread of their own, made as the runtime makes an instance's
-    // worker (instance/worker.cpp: a std::thread with the platform's default stack), so that a
-    // module has the stack it has in the runtime's process, not the main thread's; its load runs
-    // on a thread with a main thread's stack, as it does in the runtime's process.
-    std::thread calls(&serve_requests);
+    // worker (instance/worker.cpp: a ModuleThread, with a main thread's stack), so that a module
+    // has the thread and the stack it has in the runtime's process; its load runs on another
+    // thread with a main thread's stack, as it runs on its caller's thread there.
+    ModuleThread calls(&serve_requests);
     calls.join(); // never returns: the process ends from the reader thread
     return kExitDone;
 }

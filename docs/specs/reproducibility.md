@@ -57,6 +57,27 @@ What changes the fingerprint, and what does not:
   omitted parameter and an explicit default give the same fingerprint. Numbers keep their JSON type:
   `100` and `100.0` hash differently ([open-questions.md](../open-questions.md), OQ-20).
 
+**Python.** A step of a Python module ([python-service.md](python-service.md#python-modules)) is
+fingerprinted as any step, and what it runs is named by three entries:
+
+- its module's `library_sha256`: the generated library carries the directory digest of the
+  module's Python sources, so a change of any byte of them changes the library and the
+  fingerprint; the runtime refuses sources that differ from the digest, so a run never runs other
+  Python code than its library names;
+- the service `praenora.python@0` in `services`, with the provider `python` (its manifest and
+  library, which carries the build identity of the Python core, which in turn checks the digest of
+  `praenora.sdk`) and its engine, which names the interpreter and the environment (its package and
+  the SHA-256 of its lock file): another environment, or another build of the provider, gives
+  another fingerprint;
+- the step's `services`, which lists `praenora.python@0`.
+
+The Python packages of the environment are named by its lock, not hashed file by file; a module's
+own Python sources are hashed, and cached bytecode is not, since the runtime's interpreter neither
+writes nor reads any: it compiles every module from its source, so a stale or foreign `.pyc` in a
+`__pycache__` directory cannot run in its place. Children that `multiprocessing` starts read the
+cached bytecode that lies beside a source, where there is some
+([python-service.md](python-service.md#child-processes)).
+
 ## Canonical JSON
 
 Canonical JSON is the serialization of nlohmann/json's `dump()` without indentation on objects whose
@@ -196,7 +217,9 @@ The runtime guarantees:
   ([ADR-0022](../adr/ADR-0022-target-data-intake.md));
 - seeds derived only from the run seed.
 
-A module MUST:
+A module MUST (a Python module too, in the runtime's interpreter, whose hash seed is 0, and in
+the children it starts, whose hash seeds are random:
+[python-service.md](python-service.md#child-processes)):
 
 - not depend on the wall clock;
 - draw its randomness only from the seed of its initialize document;

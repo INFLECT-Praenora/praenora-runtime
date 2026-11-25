@@ -203,24 +203,30 @@ bundles, for continuous-integration jobs: `ci-linux-x64-release`,
 and a test preset of the same name. The jobs of the workflow `.github/workflows/build.yml` run
 them, one per key, and archive the installation ([releasing.md](releasing.md#the-workflow)). Each
 inherits the project preset of its key (`linux-x64-release`, and so on) and the hidden preset `ci`
-(`ci-windows` on Windows), and builds into `build/ci-<key>`. They take the bundle's directory from
-the environment variable `PRAENORA_RUNTIME_DEPS`, which the fetch script prints
-([Using a dependency bundle](#using-a-dependency-bundle)), and set these cache variables:
+(`ci-windows` on Windows, which inherits `ci`), and builds into `build/ci-<key>`. They take the
+dependency bundle's directory from the environment variable `PRAENORA_RUNTIME_DEPS`, which the
+fetch script prints ([Using a dependency bundle](#using-a-dependency-bundle)), and the Python
+environment bundle's from `PRAENORA_RUNTIME_PYENV` (below), and set these cache variables:
 
 | Cache variable | Value |
 |---|---|
 | `PRAENORA_RUNTIME_DEPS` | `$env{PRAENORA_RUNTIME_DEPS}`, which the configuration checks (below). |
+| `PRAENORA_RUNTIME_PYENV` | `$env{PRAENORA_RUNTIME_PYENV}`, which the configuration checks too. |
+| `PraenoraRuntimePyenv_DIR` | `$env{PRAENORA_RUNTIME_PYENV}/lib/cmake/PraenoraRuntimePyenv`, the Python environment's CMake package. |
 | `CMAKE_PREFIX_PATH` | The bundle's `json-schema-validator`, `roadrunner`, `roadrunner/lib/cmake`, `roadrunner/lib/cmake/Poco`, `llvm` and `antimony`, in the order of the manifest's `consumer.cmake_prefix_path`; on Windows also `roadrunner/cmake`, after `roadrunner/lib/cmake/Poco`. |
 | `LLVM_INSTALL_PREFIX` | The bundle's `llvm`. |
 | `PRAENORA_THIRD_PARTY_LICENSE_DIRS` | The bundle's `licenses` ([License files](#license-files)). |
-| `PRAENORA_WITH_ROADRUNNER`, `PRAENORA_WITH_ANTIMONY`, `PRAENORA_BUILD_PYTHON`, `PRAENORA_WARNINGS_AS_ERRORS`, `PRAENORA_FETCH_DEPENDENCIES` | `ON` |
+| `PRAENORA_WITH_ROADRUNNER`, `PRAENORA_WITH_ANTIMONY`, `PRAENORA_WITH_PYTHON_ENVIRONMENT`, `PRAENORA_BUILD_PYTHON`, `PRAENORA_WARNINGS_AS_ERRORS`, `PRAENORA_FETCH_DEPENDENCIES` | `ON` |
 | `CMAKE_DISABLE_FIND_PACKAGE_yaml-cpp`, `CMAKE_DISABLE_FIND_PACKAGE_spdlog`, `CMAKE_DISABLE_FIND_PACKAGE_googletest`, `CMAKE_DISABLE_FIND_PACKAGE_httplib` | `ON` |
-| `CMAKE_OSX_DEPLOYMENT_TARGET` | `ci-macos-arm64-release` only: `14.0`, the macOS bundle's. |
+| `CMAKE_OSX_DEPLOYMENT_TARGET` | `ci-macos-arm64-release` only: `14.0`, the macOS bundles'. |
 | `CMAKE_TRY_COMPILE_CONFIGURATION` | `ci-windows-x64-*` only: `Release` or `Debug`, the configuration of the bundle. The antimony provider's probe links the bundle's libraries when the build is configured, and the Visual Studio generator builds such a program in Debug unless this says otherwise, with another MSVC runtime library than a Release bundle's. |
 
-A tree of these presets builds both providers, the Python bindings and the tests, with warnings as
-errors. nlohmann/json and json-schema-validator come from the bundle, which is first on
-`CMAKE_PREFIX_PATH`. yaml-cpp, spdlog, GoogleTest and cpp-httplib (header-only) are built from the
+A tree of these presets builds both providers, the provider `python` with the Python modules of the
+tests and the example, the Python bindings and the tests, with warnings as errors. nlohmann/json
+and json-schema-validator come from the dependency bundle, which is first on `CMAKE_PREFIX_PATH`;
+the Python environment, from its bundle's CMake package, which `PraenoraRuntimePyenv_DIR` names
+(the Python bindings are still built for `Python3_EXECUTABLE`, not for the environment's
+interpreter). yaml-cpp, spdlog, GoogleTest and cpp-httplib (header-only) are built from the
 commits that [`cmake/PraenoraDependencies.cmake`](../cmake/PraenoraDependencies.cmake) pins,
 whatever is installed, so that what a job builds does not depend on what its runner has installed:
 FetchContent first looks for an installed package with `find_package()` under the dependency's
@@ -244,11 +250,58 @@ A tree configured with other presets does not define the variable and is not che
 environment holds. `cmake --preset` reads the environment variable each time it runs, and passes
 every value of the preset again.
 
-**Running one locally.** With a bundle for your platform and compiler
-([The bundle's compiler](#using-a-dependency-bundle)), on macOS:
+The Python environment bundle is checked in the same place, before any dependency is looked up,
+so that a job without it stops before anything is downloaded: with
+`PRAENORA_WITH_PYTHON_ENVIRONMENT`, when the cache variable `PRAENORA_RUNTIME_PYENV` is defined, it
+must be the absolute path of a directory that holds `praenora-runtime-pyenv.json`. With the
+environment variable unset:
+
+```text
+PRAENORA_RUNTIME_PYENV ('') is not a Python environment bundle: set the
+environment variable PRAENORA_RUNTIME_PYENV to a bundle directory, for
+example with cmake -P cmake/praenora_fetch_runtime_pyenv.cmake
+(docs/developer-guide.md).
+```
+
+A configuration of these presets that turns `PRAENORA_WITH_PYTHON_ENVIRONMENT` off needs no Python
+environment bundle and does not check the variable.
+
+**The Python environment bundle.** The repository
+[praenora-runtime-pyenv](https://github.com/INFLECT-Praenora/praenora-runtime-pyenv) builds the
+Python environment, one bundle per platform key, each with a manifest,
+`praenora-runtime-pyenv.json`, and a CMake package, `lib/cmake/PraenoraRuntimePyenv`; its releases
+publish each bundle as an archive.
+[`cmake/PraenoraRuntimePyenvPin.cmake`](../cmake/PraenoraRuntimePyenvPin.cmake) pins the release
+that CI builds against and, for each platform key, the archive's name and SHA-256; the environment
+is built in Release only, so `windows-x64-debug` names the Windows Release archive
+([releasing.md](releasing.md#the-python-environment-bundles)). The script
+[`cmake/praenora_fetch_runtime_pyenv.cmake`](../cmake/praenora_fetch_runtime_pyenv.cmake) fetches
+one, as the dependency bundle's script does, with the same arguments, behavior and errors (the two
+share [`cmake/praenora_fetch_bundle.cmake`](../cmake/praenora_fetch_bundle.cmake)):
+
+```bash
+cmake -DPLATFORM=macos-arm64-release -DDESTINATION="$HOME/praenora-runtime-pyenv" \
+    -P cmake/praenora_fetch_runtime_pyenv.cmake
+```
+
+It prints one line to standard output, which names the bundle's directory, an absolute path (here,
+for 0.1.0), and appends it to the file that `GITHUB_ENV` names, when it names one:
+
+```text
+PRAENORA_RUNTIME_PYENV=<DESTINATION>/praenora-runtime-pyenv-0.1.0-macos-arm64-cp312-appleclang21-release
+```
+
+The test `ci.fetch_runtime_pyenv` ([testing.md](testing.md#labels)) runs the script on local
+archives; a download from the release through the pin is not yet verified by CI. The environment's
+CMake package refuses a build for another platform, a macOS deployment target older than the
+bundle's (14.0 for 0.1.0) or an older MSVC toolset.
+
+**Running one locally.** With a dependency bundle for your platform and compiler
+([The bundle's compiler](#using-a-dependency-bundle)) and a Python environment bundle, on macOS:
 
 ```bash
 export PRAENORA_RUNTIME_DEPS=<bundle>
+export PRAENORA_RUNTIME_PYENV=<Python environment bundle>
 cmake --preset ci-macos-arm64-release -DPython3_EXECUTABLE=<python>
 cmake --build --preset ci-macos-arm64-release
 ctest --preset ci-macos-arm64-release
@@ -284,7 +337,18 @@ those of the restricted sandbox profile from a shell outside any sandbox
 cpp-httplib 0.67.0 from a local header-only prefix: configure and build without warnings, and
 every test from a shell outside any sandbox, which its test preset needs, since it requires
 listeners (below). CI verified the four CI presets on their runners, with fetched yaml-cpp, spdlog,
-GoogleTest and cpp-httplib ([releasing.md](releasing.md#what-the-runs-verified)).
+GoogleTest and cpp-httplib ([releasing.md](releasing.md#what-the-runs-verified)). Since the
+presets turn on `PRAENORA_WITH_PYTHON_ENVIRONMENT`, building the provider `python` against a
+released Python environment bundle, `ci-macos-arm64-release` was configured with that variable
+unset, where it stops with the message above, and configured, built and tested with installed
+packages as above, but with the preset's deployment target, 14.0, from a clean tree, offline,
+against the released macOS bundle 0.1.0 that `cmake/praenora_fetch_runtime_pyenv.cmake` downloaded
+through the pin, named by `PRAENORA_RUNTIME_PYENV`: all its 1484 tests passed, none skipped, from a
+shell outside any sandbox (with the test preset's `PRAENORA_TESTS_REQUIRE_LISTENERS=1`), with
+Homebrew's yaml-cpp, spdlog and GoogleTest, a locally installed cpp-httplib and a locally built and
+installed dependency bundle in place of fetched ones; with that deployment target, the build printed
+98 linker notes that Homebrew's libraries were built for a newer macOS
+([platforms.md](platforms.md#the-ci-presets)). CI has not yet run them with the environment.
 
 **Their test presets.** The CI test presets set the environment variable
 `PRAENORA_TESTS_REQUIRE_LISTENERS=1`: a test that opens a local listener then fails where the
@@ -348,6 +412,8 @@ The build tree holds:
 | `build/<preset>/test-providers/<name>/` | The fixture service providers of the tests. |
 | `build/<preset>/lib/praenora/providers/roadrunner/` | The roadrunner provider, with `PRAENORA_WITH_ROADRUNNER`: where the build tree's runtime looks for the providers of its installation. |
 | `build/<preset>/lib/praenora/providers/antimony/` | The antimony provider, with `PRAENORA_WITH_ANTIMONY`, beside it. |
+| `build/<preset>/lib/praenora/providers/python/` | The provider `python`, with `PRAENORA_WITH_PYTHON_ENVIRONMENT`, beside them: its library and manifest, the Python core, the environment file `python-environment.json`, which names the environment the build uses by its absolute path, and the core's copy of `praenora.sdk` ([specs/python-service.md](specs/python-service.md#the-provider-python)). |
+| `build/<preset>/test-python-modules/<name>/` | The Python fixture modules of the tests, and `build/<preset>/modules/example-predictor-python/` the example Python module, with the environment. |
 | `build/<preset>/python/` | The importable Python package, with `PRAENORA_BUILD_PYTHON`. |
 | `build/<preset>/include/` | Generated headers: `praenora/runtime/export.h`, `praenora/sdk/version.h`. |
 
@@ -358,6 +424,36 @@ An installation goes elsewhere with `--prefix`; the example modules come with th
 cmake --install build/dev --prefix "${TMPDIR:-/tmp}/praenora-install"
 cmake --install build/dev --prefix "${TMPDIR:-/tmp}/praenora-install" --component Examples
 ```
+
+### The installation
+
+An installation holds, below its prefix
+([`cmake/PraenoraInstall.cmake`](../cmake/PraenoraInstall.cmake); `bin`, `lib`, `include` and
+`share` stand for the GNUInstallDirs directories, `lib` being `lib64` or a multiarch directory on
+some Linux systems):
+
+| Path | Content |
+|---|---|
+| `bin/` | `praenora` (on Windows also `praenora_runtime.dll` and the DLLs it loads). |
+| `lib/` | The runtime library (on Windows its import library), and `lib/cmake/Praenora/`, the CMake package ([module-developer-guide.md](module-developer-guide.md)). |
+| `libexec/praenora/` | `praenora-module-host` (POSIX), beside `lib/`: `<lib>/praenora/../../libexec/praenora`. |
+| `include/praenora/` | The public headers of the runtime and the SDK. |
+| `share/praenora/schemas/`, `share/praenora/catalog/` | The schemas and the protocol catalog, as the runtime embeds them. |
+| `share/praenora/licenses/` | The license files ([License files](#license-files)). |
+| `lib/praenora/providers/<name>/` | Each service provider built in the tree, its library beside its manifest: `roadrunner`, `antimony`, and, with `PRAENORA_WITH_PYTHON_ENVIRONMENT`, `python`, whose directory holds the Python core, the environment file `python-environment.json` (`{"environment": "../../python-environment", "core": "<core's file name>"}`) and `python/praenora/sdk/` too. |
+| `lib/praenora/python-environment/` | With `PRAENORA_WITH_PYTHON_ENVIRONMENT`, the Python environment the build used, unchanged: every file with its permissions, symbolic links as links. |
+| `lib/praenora/modules/<name>/` | The example modules, with the component `Examples` (or `PRAENORA_INSTALL_EXAMPLES`): library, manifest and test vectors, and for `example-predictor-python` its sources in `example-predictor-python.python/`. |
+
+Nothing installed names the build tree, the source tree or the Python environment the build used:
+the CMake package, the manifests and the environment files name what they need relative to
+themselves, the programs and the Python core find their libraries through RPATHs relative to
+themselves (`@loader_path`, `$ORIGIN`; the install test accepts, in a sanitizer build on macOS, the
+compiler's own sanitizer runtime directory too), and `praenora` and `praenora-module-host` find the
+provider `python`'s environment file at a path relative to their own directory, compiled in from
+the GNUInstallDirs directories, which names the installation's library directory (they look below
+`lib/`, as a build tree has it, when nothing is there). So an installation can be moved; the test
+`install.consumer` moves one to a directory whose name holds a space and a character that is not
+ASCII, and runs Python steps from there ([testing.md](testing.md#labels)).
 
 ### License files
 
@@ -371,6 +467,7 @@ its own license, so installations hold license files in `share/praenora/licenses
 | `praenora-runtime/LICENSE` | This repository's license. |
 | `<name>/` | For each dependency built in the tree with FetchContent (`nlohmann_json`, `nlohmann_json_schema_validator`, `yaml-cpp`, `spdlog`, `httplib`, which is header-only and compiled into the runtime; never GoogleTest, which only the tests link), the files at the top of its sources whose names begin with `LICENSE`, `COPYING` or `NOTICE`, in any case, and, for spdlog, the license of the fmt library it bundles (a file whose name holds `license` in `include/spdlog/fmt/bundled/`), each under its path in the sources. A dependency built in the tree without a `LICENSE` or `COPYING` file stops the configuration. Checked with the sources of json-schema-validator 2.4.1, nlohmann/json 3.12.0 and cpp-httplib 0.67.0 (`httplib/LICENSE`); not yet verified with fetched yaml-cpp and spdlog sources, nor the name of spdlog 1.17.0's fmt license file (`fmt.license.rst` is expected: a file named otherwise is not installed, and nothing says so). |
 | the entries of each directory of `PRAENORA_THIRD_PARTY_LICENSE_DIRS` | Its contents, as they are. A dependency bundle's `licenses/` directory holds `<component>/` with the license files of each library in the bundle (libRoadRunner, LLVM, libroadrunner-deps' libraries, libAntimony, nlohmann/json, json-schema-validator) and `praenora-runtime-deps/LICENSE`. An entry that is not the absolute path of a directory stops the configuration. |
+| `python-environment/` | With `PRAENORA_WITH_PYTHON_ENVIRONMENT`, a copy of the Python environment's `licenses/` directory: the licenses of CPython, of each package of the environment and of the environment's build, as the environment ships them (they are in `lib/praenora/python-environment/licenses/` too). |
 
 The build cannot tell where an installed package keeps its license files, so a static or
 header-only library found with `find_package()` brings them into the installation only through
@@ -399,7 +496,7 @@ cmake --build --preset dev --target package
 
 | File | Content |
 |---|---|
-| `<name>.tar.xz` (`.zip` on Windows) | The installation, below one top-level directory `<name>/`: the default install component, which is what `cmake --install` installs, license files included ([License files](#license-files)), and never the example modules (component `Examples`), even with `PRAENORA_INSTALL_EXAMPLES`. It holds no Python package ([python.md](python.md#building-a-wheel)). |
+| `<name>.tar.xz` (`.zip` on Windows) | The installation, below one top-level directory `<name>/`: the default install component, which is what `cmake --install` installs, license files included ([License files](#license-files)), and never the example modules (component `Examples`), even with `PRAENORA_INSTALL_EXAMPLES`. It holds no Python package `praenora.runtime` ([python.md](python.md#building-a-wheel)); with `PRAENORA_WITH_PYTHON_ENVIRONMENT` it holds the Python environment and the provider `python` ([The installation](#the-installation)), symbolic links as links: the archive of `dev-python-release` on macOS arm64 is about 190 MB. |
 | `<name>.tar.xz.sha256` (`.zip.sha256`) | The archive's SHA-256 in the format of `sha256sum`: `<hash>`, two spaces, the archive's file name and a newline, so `sha256sum -c` (or `shasum -a 256 -c`) checks it in that directory. |
 
 CPack keeps its staging directory, `_CPack_Packages/`, beside them. The name is
@@ -443,7 +540,9 @@ There is no source package: the build tree has no target `package_source`, and c
 source configuration that CPack writes all the same, `build/<preset>/cmake/CPackSourceConfig.cmake`.
 A source archive is made from the repository, for example with `git archive`.
 
-The archive of a `ci-*` tree holds both providers and the license files of the dependency bundle.
+The archive of a `ci-*` tree holds the three providers, `roadrunner`, `antimony` and `python`, the
+Python environment in `lib/praenora/python-environment/`, and the license files of the dependency
+bundle and of the environment (`share/praenora/licenses/python-environment/`).
 An archive never holds the shared libraries that the build found installed: its programs load them
 from where the build found them. A `ci-*` job builds yaml-cpp and spdlog in its tree as static
 libraries, from downloaded sources, so its archive needs only the system's libraries, which the job
@@ -546,6 +645,116 @@ model with `antimony` and simulates it with `roadrunner` in one process. The uni
 rules that read a source's text alone (`AntimonyImportCheck.*`, `AntimonyTextCheck.*`,
 `SbmlTextCheck.*`) need no libAntimony and run in every build. Configuring a tree without the
 option removes the provider from it, as for roadrunner.
+
+### The Python environment
+
+What runs Python ([specs/python-service.md](specs/python-service.md)), the Python core, the
+provider `python`, the example Python module and the tests that embed Python, is built with
+`PRAENORA_WITH_PYTHON_ENVIRONMENT=ON`, against a Python environment bundle of
+[praenora-runtime-pyenv](https://github.com/INFLECT-Praenora/praenora-runtime-pyenv) for your
+platform key: CPython 3.12 with the packages its lock pins, and the CMake package
+`PraenoraRuntimePyenv`, which the build finds through `CMAKE_PREFIX_PATH` or
+`PraenoraRuntimePyenv_DIR` and never downloads. Fetch the pinned release with
+`cmake/praenora_fetch_runtime_pyenv.cmake` ([CI presets](#ci-presets)), or build one in that
+repository. Without the option, what needs no Python is built all the same: `python.h`,
+`python_module.hpp`, `praenora_add_python_module()`, the digest function, the Python fixture
+modules (their libraries need no Python) and the tests that need no Python
+([testing.md](testing.md#the-python-environment)).
+
+Keep it in presets of its own, as for the providers: in `CMakeUserPresets.json`, a hidden
+`dev-python-local` preset and presets that inherit it before `dev-local`
+(`CMakeUserPresets.json.example` holds them):
+
+```json
+{
+  "name": "dev-python-local",
+  "hidden": true,
+  "cacheVariables": {
+    "CMAKE_PREFIX_PATH": "/path/to/dependency/prefix;/path/to/praenora-runtime-pyenv/bundle",
+    "CMAKE_OSX_DEPLOYMENT_TARGET": "14.0",
+    "PRAENORA_WITH_PYTHON_ENVIRONMENT": "ON"
+  }
+},
+{
+  "name": "dev-python",
+  "displayName": "Local development with the Python environment, Debug",
+  "inherits": ["macos-arm64-debug", "dev-python-local", "dev-local"]
+}
+```
+
+with `dev-python-release`, `dev-python-asan` and `dev-python-tsan` likewise, from
+`macos-arm64-release`, `-asan` and `-tsan`, and build and test presets of the same names. The
+`CMAKE_PREFIX_PATH` of `dev-python-local` replaces the one of `dev-local`, so it lists the other
+dependency prefixes too, and the macOS deployment target must be at least the bundle's (14.0 for
+0.1.0): the bundle's CMake package refuses an older one, another platform and an older MSVC
+toolset. For the Python environment with both providers in one build, where
+`PythonRoadrunner.CoexistInOneProcess` runs, add a hidden preset whose `CMAKE_PREFIX_PATH` joins
+the three lists, with `LLVM_INSTALL_PREFIX` and the three options, and a preset that inherits it
+before `dev-local`, such as `dev-python-engines`. Then:
+
+```bash
+cmake --preset dev-python
+cmake --build --preset dev-python
+ctest --preset dev-python
+ctest --preset dev-python-tsan -R '^Python(Core|Digest)\.'
+ctest --preset dev-python-tsan -L 'contract|negative|integration'
+./build/dev-python/bin/praenora providers list
+```
+
+The configuration prints one line that names the environment's package and directory. The build
+tree's tool lists `python` without a provider path
+([user-guide.md](user-guide.md#finding-service-providers)) and runs the example with its Python
+predictor ([user-guide.md](user-guide.md#running-the-example-workflow)). The tests that embed
+Python run the environment's interpreter in their process; as elsewhere, the listener tests and
+those of the restricted sandbox profile skip in a sandbox
+([testing.md](testing.md#the-python-environment)). Configuring a tree without the option removes
+the provider `python`'s directory from it, as for the providers. An installation of the tree holds
+the environment ([The installation](#the-installation)), about a gigabyte, and its archive is
+about 190 MB on macOS arm64.
+
+### Providers implemented in Python
+
+A service provider of this repository may implement a service's typed table in Python
+([specs/python-service.md](specs/python-service.md#providers-implemented-in-python)). It is built
+only with `PRAENORA_WITH_PYTHON_ENVIRONMENT=ON` (the local preset `dev-python`), and has three
+parts, which the fixture provider `test-python-echo` (`tests/fixtures/providers/test-python-echo/`,
+the service `test.echo@0`) shows:
+
+1. **Its Python sources**, a top-level package of its own: a class whose constructor takes one
+   document (`None`) and whose methods each take a JSON document and return one. What it prints
+   or logs, and what it writes through `praenora.sdk.Host(praenora.sdk._runtime.backend())`,
+   becomes a record of the calling module when the table function was given its host API, and of
+   the provider otherwise.
+2. **Its C++ source**, which includes `service_glue.hpp` and no Python header. Its `start()` calls
+   `praenora::detail::python::PythonProviderObject::start(host, "<package.module:Class>",
+   error_json, &status)`, which starts the Python core and creates the object, and keeps the
+   object it returns. Each function of the service's table turns its arguments into a JSON
+   document, calls the object's method with `call(module_host, "<method>", document, result,
+   error)` and turns the result back into the table's types; a function without an error sink
+   logs the error document to the provider's log with `log_to()`.
+3. **Its build**, with `praenora_add_python_provider()` instead of `praenora_add_provider()`:
+
+```cmake
+praenora_add_python_provider(test_python_echo
+    NAME test-python-echo
+    VERSION 0.1.0
+    SERVICES test.echo@0.0
+    ENGINE_JSON "{\"name\": \"test-python-echo-engine\", \"version\": \"1.0.0\"}"
+    SOURCES test-python-echo/test_python_echo_provider.cpp
+    PYTHON_SOURCES test_python_echo
+    PYTHON_ROOT test-python-echo/python
+    OUTPUT_DIRECTORY "${PRAENORA_TEST_PROVIDERS_DIR}/test-python-echo")
+```
+
+The build copies the sources into `python/` beside the library, compiles their digest into it, adds
+the environment to the engine object and writes the environment file `python-environment.json`. An
+edited source configures the build again and rebuilds the library; a library whose `python/` holds
+other files than those it was built with fails to start (`DATA_INVALID`). The provider links neither
+the runtime nor Python, and exports only the provider entry point. Test it as `test-python-echo` is
+tested ([testing.md](testing.md#the-python-environment)): its table in the test's process, a run in
+the runtime's process and in a module host, its sources edited after the build, a run beside a
+Python module, and its library file (`providers.<name>.exports`, and `providers.<name>.processes`
+with `praenora_python_print`'s provider mode).
 
 ## Debugging modules
 

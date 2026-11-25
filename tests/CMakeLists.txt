@@ -58,8 +58,9 @@ foreach(_praenora_template IN LISTS _praenora_layout_templates)
 endforeach()
 
 # praenora_add_gtest(<name> LABEL <label> [WHITEBOX] [SANDBOX_SKIP] [LISTENER_SKIP]
-#                    SOURCES <source>... [LINK <library>...])
-# praenora_add_gtest(<name> NO_TESTS [WHITEBOX] SOURCES <source>... [LINK <library>...])
+#                    [EMBEDS_PYTHON] SOURCES <source>... [LINK <library>...])
+# praenora_add_gtest(<name> NO_TESTS [WHITEBOX] [EMBEDS_PYTHON] SOURCES <source>...
+#                    [LINK <library>...])
 #
 # Adds a GoogleTest executable whose tests are discovered when CTest runs (CTest names
 # Suite.Case) and carry the CTest label <label>.
@@ -75,6 +76,9 @@ endforeach()
 # - LISTENER_SKIP: its tests open local listeners (tests/support/listener_support.hpp) and skip,
 #   saying so, where a listener is refused; CTest shows them as skipped
 #   (_praenora_listener_skip_text below).
+# - EMBEDS_PYTHON: its tests run the Python environment in the test's process, so on Windows the
+#   executable gets the application manifest of the praenora tool, which allows long paths
+#   (praenora_add_long_path_manifest() below).
 # - Otherwise the executable links only the shared library Praenora::Runtime.
 # Either way it links praenora_test_support, GTest::gtest_main and the LINK libraries. An
 # executable never links both the object library and the shared library, so LINK cannot add the
@@ -107,9 +111,21 @@ set(_praenora_listener_skip_text "local listener refused: ")
 # itself.
 set(_praenora_no_telemetry ENVIRONMENT_MODIFICATION "OTEL_SDK_DISABLED=set:true")
 
+# praenora_add_long_path_manifest(<target>)
+#
+# On Windows, adds the praenora tool's application manifest (src/cli/praenora.manifest:
+# longPathAware) to the sources of the executable <target>, which the linker embeds: a test
+# program that runs the Python environment in its process opens files below the environment's
+# directory, whose paths may pass 260 characters. Elsewhere it does nothing.
+function(praenora_add_long_path_manifest target)
+    if(WIN32)
+        target_sources(${target} PRIVATE "${PROJECT_SOURCE_DIR}/src/cli/praenora.manifest")
+    endif()
+endfunction()
+
 function(praenora_add_gtest name)
-    cmake_parse_arguments(PARSE_ARGV 1 arg "WHITEBOX;NO_TESTS;SANDBOX_SKIP;LISTENER_SKIP" "LABEL"
-        "SOURCES;LINK")
+    cmake_parse_arguments(PARSE_ARGV 1 arg
+        "WHITEBOX;NO_TESTS;SANDBOX_SKIP;LISTENER_SKIP;EMBEDS_PYTHON" "LABEL" "SOURCES;LINK")
     if(arg_UNPARSED_ARGUMENTS)
         message(FATAL_ERROR
             "praenora_add_gtest(${name}): unexpected arguments: ${arg_UNPARSED_ARGUMENTS}")
@@ -151,6 +167,9 @@ function(praenora_add_gtest name)
     target_link_libraries(${name} PRIVATE ${arg_LINK} GTest::gtest_main)
     praenora_target_warnings(${name})
     praenora_copy_runtime_dlls(${name})
+    if(arg_EMBEDS_PYTHON)
+        praenora_add_long_path_manifest(${name})
+    endif()
 
     # GoogleTest's own skips, and the messages of the skips the options name; one value.
     set(skip_texts "\\[  SKIPPED \\]")
@@ -183,12 +202,15 @@ praenora_add_gtest(praenora_unit_tests LABEL unit WHITEBOX
         unit/simulation_c99_check.c
         unit/model_conversion_abi_test.cpp
         unit/model_conversion_c99_check.c
+        unit/python_abi_test.cpp
+        unit/python_c99_check.c
         unit/antimony_source_checks_test.cpp
         ../src/providers/antimony/source_checks.hpp
         ../src/providers/antimony/source_checks.cpp
         unit/sdk_adapter_test.cpp
         unit/sdk_testkit_test.cpp
         unit/sdk_windows_macros_test.cpp
+        unit/python_module_adapter_test.cpp
         unit/error_test.cpp
         unit/core_test.cpp
         unit/document_test.cpp
@@ -214,9 +236,9 @@ praenora_add_gtest(praenora_unit_tests LABEL unit WHITEBOX
         unit/otlp_exporter_test.cpp
         unit/otlp_runtime_test.cpp
     LINK Praenora::ModuleSDK)
-# sdk_abi_c99_check.c, simulation_c99_check.c, model_conversion_c99_check.c and
-# provider_abi_c99_check.c prove that the SDK's C headers (those of the simulation and model
-# conversion services included) and the provider interface header are valid C99.
+# sdk_abi_c99_check.c, simulation_c99_check.c, model_conversion_c99_check.c, python_c99_check.c
+# and provider_abi_c99_check.c prove that the SDK's C headers (those of the simulation, model
+# conversion and Python services included) and the provider interface header are valid C99.
 set_target_properties(praenora_unit_tests PROPERTIES
     C_STANDARD 99
     C_STANDARD_REQUIRED ON
@@ -436,6 +458,13 @@ if(PRAENORA_BUILD_EXAMPLES)
     list(APPEND _praenora_integration_sources integration/example_test.cpp
         integration/isolation_example_test.cpp)
 endif()
+# Without PRAENORA_WITH_PYTHON_ENVIRONMENT, a Python fixture module's step has no provider of
+# praenora.python@0, which validation refuses (integration/python_module_validation_test.cpp); with
+# it, the build tree's provider python is always found, and praenora_python_module_tests below has
+# the Python modules' tests.
+if(NOT PRAENORA_WITH_PYTHON_ENVIRONMENT)
+    list(APPEND _praenora_integration_sources integration/python_module_validation_test.cpp)
+endif()
 praenora_add_gtest(praenora_integration_tests LABEL integration SANDBOX_SKIP
     SOURCES ${_praenora_integration_sources})
 # The build's document formats, "<kind>=<version>" pairs separated by ','.
@@ -450,6 +479,11 @@ target_compile_definitions(praenora_integration_tests PRIVATE
 add_dependencies(praenora_integration_tests praenora_test_modules praenora_test_providers)
 if(PRAENORA_BUILD_EXAMPLES)
     add_dependencies(praenora_integration_tests praenora_example_modules)
+endif()
+if(NOT PRAENORA_WITH_PYTHON_ENVIRONMENT)
+    target_compile_definitions(praenora_integration_tests PRIVATE
+        "PRAENORA_TEST_PYTHON_MODULES_DIR=\"${PRAENORA_TEST_PYTHON_MODULES_DIR}\"")
+    add_dependencies(praenora_integration_tests praenora_test_python_modules)
 endif()
 # The module host, which the runtime starts for the steps in process mode.
 if(TARGET praenora_module_host)
@@ -574,3 +608,230 @@ add_subdirectory(docs)
 # archives from file:// URLs, and the workflow checked against the pin and the CI presets
 # (tests/ci).
 add_subdirectory(ci)
+
+# The directory digest of the Python sources (cmake/PraenoraPythonDigest.cmake, installed with the
+# package), checked against a value computed by hand. It needs no Python and no option.
+add_test(NAME python.digest_cmake
+    COMMAND "${CMAKE_COMMAND}"
+        "-DPRAENORA_SOURCE_DIR=${PROJECT_SOURCE_DIR}"
+        "-DPRAENORA_WORK_DIR=${PROJECT_BINARY_DIR}/tests/cmake"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/check_python_digest.cmake")
+set_tests_properties(python.digest_cmake PROPERTIES
+    LABELS unit
+    TIMEOUT 60)
+
+# praenora_add_python_provider() (cmake/PraenoraPythonProvider.cmake, internal): the engine object
+# it composes from ENGINE_JSON as written, the JSON string literals of its environment files, and
+# the arguments it refuses before it builds anything; and the path at which the installed programs
+# find the provider python's environment file (praenora_python_environment_file_from(),
+# cmake/PraenoraProvider.cmake) (cmake/check_python_provider.cmake, in script mode). It needs no
+# Python and no option.
+add_test(NAME python.provider_cmake
+    COMMAND "${CMAKE_COMMAND}"
+        "-DPRAENORA_SOURCE_DIR=${PROJECT_SOURCE_DIR}"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/check_python_provider.cmake")
+set_tests_properties(python.provider_cmake PROPERTIES
+    LABELS unit
+    TIMEOUT 120)
+
+# praenora_add_python_module() stops the configuration when SELF_TEST and the manifest disagree,
+# and for a class outside the sources (cmake/check_python_module_template.cmake, which configures
+# the tiny project cmake/python-module-template with the build's generator and compiler). It needs
+# no Python and no option.
+add_test(NAME python.module_template_check
+    COMMAND "${CMAKE_COMMAND}"
+        "-DPRAENORA_SOURCE_DIR=${PROJECT_SOURCE_DIR}"
+        "-DPRAENORA_WORK_DIR=${PROJECT_BINARY_DIR}/tests/cmake/python-module-template"
+        "-DGENERATOR=${CMAKE_GENERATOR}"
+        "-DGENERATOR_PLATFORM=${CMAKE_GENERATOR_PLATFORM}"
+        "-DGENERATOR_TOOLSET=${CMAKE_GENERATOR_TOOLSET}"
+        "-DMAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}"
+        "-DCXX_COMPILER=${CMAKE_CXX_COMPILER}"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/check_python_module_template.cmake")
+set_tests_properties(python.module_template_check PROPERTIES
+    LABELS unit
+    TIMEOUT 300)
+
+# The pure-Python package praenora.sdk (tests/python_sdk), tested with the environment's interpreter
+# when the tree has the environment, and with the interpreter of the Python bindings when they are
+# built.
+if(PRAENORA_WITH_PYTHON_ENVIRONMENT OR TARGET praenora_python_bindings)
+    add_subdirectory(python_sdk)
+endif()
+
+# The Python core (src/providers/python), white-box, with the environment the build uses: the
+# executable links the core and calls its C interface (unit/python_core_test.cpp, with the fixture
+# classes of fixtures/python-core), and compiles the core's directory digest, which the core does
+# not export, to compare it with the CMake function's (unit/python_digest_test.cpp). It embeds
+# Python, so it exists only with the environment.
+if(PRAENORA_WITH_PYTHON_ENVIRONMENT)
+    praenora_add_gtest(praenora_python_core_tests LABEL unit EMBEDS_PYTHON
+        SOURCES
+            unit/python_core_test.cpp
+            unit/python_digest_test.cpp
+            ../src/providers/python/core/digest.hpp
+            ../src/providers/python/core/digest.cpp
+            ../src/runtime/core/sha256.cpp
+        LINK praenora_python_core praenora_provider_interface)
+    target_include_directories(praenora_python_core_tests PRIVATE
+        "${PROJECT_SOURCE_DIR}/src/providers/python/core"
+        "${PROJECT_SOURCE_DIR}/src/runtime")
+    # The digest that praenora_python_directory_digest() gives the digest fixture, which the C++
+    # digest must equal.
+    praenora_python_directory_digest(_praenora_python_fixture_digest
+        ROOT "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/python-digest"
+        GLOB_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/python-digest")
+    # The environment's facts, and the build identity the core reports (a property of its target).
+    set(_praenora_python_lock "${PRAENORA_PYTHON_ENVIRONMENT_LOCK_SHA256}")
+    set(_praenora_python_build_id
+        "$<TARGET_PROPERTY:praenora_python_core,PRAENORA_PYTHON_CORE_BUILD_ID>")
+    target_compile_definitions(praenora_python_core_tests PRIVATE
+        PRAENORA_PYTHON_CORE_LINKED
+        "PRAENORA_TEST_PYTHON_ENVIRONMENT_DIR=\"${PRAENORA_PYTHON_ENVIRONMENT_DIR}\""
+        "PRAENORA_TEST_PYTHON_EXECUTABLE=\"${PRAENORA_PYTHON_ENVIRONMENT_EXECUTABLE}\""
+        "PRAENORA_TEST_PYTHON_ENVIRONMENT_VERSION=\"${PRAENORA_PYTHON_ENVIRONMENT_VERSION}\""
+        "PRAENORA_TEST_PYTHON_ENVIRONMENT_PACKAGE=\"${PRAENORA_PYTHON_ENVIRONMENT_PACKAGE}\""
+        "PRAENORA_TEST_PYTHON_ENVIRONMENT_LOCK_SHA256=\"${_praenora_python_lock}\""
+        "PRAENORA_TEST_PYTHON_VERSION=\"${PRAENORA_PYTHON_VERSION}\""
+        "PRAENORA_TEST_PYTHON_DIGEST_OF_FIXTURE=\"${_praenora_python_fixture_digest}\""
+        "PRAENORA_TEST_PYTHON_CORE_BUILD_ID=\"${_praenora_python_build_id}\""
+        "PRAENORA_TEST_PYTHON_SDK_DIR=\"$<TARGET_FILE_DIR:praenora_python_core>/python\"")
+endif()
+
+# The provider python (src/providers/python/provider) and the start of the providers that run
+# Python, with the environment the build uses. praenora_python_provider_tests (label contract,
+# white-box: the runtime's provider loader) loads the build tree's provider and calls the table of
+# praenora.python@0, and loads the fixture provider test-python-echo, whose table of test.echo@0 is
+# implemented by a Python class (contract/python_provider_test.cpp).
+# praenora_python_negative_tests (label negative) starts edited copies of the provider's
+# directory, each in a process of its own, with the helper program praenora_python_start_probe
+# and, for a core of another build, praenora_fake_python_core, a fake with the core's interface
+# built under the core's file name (negative/python_environment_test.cpp). Both exist only with
+# the environment.
+if(PRAENORA_WITH_PYTHON_ENVIRONMENT)
+    set(_praenora_python_manifest
+        "$<GENEX_EVAL:$<TARGET_PROPERTY:praenora_provider_python,PRAENORA_PROVIDER_MANIFEST>>")
+    string(REPLACE "\"" "\\\"" _praenora_python_engine_literal "${PRAENORA_PYTHON_ENGINE_JSON}")
+    set(_praenora_python_echo_manifest
+        "${PRAENORA_TEST_PROVIDERS_DIR}/test-python-echo/test-python-echo.provider.json")
+    praenora_add_gtest(praenora_python_provider_tests LABEL contract WHITEBOX EMBEDS_PYTHON
+        SOURCES contract/python_provider_test.cpp)
+    target_compile_definitions(praenora_python_provider_tests PRIVATE
+        "PRAENORA_TEST_PYTHON_PROVIDER_MANIFEST=\"${_praenora_python_manifest}\""
+        "PRAENORA_TEST_PYTHON_ENGINE_JSON=\"${_praenora_python_engine_literal}\""
+        "PRAENORA_TEST_PYTHON_VERSION=\"${PRAENORA_PYTHON_VERSION}\""
+        "PRAENORA_TEST_RUNTIME_VERSION=\"${PRAENORA_RUNTIME_VERSION}\""
+        "PRAENORA_TEST_PYTHON_ECHO_MANIFEST=\"${_praenora_python_echo_manifest}\""
+        "PRAENORA_TEST_PYTHON_ENVIRONMENT_NAME=\"${PRAENORA_PYTHON_ENVIRONMENT_NAME}\""
+        "PRAENORA_TEST_PYTHON_ENVIRONMENT_VERSION=\"${PRAENORA_PYTHON_ENVIRONMENT_VERSION}\""
+        "PRAENORA_TEST_PYTHON_ENVIRONMENT_PACKAGE=\"${PRAENORA_PYTHON_ENVIRONMENT_PACKAGE}\""
+        "PRAENORA_TEST_PYTHON_ENVIRONMENT_LOCK_SHA256=\"${_praenora_python_lock}\"")
+    add_dependencies(praenora_python_provider_tests praenora_provider_python
+        praenora_test_providers)
+
+    add_executable(praenora_python_start_probe negative/python_start_probe.cpp)
+    target_link_libraries(praenora_python_start_probe PRIVATE
+        praenora_runtime_objects
+        praenora_runtime_deps)
+    # text_sink.hpp
+    target_include_directories(praenora_python_start_probe PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/support")
+    target_compile_definitions(praenora_python_start_probe PRIVATE PRAENORA_RUNTIME_STATIC_DEFINE)
+    praenora_target_warnings(praenora_python_start_probe)
+    praenora_copy_runtime_dlls(praenora_python_start_probe)
+    praenora_add_long_path_manifest(praenora_python_start_probe)
+
+    # SHARED, as the core is, so that its file name is the core's.
+    add_library(praenora_fake_python_core SHARED negative/fake_python_core.cpp)
+    target_link_libraries(praenora_fake_python_core PRIVATE praenora_provider_interface)
+    target_include_directories(praenora_fake_python_core PRIVATE
+        "${PROJECT_SOURCE_DIR}/src/providers/python/core")
+    get_target_property(_praenora_python_core_name praenora_python_core OUTPUT_NAME)
+    set_target_properties(praenora_fake_python_core PROPERTIES
+        PREFIX ""
+        OUTPUT_NAME "${_praenora_python_core_name}"
+        LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/fake-python-core"
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/fake-python-core")
+    praenora_target_warnings(praenora_fake_python_core)
+
+    praenora_add_gtest(praenora_python_negative_tests LABEL negative EMBEDS_PYTHON
+        SOURCES negative/python_environment_test.cpp
+        LINK praenora_module_sdk)
+    set(_praenora_python_sdk_digest
+        "$<TARGET_PROPERTY:praenora_python_core,PRAENORA_PYTHON_SDK_DIGEST>")
+    target_compile_definitions(praenora_python_negative_tests PRIVATE
+        "PRAENORA_TEST_PYTHON_PROVIDER_MANIFEST=\"${_praenora_python_manifest}\""
+        "PRAENORA_TEST_PYTHON_START_PROBE=\"$<TARGET_FILE:praenora_python_start_probe>\""
+        "PRAENORA_TEST_FAKE_PYTHON_CORE=\"$<TARGET_FILE:praenora_fake_python_core>\""
+        "PRAENORA_TEST_PYTHON_LIBRARY=\"$<TARGET_FILE:praenora_libpython>\""
+        "PRAENORA_TEST_PYTHON_ENVIRONMENT_DIR=\"${PRAENORA_PYTHON_ENVIRONMENT_DIR}\""
+        "PRAENORA_TEST_PYTHON_ENVIRONMENT_PACKAGE=\"${PRAENORA_PYTHON_ENVIRONMENT_PACKAGE}\""
+        "PRAENORA_TEST_PYTHON_ENVIRONMENT_LOCK_SHA256=\"${_praenora_python_lock}\""
+        "PRAENORA_TEST_PYTHON_CORE_BUILD_ID=\"${_praenora_python_build_id}\""
+        "PRAENORA_TEST_PYTHON_SDK_DIGEST=\"${_praenora_python_sdk_digest}\"")
+    add_dependencies(praenora_python_negative_tests
+        praenora_provider_python praenora_python_start_probe praenora_fake_python_core)
+endif()
+
+# Python modules (tests/fixtures/modules/python), with the build tree's provider python and the
+# environment the build uses, through the shared library: praenora_python_module_tests (label
+# integration; integration/python_module_test.cpp: runs in the runtime's process and in module
+# hosts, the restricted profile's cases skipping in a sandbox, child processes, and the praenora
+# tool run as a child process; and the fixture provider test-python-echo serving fx-service, and,
+# with the roadrunner provider, a roadrunner step beside a Python one; and, when the examples are
+# built, integration/python_example_test.cpp: the example workflow with the Python predictor,
+# which gives the C++ predictor's outputs) and
+# praenora_python_module_check_tests (label contract; contract/python_module_check_test.cpp: the
+# contract checks of Python modules, which run the modules in the test's own process). Both embed
+# Python, so they exist only with the environment; the first runs the praenora tool too, so it
+# exists only with the tool. PRAENORA_TEST_PYTHON_ECHO_SOURCES_SHA256 is the directory digest of
+# test-python-echo's Python sources, computed here from the source tree.
+if(PRAENORA_WITH_PYTHON_ENVIRONMENT AND TARGET praenora_cli)
+    get_target_property(_praenora_python_echo_digest fx_py_echo
+        PRAENORA_PYTHON_MODULE_SOURCES_SHA256)
+    get_target_property(_praenora_python_variant_digest fx_py_echo_variant
+        PRAENORA_PYTHON_MODULE_SOURCES_SHA256)
+    set(_praenora_python_echo_sources
+        "${CMAKE_CURRENT_SOURCE_DIR}/fixtures/providers/test-python-echo/python")
+    praenora_python_directory_digest(_praenora_python_echo_sources_digest
+        ROOT "${_praenora_python_echo_sources}" GLOB_ROOT "${_praenora_python_echo_sources}")
+    set(_praenora_python_module_sources integration/python_module_test.cpp)
+    if(PRAENORA_BUILD_EXAMPLES)
+        list(APPEND _praenora_python_module_sources integration/python_example_test.cpp)
+    endif()
+    praenora_add_gtest(praenora_python_module_tests LABEL integration SANDBOX_SKIP EMBEDS_PYTHON
+        SOURCES ${_praenora_python_module_sources})
+    target_compile_definitions(praenora_python_module_tests PRIVATE
+        "PRAENORA_TEST_TOOL=\"$<TARGET_FILE:praenora_cli>\""
+        "PRAENORA_TEST_PYTHON_MODULES_DIR=\"${PRAENORA_TEST_PYTHON_MODULES_DIR}\""
+        "PRAENORA_TEST_PYTHON_MODULES_VARIANT_DIR=\"${PRAENORA_TEST_PYTHON_MODULES_VARIANT_DIR}\""
+        "PRAENORA_TEST_PYTHON_ECHO_DIGEST=\"${_praenora_python_echo_digest}\""
+        "PRAENORA_TEST_PYTHON_ECHO_VARIANT_DIGEST=\"${_praenora_python_variant_digest}\""
+        "PRAENORA_TEST_PYTHON_ECHO_SOURCES_SHA256=\"${_praenora_python_echo_sources_digest}\"")
+    add_dependencies(praenora_python_module_tests
+        praenora_test_python_modules praenora_test_modules praenora_test_providers
+        praenora_provider_python praenora_cli)
+    if(PRAENORA_BUILD_EXAMPLES)
+        set(_praenora_example_workflow "${PROJECT_SOURCE_DIR}/examples/workflows/estimate-predict")
+        target_compile_definitions(praenora_python_module_tests PRIVATE
+            "PRAENORA_EXAMPLE_WORKFLOW_DIR=\"${_praenora_example_workflow}\"")
+        add_dependencies(praenora_python_module_tests praenora_example_modules)
+    endif()
+    if(TARGET praenora_module_host)
+        add_dependencies(praenora_python_module_tests praenora_module_host)
+    endif()
+    # The roadrunner provider is found without a provider path, as in praenora_integration_tests.
+    if(PRAENORA_WITH_ROADRUNNER)
+        target_compile_definitions(praenora_python_module_tests PRIVATE
+            PRAENORA_TEST_WITH_ROADRUNNER)
+        add_dependencies(praenora_python_module_tests praenora_provider_roadrunner)
+    endif()
+endif()
+if(PRAENORA_WITH_PYTHON_ENVIRONMENT)
+    praenora_add_gtest(praenora_python_module_check_tests LABEL contract EMBEDS_PYTHON
+        SOURCES contract/python_module_check_test.cpp)
+    target_compile_definitions(praenora_python_module_check_tests PRIVATE
+        "PRAENORA_TEST_PYTHON_MODULES_DIR=\"${PRAENORA_TEST_PYTHON_MODULES_DIR}\"")
+    add_dependencies(praenora_python_module_check_tests
+        praenora_test_python_modules praenora_provider_python)
+endif()

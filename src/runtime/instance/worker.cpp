@@ -22,7 +22,9 @@ struct InstanceWorker::Queue {
 
 InstanceWorker::InstanceWorker(std::string name) : queue_(std::make_shared<Queue>()) {
     try {
-        thread_ = std::thread(&InstanceWorker::run, queue_, std::move(name));
+        thread_ = ModuleThread([queue = queue_, name = std::move(name)]() mutable {
+            run(std::move(queue), std::move(name));
+        });
     } catch (const std::system_error& error) {
         throw Error(ErrorCode::RESOURCE_EXHAUSTED,
                     std::string("cannot start a module worker thread: ") + error.what());

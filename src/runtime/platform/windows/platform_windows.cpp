@@ -10,9 +10,15 @@
 #endif
 #include <windows.h>
 
+#include <process.h>
+
+#include <cerrno>
 #include <cstddef>
 #include <cstring>
+#include <exception>
 #include <string>
+#include <system_error>
+#include <utility>
 #include <vector>
 
 namespace praenora::detail {
@@ -137,6 +143,83 @@ void set_current_thread_name(const std::string& name) noexcept {
 
 std::int64_t current_process_id() noexcept {
     return static_cast<std::int64_t>(GetCurrentProcessId());
+}
+
+std::size_t module_thread_stack_size() noexcept { return std::size_t{8} << 20; }
+
+namespace {
+
+// The start routine of a ModuleThread: runs and frees the body it is given.
+unsigned __stdcall run_module_thread(void* raw) noexcept {
+    const std::unique_ptr<std::function<void()>> body(static_cast<std::function<void()>*>(raw));
+    (*body)();
+    return 0;
+}
+
+} // namespace
+
+struct ModuleThread::Native {
+    HANDLE handle = nullptr;
+    unsigned id = 0;
+};
+
+ModuleThread::ModuleThread() noexcept = default;
+
+ModuleThread::ModuleThread(std::function<void()> body) {
+    auto start = std::make_unique<std::function<void()>>(std::move(body));
+    auto native = std::make_unique<Native>();
+    // The size is the stack's reservation; the system commits its pages as they are used.
+    const std::uintptr_t handle = _beginthreadex(
+        nullptr, static_cast<unsigned>(module_thread_stack_size()), &run_module_thread, start.get(),
+        STACK_SIZE_PARAM_IS_A_RESERVATION, &native->id);
+    if (handle == 0) {
+        throw std::system_error(errno, std::generic_category(), "_beginthreadex");
+    }
+    static_cast<void>(start.release()); // the thread frees it
+    native->handle = reinterpret_cast<HANDLE>(handle);
+    native_ = std::move(native);
+}
+
+ModuleThread::ModuleThread(ModuleThread&& other) noexcept = default;
+
+ModuleThread& ModuleThread::operator=(ModuleThread&& other) noexcept {
+    if (this != &other) {
+        if (joinable()) {
+            std::terminate();
+        }
+        native_ = std::move(other.native_);
+    }
+    return *this;
+}
+
+ModuleThread::~ModuleThread() {
+    if (joinable()) {
+        std::terminate();
+    }
+}
+
+bool ModuleThread::joinable() const noexcept { return native_ != nullptr; }
+
+void ModuleThread::join() {
+    if (!joinable()) {
+        throw std::system_error(std::make_error_code(std::errc::invalid_argument));
+    }
+    if (native_->id == GetCurrentThreadId()) {
+        throw std::system_error(std::make_error_code(std::errc::resource_deadlock_would_occur));
+    }
+    if (WaitForSingleObject(native_->handle, INFINITE) != WAIT_OBJECT_0) {
+        throw std::system_error(static_cast<int>(GetLastError()), std::system_category(),
+                                "WaitForSingleObject");
+    }
+    CloseHandle(native_->handle);
+    native_.reset();
+}
+
+void ModuleThread::detach() noexcept {
+    if (joinable()) {
+        CloseHandle(native_->handle);
+        native_.reset();
+    }
 }
 
 } // namespace praenora::detail

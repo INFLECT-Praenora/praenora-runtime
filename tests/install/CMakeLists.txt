@@ -1,14 +1,17 @@
 # Install test (label install). CTest test install.consumer runs run_install_test.cmake, which
 # installs this build into a new prefix below this directory's build tree and uses it from the
-# outside: two projects that are not part of this build are configured and built against the
+# outside: three projects that are not part of this build are configured and built against the
 # installation with find_package(Praenora), consumer-module (COMPONENTS ModuleSDK: a module built
-# with praenora_add_module()) and consumer-app (COMPONENTS Runtime: an application that loads
-# that module), and the installed files (the service providers and the license files included)
-# and the installed praenora tool are checked. The driver lists every step. The consumers get this
-# build's generator, compilers, build type, macOS settings, dependency prefixes
-# (CMAKE_PREFIX_PATH) and compile and link flags, sanitizer options included, since they link the
-# installed (in sanitizer builds, instrumented) runtime library. install.package, below, checks the
-# archive of an installation that the target package makes.
+# with praenora_add_module()), consumer-python-module (COMPONENTS ModuleSDK: a Python module built
+# with praenora_add_python_module(), without Python) and consumer-app (COMPONENTS Runtime: an
+# application that loads the first one, and runs a workflow), and the installed files (the
+# service providers, the Python environment and the license files included) and the installed
+# praenora tool are checked. The driver lists every step. The consumers get this build's
+# generator, compilers, build type, macOS settings, dependency prefixes (CMAKE_PREFIX_PATH) and
+# compile and link flags, sanitizer options included, since they link the installed (in sanitizer
+# builds, instrumented) runtime library. install.package, below, checks the archive of an
+# installation that the target package makes. With PRAENORA_WITH_PYTHON_ENVIRONMENT an
+# installation holds the environment, about a gigabyte, so both take longer.
 
 get_property(_praenora_multi_config GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
 # The consumers' flags: this build's CMAKE_<LANG>_FLAGS and CMAKE_<KIND>_LINKER_FLAGS, plus its
@@ -53,6 +56,18 @@ endif()
 if(PRAENORA_WITH_ANTIMONY)
     list(APPEND _praenora_installed_providers antimony)
 endif()
+# With the Python environment, the provider python, the environment the build uses, which the
+# installation holds, and the Python fixture modules, which the installed tool runs. The
+# environment, about a gigabyte, is copied, compared and archived: the tests get more time.
+set(_praenora_python_environment "")
+set(_praenora_python_modules "")
+set(_praenora_install_timeout 600)
+if(PRAENORA_WITH_PYTHON_ENVIRONMENT)
+    list(APPEND _praenora_installed_providers python)
+    set(_praenora_python_environment "${PRAENORA_PYTHON_ENVIRONMENT_DIR}")
+    set(_praenora_python_modules "${PRAENORA_TEST_PYTHON_MODULES_DIR}")
+    set(_praenora_install_timeout 1800)
+endif()
 
 add_test(NAME install.consumer
     COMMAND "${CMAKE_COMMAND}"
@@ -85,13 +100,15 @@ add_test(NAME install.consumer
         # reaches the driver as one quoted argument, as the providers' list does.
         "-DLICENSE_DEPENDENCIES=${PRAENORA_FETCHED_DEPENDENCIES}"
         "-DLICENSE_DIRS=${PRAENORA_THIRD_PARTY_LICENSE_DIRS}"
+        "-DPYTHON_ENVIRONMENT=${_praenora_python_environment}"
+        "-DPYTHON_MODULES_DIR=${_praenora_python_modules}"
         -P "${CMAKE_CURRENT_SOURCE_DIR}/run_install_test.cmake")
 # _praenora_test_environment (tests/CMakeLists.txt): what every test of a macOS
 # AddressSanitizer build needs. Each installation of this build writes install_manifest*.txt into
 # the build tree, so install.consumer and install.package never run at the same time.
 set_tests_properties(install.consumer PROPERTIES
     LABELS install
-    TIMEOUT 600
+    TIMEOUT ${_praenora_install_timeout}
     RESOURCE_LOCK praenora_install
     ${_praenora_test_environment}
     ${_praenora_no_telemetry})
@@ -116,7 +133,7 @@ if(PRAENORA_TOP_LEVEL)
             -P "${CMAKE_CURRENT_SOURCE_DIR}/check_package.cmake")
     set_tests_properties(install.package PROPERTIES
         LABELS install
-        TIMEOUT 600
+        TIMEOUT ${_praenora_install_timeout}
         RESOURCE_LOCK praenora_install
         ${_praenora_no_telemetry})
 endif()

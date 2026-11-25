@@ -187,3 +187,9 @@ praenora_add_fixture_module(converting-module
     TEST_VECTORS vectors.json
     REQUIRES_SERVICES praenora.model-conversion@0.0
     OPTIONAL_SERVICES praenora.simulation@0.0)
+
+# The fixture modules that use the Python service praenora.python@0: Python modules, built with
+# praenora_add_python_module(), and a C++ module that calls the service itself, below
+# ${PRAENORA_TEST_PYTHON_MODULES_DIR} (tests/fixtures/modules/python). They build in every tree:
+# building a Python module needs no Python.
+add_subdirectory(python)

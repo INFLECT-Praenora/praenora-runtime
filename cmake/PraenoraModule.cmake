@@ -33,7 +33,8 @@
 #   variables below; generator expressions in the result are then evaluated, so the template must
 #   not otherwise contain "$<". Without a template, a manifest with the required fields,
 #   "parameters_schema": {"type": "object"} and, when the module lists services, "requires" is
-#   generated.
+#   generated. (Internal, for praenora_add_python_module(): INTERNAL_FEATURES_JSON <object> adds
+#   "features": <object> to that generated manifest; it is ignored with a template.)
 #     @PRAENORA_MODULE_MANIFEST_FORMAT_VERSION@ (the format_version to write)
 #     @PRAENORA_MODULE_NAME@ @PRAENORA_MODULE_VERSION@ @PRAENORA_MODULE_CAPABILITIES_JSON@
 #     @PRAENORA_MODULE_REQUIRES_JSON@ (the value of "requires": {"services": [{"name", "major",
@@ -52,7 +53,10 @@
 #   PRAENORA_MODULE_TEST_VECTORS_PATH hold the output directory, the manifest path and the path of
 #   the copied test vectors (empty without TEST_VECTORS); each may contain $<CONFIG>, which
 #   $<TARGET_PROPERTY> leaves as it is in a property of its own: read them with
-#   $<GENEX_EVAL:$<TARGET_PROPERTY:<target>,PRAENORA_MODULE_MANIFEST>>.
+#   $<GENEX_EVAL:$<TARGET_PROPERTY:<target>,PRAENORA_MODULE_MANIFEST>>. The target property
+#   PRAENORA_MODULE_CONFIGURED_MANIFEST holds the path of the manifest as configured when the
+#   function ran, before its generator expressions are evaluated (its contents are known at
+#   configure time; praenora_add_python_module() reads them).
 #
 # The ABI, protocol, SDK and manifest format versions come from the variables
 # PRAENORA_ABI_MAJOR, PRAENORA_ABI_MINOR, PRAENORA_PMP_VERSION, PRAENORA_SDK_VERSION and
@@ -107,7 +111,7 @@ endfunction()
 
 function(praenora_add_module target)
     set(one_value_keywords NAME VERSION MANIFEST_TEMPLATE TEST_VECTORS OUTPUT_DIRECTORY
-        INSTALL_DESTINATION INSTALL_COMPONENT)
+        INSTALL_DESTINATION INSTALL_COMPONENT INTERNAL_FEATURES_JSON)
     cmake_parse_arguments(PARSE_ARGV 1 arg "INSTALL_EXCLUDE_FROM_ALL" "${one_value_keywords}"
         "CAPABILITIES;SOURCES;LINK_LIBRARIES;REQUIRES_SERVICES;OPTIONAL_SERVICES")
     set(where "praenora_add_module(${target})")
@@ -285,6 +289,10 @@ function(praenora_add_module target)
     if(NOT services_json STREQUAL "")
         set(requires_member ",\n  \"requires\": ${requires_json}")
     endif()
+    set(features_member "")
+    if(DEFINED arg_INTERNAL_FEATURES_JSON)
+        set(features_member ",\n  \"features\": ${arg_INTERNAL_FEATURES_JSON}")
+    endif()
     set(PRAENORA_MODULE_LIBRARY_FILE "$<TARGET_FILE_NAME:${target}>")
     set(configured "${CMAKE_CURRENT_BINARY_DIR}/praenora-manifests/${target}.pmm.json.in")
     if(DEFINED arg_MANIFEST_TEMPLATE)
@@ -307,11 +315,12 @@ function(praenora_add_module target)
   "library": { "path": "@PRAENORA_MODULE_LIBRARY_FILE@" },
   "platform": { "os": "@PRAENORA_MODULE_OS@", "arch": "@PRAENORA_MODULE_ARCH@" },
   "capabilities": @PRAENORA_MODULE_CAPABILITIES_JSON@,
-  "parameters_schema": { "type": "object" }@requires_member@@tests_member@
+  "parameters_schema": { "type": "object" }@features_member@@requires_member@@tests_member@
 }
 ]=])
     endif()
     file(GENERATE OUTPUT "${manifest}" INPUT "${configured}" NEWLINE_STYLE UNIX)
+    set_target_properties(${target} PROPERTIES PRAENORA_MODULE_CONFIGURED_MANIFEST "${configured}")
 
     if(DEFINED arg_INSTALL_DESTINATION)
         set(install_options "")

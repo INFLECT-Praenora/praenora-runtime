@@ -226,6 +226,12 @@ steps:
 - A step in process mode has the service providers of its module's services loaded in its module
   host; the runtime's process loads only those of the steps that run in it
   ([specs/process-isolation.md](specs/process-isolation.md#service-providers)).
+- A step of a Python module
+  ([module-developer-guide.md](module-developer-guide.md#modules-in-python)) is best run in
+  process mode: a crash then fails only its step, a call that never returns is
+  ended at its deadline, and its module's Python code is imported in a process of its own. It
+  must run there when the runtime runs in a Python interpreter (the Python front end), whose
+  process cannot start a second one ([user-guide.md](user-guide.md#finding-service-providers)).
 - The run record's `execution.isolation` lists every step's resolved settings; they never enter
   the run fingerprint.
 
@@ -371,6 +377,7 @@ overrides are the arguments of `Workflow` ([python.md](python.md)).
 | `PRAENORA_LOG_FORMAT` | Logging | The log format ([precedence](specs/observability.md#settings)). |
 | `PRAENORA_DEBUG_KEEP_LIBRARIES` | The loader | `1` keeps every module library loaded until the process ends ([developer-guide.md](developer-guide.md#keeping-module-libraries-loaded)). |
 | `OTEL_SDK_DISABLED`, `OTEL_EXPORTER_OTLP_*`, `OTEL_METRICS_EXPORTER`, `OTEL_LOGS_EXPORTER`, `OTEL_METRIC_EXPORT_INTERVAL`, `OTEL_SERVICE_NAME`, `OTEL_RESOURCE_ATTRIBUTES` | The OTLP export | Where and how the runtime exports its metrics and logs to an OpenTelemetry collector; nothing is exported without an endpoint ([specs/observability.md](specs/observability.md#otlp-export)). |
+| `PYTHONHASHSEED` and the directory variables of the Python environment's manifest (`environment.paths`, but `PYTHONHOME`) | The Python environment's packages and the Python processes its code starts without `-I` or `-E` | Set by the `praenora` tool and the module host, when their tree has the provider `python`, each only when it is unset: the directories to their paths below the environment's, `PYTHONHASHSEED` to `0`. The Python core warns about each that is unset or differs; a program that embeds the runtime sets them itself ([specs/python-service.md](specs/python-service.md#the-processs-environment)). |
 
 The `PRAENORA_*` variables but the last, and the `OTEL_*` variables, are read only when
 `RuntimeOptions::use_environment` is set (the default): when a `Runtime` is constructed, and
@@ -380,7 +387,8 @@ the variable; an `OTEL_*` value the export cannot use is never an error, but ign
 warning. `PRAENORA_DEBUG_KEEP_LIBRARIES` is read whenever a module library is loaded, whatever
 `use_environment` says. The configuration file has no setting of the OTLP export or of the
 control API: the export is the `Runtime`'s, and the control API is the tool's
-([specs/control-api.md](specs/control-api.md)).
+([specs/control-api.md](specs/control-api.md)). The variables of the Python environment are not
+the runtime's: `use_environment` does not change them, and the runtime library never sets them.
 
 ## What changes the run fingerprint
 
@@ -389,8 +397,10 @@ uses, the seed, the tick count, the time base, the timeouts, each step's module 
 library digests), resolved parameters, seed and the runtime services it may use, the service
 providers that serve those services (each provider's identity, manifest and library digests and
 engine), and each input's source kind, column mapping and file digest. The `outputs` and
-`observability` sections, step log levels, the steps' isolation and every path are left out. The
-full list is in [specs/reproducibility.md](specs/reproducibility.md#run-fingerprint).
+`observability` sections, step log levels, the steps' isolation and every path are left out. A
+Python module's library carries the digest of its Python sources, and the engine of the Python
+service names the Python environment and its lock, so both enter the fingerprint too. The full
+list is in [specs/reproducibility.md](specs/reproducibility.md#run-fingerprint).
 
 ## Validation
 

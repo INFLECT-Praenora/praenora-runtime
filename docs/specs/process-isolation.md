@@ -118,6 +118,15 @@ step):
     ignored signals.
 
   The runtime changes no process-wide signal disposition of its own.
+- **The Python environment's variables.** At the start of its `main()`, before any thread starts,
+  a module host whose tree has the provider `python` sets the variables the Python environment
+  names and `PYTHONHASHSEED`, each only when it is unset, as the `praenora` tool does
+  ([python-service.md](python-service.md#the-processs-environment)): it finds the provider's
+  environment file relative to itself, at
+  `<directory of the module host>/../../<libdir>/praenora/providers/python/python-environment.json`,
+  `<libdir>` being the installation's library directory (`lib`, `lib64` or a multiarch one) and
+  `lib` in a build tree ([python-service.md](python-service.md#the-processs-environment) has the
+  whole rule). A module host started by another program that embeds the runtime gets them so too.
 - **Standard streams.** Standard output and error are the runtime's descriptors, but their stdio
   buffers (`stdout`, `std::cout`) are the module host's own. What a module writes through a buffer
   reaches the runtime's standard output when the module host flushes it: when the buffer fills,
@@ -231,7 +240,7 @@ process runs on its caller's thread (the main thread of the `praenora` tool and 
 soft limit of `RLIMIT_STACK`, at least 1 MiB and at most 1 GiB, or 8 MiB when the limit is
 unlimited or cannot be read. A static initializer, `describe()` or a provider's `start()` that needs
 a deep stack then loads in a module host as it does in the runtime's process. The calls run on
-another thread ([Calls and the host API](#calls-and-the-host-api)).
+another thread, with the same stack ([Calls and the host API](#calls-and-the-host-api)).
 
 A module host that ends while it loads the module, for example in a static initializer of the
 library or in a provider's `start()`, fails the load with `MODULE_CRASHED` and `details.phase`
@@ -278,7 +287,9 @@ are the runtime's, and the same as for an instance in its process
 ([threading-and-ownership.md](threading-and-ownership.md),
 [time-cancellation-timeouts.md](time-cancellation-timeouts.md)). Calls are made one at a time; in
 the module host they all run on one thread, made as the runtime makes an instance's worker thread,
-with the same stack (the load runs on a thread with a main thread's stack, [Loading](#loading)).
+with the same stack, a main thread's
+([threading-and-ownership.md](threading-and-ownership.md#runtime-threads); the load runs on
+another thread with that stack, [Loading](#loading)).
 What the module does with its host API:
 
 - **`log`, `log_enabled`.** A record whose level the runtime records is passed to the runtime, which
@@ -349,6 +360,16 @@ function pointers into the engine's memory).
   a service call or on a thread of its own, crashes the module host ([Crashes](#crashes)), with
   `details.phase` `load` when that happens during the load (a provider's `start()` included), or
   the call that was running, or, between calls, the next call.
+- **Providers that run Python.** A process holds one Python interpreter, and a provider that runs
+  Python (the provider `python`, which a Python module's step uses) refuses to start in a process
+  that runs another one, such as the Python front end's
+  ([python-service.md](python-service.md#loading-and-starting-the-core)): its step runs in a module
+  host, a process of its own, whose interpreter the provider starts.
+  Each module host holds its own interpreter, so steps in module hosts never share Python state,
+  and code below a module's Python sources is fixed per process, that is per step
+  ([python-service.md](python-service.md#create_object)). A call that never returns is ended with
+  its module host, whatever the interpreter does; its children of `multiprocessing` are in the
+  module host's process group, which ends with it.
 - **Calls that do not poll.** A service call that does not poll `cancel_requested()`, such as a
   long translation of the provider `antimony`
   ([model-conversion-service.md](model-conversion-service.md#the-antimony-provider)), keeps the

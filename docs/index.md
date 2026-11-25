@@ -10,36 +10,43 @@
 ## Guides
 
 - [architecture.md](architecture.md): components, data flow, the life of a run and of a module
-  instance, threads (Mermaid diagrams), module hosts, service providers, the control API and the
-  OTLP export, and the security rules.
+  instance, threads (Mermaid diagrams), module hosts, service providers, Python modules and the
+  Python core, the control API and the OTLP export, and the security rules.
 - [user-guide.md](user-guide.md): getting the tool, the CLI's commands, running the example
-  workflow, process isolation, the files a run writes, status, stopping, watching and running over
-  HTTP (`run --listen`, `serve`, `status --server`), logging and the OTLP export, troubleshooting.
+  workflow, process isolation, service providers, Python steps and the Python environment in an
+  installation, the files a run writes, status, stopping, watching and running over HTTP
+  (`run --listen`, `serve`, `status --server`), logging and the OTLP export, troubleshooting.
 - [configuration.md](configuration.md): the workflow configuration reference: every section and
   key, input sources, durations, paths, isolation (module hosts, shared compiled models, the
   restricted sandbox profile), overrides, environment variables (the `OTEL_*` variables of the
   OTLP export too), validation.
-- [developer-guide.md](developer-guide.md): dependencies (cpp-httplib among them), presets,
-  building, installing and archiving, debugging modules (in module hosts too), keeping libraries
-  loaded, message tracing, logging, sanitizer builds, adding a module locally, conventions and the
-  ADR process.
+- [developer-guide.md](developer-guide.md): dependencies (cpp-httplib among them), presets, the
+  dependency and Python environment bundles, building, installing and archiving, the providers,
+  the Python environment and providers implemented in Python, debugging modules (in module hosts
+  too), keeping libraries loaded, message tracing, logging, sanitizer builds, adding a module
+  locally, conventions and the ADR process.
 - [module-developer-guide.md](module-developer-guide.md): writing a module: the SDK, ABI rules, the
-  C++ adapter, the manifest, `praenora_add_module()`, the test kit, test vectors, the contract
-  checks, a module in a module host and under the restricted sandbox profile, determinism and
-  portability, versioning.
+  C++ adapter, the manifest, `praenora_add_module()`, the services a module requires, the test kit,
+  modules in Python (the class, a complete example, `praenora_add_python_module()`, the sources'
+  digest, child processes, the Python test kit), test vectors, the contract checks, a module in a
+  module host and under the restricted sandbox profile, determinism and portability, versioning.
 - [testing.md](testing.md): running the tests and their labels, the rules of the tests that open
-  local listeners, module hosts and nested sandboxes, sanitizer builds, golden files, triage by
-  label and error code, the module acceptance gate, adding tests.
-- [python.md](python.md): the Python API, process isolation, its errors, threads, logging and the
-  OTLP export, building the bindings, the tests and the wheel (which holds no module host).
+  local listeners, module hosts and nested sandboxes, the tests of the providers and of the Python
+  environment, sanitizer builds, golden files, triage by label and error code, the module
+  acceptance gate, adding tests.
+- [python.md](python.md): the Python API, process isolation (Python steps run in module hosts),
+  its errors, threads, logging and the OTLP export, building the bindings, the tests and the wheel
+  (which holds `praenora.sdk`, but no module host and no Python environment).
 - [platforms.md](platforms.md): macOS, Linux and Windows: dependencies (json-schema-validator and
-  cpp-httplib from source), presets, run paths, DLL search, code signing, the module host and the
-  restricted sandbox profile, the control API's platform differences, and what is verified where.
+  cpp-httplib from source), presets, run paths (the Python core's too), DLL search, long paths on
+  Windows, code signing, the module host and the restricted sandbox profile, the control API's
+  platform differences, and what is verified where.
 - [releasing.md](releasing.md): the GitHub Actions workflow that builds and tests every pull
-  request against the pinned dependency bundles, what its runs verified, its jobs and runners,
-  raising the pin, the
-  required checks and repository settings, and the release procedure
-  ([ADR-0041](adr/ADR-0041-ci-and-releases-against-pinned-dependency-bundles.md)).
+  request against the pinned dependency bundles and Python environment bundles, what its runs
+  verified, its jobs and runners, raising each pin, the required checks and repository settings,
+  and the release procedure
+  ([ADR-0041](adr/ADR-0041-ci-and-releases-against-pinned-dependency-bundles.md),
+  [ADR-0045](adr/ADR-0045-python-environment-pinned-in-ci-and-installation.md)).
 
 ## Normative specifications
 
@@ -57,6 +64,11 @@
   service `praenora.model-conversion@0`: describe, convert, its options, rules and report,
   threading, cancellation, limits, the antimony provider (Antimony and SBML with libAntimony), the
   test provider and the service checks.
+- [specs/python-service.md](specs/python-service.md): the Python service `praenora.python@0` and
+  Python modules: the directory digest of Python sources, the package `praenora.sdk` and its test
+  kit, the service's table, Python modules, the Python core and its interpreter, output and child
+  processes, the provider `python`, the providers that run Python and those implemented in Python,
+  and the process's environment.
 - [specs/workflow-definitions.md](specs/workflow-definitions.md): workflow definitions and
   capabilities, graph rules, the schedule.
 - [specs/compatibility-policy.md](specs/compatibility-policy.md): versions and the compatibility

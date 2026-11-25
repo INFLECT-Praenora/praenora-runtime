@@ -12,7 +12,9 @@ integration layer:
   discovers and loads modules, runs the workflow deterministically and reports status, metrics
   and logs, which it can export to an OpenTelemetry collector over OTLP.
 - **Module SDK:** `Praenora::ModuleSDK`, the C ABI v0 headers plus an optional header-only C++
-  adapter, a CMake helper and an in-process test kit.
+  adapter, a CMake helper and an in-process test kit; for modules in Python, the pure-Python
+  package `praenora.sdk` with its test kit and the CMake helper that builds a Python module's
+  native library.
 - **Protocol:** the Praenora Module Protocol (PMP) and Praenora Module Manifest (PMM) documents,
   their JSON Schemas and the protocol catalog.
 - **Surfaces:** the C++ API, the `praenora` CLI, which also serves the control and status API over
@@ -71,13 +73,15 @@ Windows are open questions (OQ-31).
 
 CI and releases: the GitHub Actions workflow `.github/workflows/build.yml` builds and tests every
 pull request to `main` with the CI presets of the four platform keys, against the dependency
-bundles that `cmake/PraenoraRuntimeDepsPin.cmake` pins, archives each installation and checks that
-the archive needs only the system's libraries and its own; run by hand on `main` with the input
-`publish`, it drafts a release `v<version>` with the archives, which an administrator publishes
-([docs/releasing.md](docs/releasing.md)). It first passed on all four keys on 2026-11-22, in its
-fifth and sixth runs; the sixth, on `main` with `publish`, drafted the first release, v0.2.0,
-which an administrator published the same day
-([docs/releasing.md](docs/releasing.md#what-the-runs-verified)).
+bundles that `cmake/PraenoraRuntimeDepsPin.cmake` pins and, since the Python environment (below),
+the Python environment bundles that `cmake/PraenoraRuntimePyenvPin.cmake` pins, archives each
+installation and checks that the archive needs only the system's libraries and its own; run by
+hand on `main` with the input `publish`, it drafts a release `v<version>` with the archives, which
+an administrator publishes ([docs/releasing.md](docs/releasing.md)). It first passed on all four
+keys on 2026-11-22, in its fifth and sixth runs; the sixth, on `main` with `publish`, drafted the
+first release, v0.2.0, which an administrator published the same day
+([docs/releasing.md](docs/releasing.md#what-the-runs-verified)). No run has yet used the Python
+environment's pin.
 
 Control and status API and OTLP export (OQ-9, resolved: the maintainer accepted
 [ADR-0042](docs/adr/ADR-0042-control-and-status-api-over-http.md) and
@@ -106,6 +110,51 @@ Not yet verified: the distributions' and vcpkg's cpp-httplib packages; and the O
 checked with official OpenAPI tooling. Tracing spans are not
 exported (OQ-33). The listener tests skip, saying "local listener refused:", where listeners are
 refused (in a sandbox, for example); the `ci-*` test presets make that refusal a failure.
+
+Python environment
+([ADR-0044](docs/adr/ADR-0044-python-modules-and-providers-through-an-embedded-environment.md),
+[ADR-0045](docs/adr/ADR-0045-python-environment-pinned-in-ci-and-installation.md), Proposed):
+modules and service providers can use the Python packages of the pinned environment that
+praenora-runtime-pyenv builds (CPython 3.12 and the distributions its lock pins), in a build with
+`PRAENORA_WITH_PYTHON_ENVIRONMENT=ON` against a bundle of that repository, found as a CMake package
+and never downloaded by the build ([docs/specs/python-service.md](docs/specs/python-service.md)).
+One internal library, the Python core (`praenora-python-core`), embeds CPython and links the
+environment's libpython; the providers that run Python link no Python and load it at their start,
+so a process holds one interpreter (isolated, hash seed 0, never finalized). The provider `python`
+offers the service `praenora.python@0` (`python.h`: Python objects created and called with JSON
+documents); its engine names the interpreter and the environment's lock, and so does the
+fingerprint. A Python module is a class derived from `praenora.sdk.Module` and a native module
+library that `praenora_add_python_module()` generates, which requires that service and needs no
+Python to build; the directory digest of its Python sources is compiled into the library, so the
+fingerprint follows them, and sources changed after the build are refused. A provider of this
+repository can implement a service's typed table in Python (`praenora_add_python_provider()`,
+internal; only the fixture provider `test-python-echo` does). What Python code prints or logs
+becomes log records of its step; `multiprocessing` starts children with `spawn`, their output on
+standard error; a process that runs another interpreter, such as the Python front end's, refuses
+the provider's start, and such a step runs in a module host. An installation holds the environment
+unchanged (`lib/praenora/python-environment/`), the provider `python` with the core and
+`praenora.sdk` (`lib/praenora/providers/python/`) and the environment's license files, and can be
+moved; the example module `example-predictor-python` (numpy) gives the C++ predictor's outputs,
+but for the start of each message's id, which names the run. `python.h`, `python_module.hpp`,
+`praenora_add_python_module()` and `praenora_python_directory_digest()` are built and installed
+whatever the option says, and the wheel takes `praenora.sdk` too (`wheel.packages`). Verified
+on macOS arm64 with AppleClang 17, against the released macOS bundle of praenora-runtime-pyenv 0.1.0
+(CPython 3.12.16), each preset built in a clean tree and tested from a shell outside any sandbox
+with `PRAENORA_TESTS_REQUIRE_LISTENERS=1`, every build without warnings but that of
+`ci-macos-arm64-release` (below): every test of the Debug and Release builds (1344 each), of the
+AddressSanitizer and ThreadSanitizer builds (1342 each, no report; `python.unittest` disabled as in
+every sanitizer tree, and under AddressSanitizer one test skipped, since module libraries stay
+loaded there) and of a build with the roadrunner and antimony providers too (1484), among them a
+roadrunner step beside a Python step that imports the environment's `roadrunner` package, in one
+process (the provider started first); every test of the builds without the option (1246; 1244 in the
+sanitizer trees; 1384 with both providers); `ci-macos-arm64-release` with the bundle downloaded
+through the pin (1484), but with Homebrew's packages, on which its linker printed notes, and a
+dependency bundle built locally; a wheel built offline that holds `praenora.sdk`; and the pinned
+release, downloaded and checked through the pin. Not yet verified: Linux and Windows (not compiled
+yet), CI's runs with the environment and their archives, and the other load order beside the
+roadrunner provider.
+Windows has no module host in this version, so there Python steps run in the tool's process only,
+and the Python front end cannot run them.
 
 ## Setup and commands
 
@@ -159,6 +208,19 @@ with headers.
   bundle's compiler or a newer one of the same family. A download from the release is verified by
   CI, whose jobs download their bundles with it
   ([docs/releasing.md](docs/releasing.md#what-the-runs-verified)).
+- Optional, for the Python environment only (`PRAENORA_WITH_PYTHON_ENVIRONMENT=ON`): a Python
+  environment bundle of praenora-runtime-pyenv for the platform key (CPython 3.12, the packages its
+  lock pins and the CMake package `PraenoraRuntimePyenv`), found through `CMAKE_PREFIX_PATH` or
+  `PraenoraRuntimePyenv_DIR`, never downloaded by the build; the package refuses another platform,
+  a macOS deployment target older than the bundle's (14.0 for 0.1.0) or an older MSVC toolset.
+  `cmake/PraenoraRuntimePyenvPin.cmake` pins its release and, for each key of
+  `PRAENORA_RUNTIME_PYENV_PLATFORMS`, the archive's name and SHA-256 (the environment is built in
+  Release only, so `windows-x64-debug` names the Windows Release archive).
+  `cmake -DPLATFORM=<key> -DDESTINATION=<dir> -P cmake/praenora_fetch_runtime_pyenv.cmake` fetches
+  one as the dependency bundle's script does, with which it shares
+  `cmake/praenora_fetch_bundle.cmake`, and prints `PRAENORA_RUNTIME_PYENV=<bundle>`
+  ([docs/developer-guide.md](docs/developer-guide.md#the-python-environment)). A download from the
+  release through the pin is verified locally for `macos-arm64-release`, not yet by CI.
 - Optional, for the AsyncAPI parser tests only: Node.js and `@asyncapi/parser` 3.6.6, installed
   with npm into a directory outside the checkout, never downloaded by the build;
   [docs/testing.md](docs/testing.md#the-official-asyncapi-parser) says how.
@@ -179,7 +241,14 @@ provider, likewise a hidden `dev-antimony-local` preset (the libAntimony and lib
 `PRAENORA_WITH_ANTIMONY=ON`) with the presets `dev-antimony` and `dev-antimony-tsan`, and for both
 providers a hidden `dev-engines-local` preset (both prefix lists, `LLVM_INSTALL_PREFIX`, both
 options) with the preset `dev-engines`
-([docs/developer-guide.md](docs/developer-guide.md#the-antimony-provider)).
+([docs/developer-guide.md](docs/developer-guide.md#the-antimony-provider)). For the Python
+environment, a hidden `dev-python-local` preset (`CMAKE_PREFIX_PATH` with the bundle's directory
+beside the other prefixes, `CMAKE_OSX_DEPLOYMENT_TARGET` at least `14.0`,
+`PRAENORA_WITH_PYTHON_ENVIRONMENT=ON`) with the presets `dev-python`, `dev-python-release`,
+`dev-python-asan` and `dev-python-tsan`, which inherit it before `dev-local`; with both providers
+too, a hidden preset that joins the three prefix lists, with `LLVM_INSTALL_PREFIX` and the three
+options, and a preset of your own such as `dev-python-engines`
+([docs/developer-guide.md](docs/developer-guide.md#the-python-environment)).
 
 **Configure, build, test.** Trees go to `build/<preset>`; installs go to `install/<preset>`.
 
@@ -213,6 +282,15 @@ ctest --preset dev-roadrunner-tsan -L contract # its concurrency checks under Th
 ctest --preset dev-antimony                    # with the antimony provider (local presets)
 ctest --preset dev-antimony-tsan -L 'contract|integration|unit'
 ctest --preset dev-engines                     # both providers, in one process too
+cmake -DPLATFORM=macos-arm64-release -DDESTINATION="$HOME/praenora-runtime-pyenv" \
+    -P cmake/praenora_fetch_runtime_pyenv.cmake  # a Python environment bundle, through the pin
+ctest --preset dev-python                      # with the Python environment (local presets)
+ctest --preset dev-python -L python -V         # python.unittest, python.sdk, the example's class
+ctest --preset dev-python-tsan -L 'contract|negative|integration'
+./build/dev-python/bin/praenora providers list # the provider python, without a provider path
+./build/dev-python/bin/praenora run examples/workflows/estimate-predict/workflow-python.yaml \
+    --module-path build/dev-python/modules --output-dir "${TMPDIR:-/tmp}/python-run" \
+    --isolation process                        # the example with its Python predictor
 ```
 
 **CI.** A build job of `.github/workflows/build.yml` runs these commands for its key, with
@@ -221,6 +299,7 @@ ctest --preset dev-engines                     # both providers, in one process 
 
 ```bash
 cmake -DPLATFORM=<key> -DDESTINATION=<runner temp>/deps -P cmake/praenora_fetch_runtime_deps.cmake
+cmake -DPLATFORM=<key> -DDESTINATION=<runner temp>/pyenv -P cmake/praenora_fetch_runtime_pyenv.cmake
 cmake --preset ci-<key> -DPython3_EXECUTABLE=<python>
 cmake --build --preset ci-<key> --parallel
 ctest --preset ci-<key>
@@ -231,31 +310,44 @@ gh workflow run build.yml --ref main -f publish=true  # by a maintainer: drafts 
 The Python line needs the interpreter the build found (`Python3_EXECUTABLE`): the extension is
 built for one Python version. An installation holds the `praenora` tool, the runtime library,
 the headers, the CMake package (`lib/cmake/Praenora`: `find_package(Praenora COMPONENTS Runtime
-ModuleSDK)`; `ModuleSDK` alone needs no other package), the schemas and catalog
-(`share/praenora`), the license files (`share/praenora/licenses`: `praenora-runtime/LICENSE`, those
-of the dependencies built in the tree and the contents of the directories that
-`PRAENORA_THIRD_PARTY_LICENSE_DIRS` names) and, when built, the roadrunner provider
-(`lib/praenora/providers/roadrunner`) and the antimony provider (`lib/praenora/providers/antimony`);
-it can be moved. The example modules are installed only with `PRAENORA_INSTALL_EXAMPLES=ON` or
-`--component Examples`; the fixture providers of the tests (`build/<preset>/test-providers`) are
-never installed. The target `package` (`PACKAGE` with Visual Studio) archives the default install
-component, so never the example modules, into
+ModuleSDK)`; `ModuleSDK` alone needs no other package, and holds `praenora_add_python_module()`
+and `praenora_python_directory_digest()` too), the schemas and catalog (`share/praenora`), the
+license files (`share/praenora/licenses`: `praenora-runtime/LICENSE`, those of the dependencies
+built in the tree and the contents of the directories that `PRAENORA_THIRD_PARTY_LICENSE_DIRS`
+names) and, when built, the roadrunner provider (`lib/praenora/providers/roadrunner`) and the
+antimony provider (`lib/praenora/providers/antimony`); with `PRAENORA_WITH_PYTHON_ENVIRONMENT`
+also the provider `python`, with the Python core, its environment file and `praenora.sdk`
+(`lib/praenora/providers/python`), the Python environment the build used, unchanged
+(`lib/praenora/python-environment`, about a gigabyte), and a copy of its license files
+(`share/praenora/licenses/python-environment`); it can be moved. The example modules
+(`example-predictor-python` with the Python environment) are installed only with
+`PRAENORA_INSTALL_EXAMPLES=ON` or `--component Examples`; the fixture providers of the tests
+(`build/<preset>/test-providers`) are never installed. The target `package` (`PACKAGE` with
+Visual Studio) archives the default install component, so never the example modules, into
 `build/<preset>/package/praenora-runtime-<version>-<os>-<arch>-<compiler>-<config>.tar.xz`
 (`.zip` on Windows), `<config>` being the configuration packaged, `release` or `debug`, with a
 `.sha256` file in the format of `sha256sum` beside it
-([docs/developer-guide.md](docs/developer-guide.md#archiving-an-installation)). A wheel build
-(scikit-build-core) has only the Python package's install rules, and the wheel holds `LICENSE` in
-its `.dist-info` (in `licenses/` there with scikit-build-core 1.1.2; 0.10 not yet verified).
+([docs/developer-guide.md](docs/developer-guide.md#archiving-an-installation)); with the Python
+environment it is about 190 MB. A wheel build (scikit-build-core) has only the Python package's
+install rules, and the wheel holds `LICENSE` in its `.dist-info` (in `licenses/` there with
+scikit-build-core 1.1.2; 0.10 not yet verified) and, since `wheel.packages` names
+`python/praenora`, `praenora/sdk/` beside `praenora/runtime/` (verified on macOS arm64); it
+holds no Python environment and no provider `python`.
 
 Project presets: `linux-x64-{debug,release,asan,tsan}`, `macos-arm64-{debug,release,asan,tsan}` and
 `windows-x64-{debug,release}`, each with configure, build and test presets. The CI presets
 `ci-linux-x64-release`, `ci-macos-arm64-release`, `ci-windows-x64-release` and
 `ci-windows-x64-debug` (configure, build and test; trees in `build/ci-<key>`) inherit the preset of
 their key and build against the dependency bundle that the environment variable
-`PRAENORA_RUNTIME_DEPS` names, with both providers, the Python bindings and warnings as errors, and
-with yaml-cpp, spdlog, GoogleTest and cpp-httplib built from their pinned commits
-(`CMAKE_DISABLE_FIND_PACKAGE_{yaml-cpp,spdlog,googletest,httplib}`); a configuration stops when
-that variable names no bundle ([docs/developer-guide.md](docs/developer-guide.md#ci-presets)).
+`PRAENORA_RUNTIME_DEPS` names and the Python environment bundle that `PRAENORA_RUNTIME_PYENV` names
+(`cmake/praenora_fetch_runtime_pyenv.cmake` prints that line, from the release that
+`cmake/PraenoraRuntimePyenvPin.cmake` pins), with both providers, the Python environment
+(`PRAENORA_WITH_PYTHON_ENVIRONMENT`, its CMake package in `PraenoraRuntimePyenv_DIR`), the Python
+bindings and warnings as errors, and with yaml-cpp, spdlog, GoogleTest and cpp-httplib built from
+their pinned commits (`CMAKE_DISABLE_FIND_PACKAGE_{yaml-cpp,spdlog,googletest,httplib}`); a
+configuration stops when either variable names no bundle
+([docs/developer-guide.md](docs/developer-guide.md#ci-presets)); CI has not yet run them with the
+Python environment.
 Their test presets set `PRAENORA_TESTS_REQUIRE_LISTENERS=1`, so a refused listener fails a test
 there instead of skipping it. The build jobs of `.github/workflows/build.yml` run them, which
 verified each on its runner, with yaml-cpp, spdlog, GoogleTest and cpp-httplib downloaded, the
@@ -282,8 +374,11 @@ executables names (`praenora_add_gtest(... SANDBOX_SKIP)`), so CTest shows them 
 The `contract` label also holds the tests of provider libraries as files,
 `providers.<provider>.exports` (the library exports only the provider entry point) and
 `providers.<provider>.processes` (two fresh processes print the same bytes), for `test-simulation`
-and, when it is built, `roadrunner`, with `praenora_simulation_print`, and for `test-conversion`
-and, when it is built, `antimony`, with `praenora_conversion_print`. It also holds
+and, when it is built, `roadrunner`, with `praenora_simulation_print`, for `test-conversion`
+and, when it is built, `antimony`, with `praenora_conversion_print`, and, with the Python
+environment, for `python` and `test-python-echo`, with `praenora_python_print` (its provider mode,
+`--provider test.echo@0`, for the latter), and `providers.python-core.exports` (the Python core
+exports only its entry point). It also holds
 `providers.run_twice.shows_first_difference`, which checks how the driver of the `processes` tests
 shows two outputs that differ, and a run that fails; and, when the roadrunner provider is built,
 `RoadrunnerEngine.*` (`praenora_roadrunner_engine_tests`, the provider's engine code compiled into a
@@ -297,11 +392,19 @@ extension (`ctest --preset dev -L cli`). Among the driver tests, the `cli.serve.
 `cli.run.server_flags_need_listen`, `cli.run.help_lists_listen`, `cli.usage.tool_help_lists_serve`
 and `cli.usage.tool_help_lists_status_server` check the control API's command lines: their usage,
 and those refused before anything listens. The `python` label
-holds one CTest test, `python.unittest`, which runs the unittest suite of `tests/python` against the
-package in `build/<preset>/python`; with `PRAENORA_SANITIZERS` set it is registered but disabled,
-because an instrumented extension does not load into an interpreter that is not instrumented. So a
-label-only run of a sanitizer tree (`ctest --preset dev-asan -L python`, or `dev-tsan`) runs no test
-and exits 8, since the presets set `noTestsAction: error`; a full run of those trees is unaffected.
+holds `python.unittest`, which runs the unittest suite of `tests/python` against the package in
+`build/<preset>/python` (its `PythonEnvironmentTest` skips without the Python environment), and
+`python.sdk_bindings_interpreter`, which runs the unittest tests of `praenora.sdk`
+(`tests/python_sdk`) with the same interpreter, isolated and with the standard library only
+(`-I -S -B`); with the Python environment, `python.sdk` (the same tests, run by the environment's
+interpreter so) and, with the examples too, `python.example_predictor` (the example Python
+module's class with `praenora.sdk.testing`, run by the environment's interpreter, isolated); with
+`PRAENORA_SANITIZERS` set `python.unittest` is registered but disabled, because an instrumented
+extension does not load into an interpreter that is not instrumented, and
+`python.sdk_bindings_interpreter` is not registered. So a label-only run of a sanitizer tree
+without the Python environment (`ctest --preset dev-asan -L python`, or `dev-tsan`) runs no test
+and exits 8, since the presets set `noTestsAction: error`; a full run of those trees is
+unaffected, and so is `python.sdk` in `dev-python-asan` and `dev-python-tsan`.
 The `server` label holds the listener tests, which open local listeners under the rules of
 [docs/testing.md](docs/testing.md#listeners) (only `127.0.0.1`, `::1` or a Unix socket under the
 temporary directory, always port 0, no host name resolved, connections only to their own
@@ -333,7 +436,16 @@ that `PRAENORA_THIRD_PARTY_LICENSE_DIRS` names), the installed tool's usage of `
 tree, label `server`), and a step that the installed tool runs in the
 module host, before and after the installation is moved; with the roadrunner or the antimony
 provider it also checks each installed provider, which the installed tool lists as usable before
-and after the installation is moved. It also holds `install.package`, whose driver,
+and after the installation is moved. In every tree it builds a Python module against the
+installation with the installed `praenora_add_python_module()` (`consumer-python-module`), without
+Python; with the Python environment it checks the installed environment against the bundle file by
+file, the provider `python`'s directory, its relative environment file and run paths (in a
+sanitizer build on macOS also the compiler's sanitizer runtime directory), Python steps that the
+installed tool runs in its process and in module hosts, before and after the installation is moved
+to a directory whose name holds a space and a character that is not ASCII, the example with its
+Python predictor, and a spawn pool whose children run the moved installation's interpreter. A
+passing install test removes what is large (with the environment, about a gigabyte each), and a
+failing one keeps everything. It also holds `install.package`, whose driver,
 `tests/install/check_package.cmake`, makes the archive of the target `package` with `cpack -C`
 and checks its name, its `.sha256` file and its files against an installation, byte for byte,
 and that there is no source package. Builds without install rules (`PRAENORA_INSTALL=OFF`) have
@@ -350,19 +462,54 @@ script `tests/ci/check_fetch_runtime_deps.cmake`: it runs `cmake/praenora_fetch_
 on fake bundle archives (`.tar.xz` and `.zip`) from `file://` URLs, with pin files of its own, and
 checks the line it prints and appends to `GITHUB_ENV`'s file, what a second run reuses, that the
 leftovers of a stopped run are removed, the retried download, and its errors, and that it accepts
-each platform of `cmake/PraenoraRuntimeDepsPin.cmake`; it uses no network. It also holds
-`ci.workflow_consistency`, the CMake script `tests/ci/check_workflow_consistency.cmake`, which
+each platform of `cmake/PraenoraRuntimeDepsPin.cmake`; it uses no network. `ci.fetch_runtime_pyenv`
+(`tests/ci/check_fetch_runtime_pyenv.cmake`) checks the same of
+`cmake/praenora_fetch_runtime_pyenv.cmake`, which shares its implementation,
+`cmake/praenora_fetch_bundle.cmake`, with the first, and that it reads only its own pin file's
+variables and manifest, against each platform of `cmake/PraenoraRuntimePyenvPin.cmake`. It also
+holds `ci.workflow_consistency`, the CMake script `tests/ci/check_workflow_consistency.cmake`, which
 reads `.github/workflows/build.yml` as text, in the format its header comment states: its matrix
-keys are the platforms of `PRAENORA_RUNTIME_DEPS_PLATFORMS`, each once and each with configure,
-build and test presets `ci-<key>` in `CMakePresets.json`; each key's runner is the label of its
-operating system (`ubuntu-24.04`, `macos-26`, `windows-2022`) and each `runs-on` one of these or
-the matrix's runner, never a `-latest` label; and each `uses:` names a commit of 40 hexadecimal
-digits followed by `# v<version>`.
+keys are the platforms of `PRAENORA_RUNTIME_DEPS_PLATFORMS` and of
+`PRAENORA_RUNTIME_PYENV_PLATFORMS`, each once and each with configure, build and test presets
+`ci-<key>` in `CMakePresets.json`; each key's runner is the label of its operating system
+(`ubuntu-24.04`, `macos-26`, `windows-2022`) and each `runs-on` one of these or the matrix's
+runner, never a `-latest` label; and each `uses:` names a commit of 40 hexadecimal digits followed
+by `# v<version>`.
+The Python environment's tests ([docs/testing.md](docs/testing.md#the-python-environment)): every
+tree has those that need no Python, `PythonAbi.*` and `PythonModuleAdapter.*` (in
+`praenora_unit_tests`), `python.digest_cmake`, `python.module_template_check` and
+`python.provider_cmake` (label `unit`, CMake scripts in `tests/cmake/`: the directory digest,
+`praenora_add_python_module()`'s refusals, `praenora_add_python_provider()`'s engine object and
+refusals), `Frontend.PythonEnvironment*` (label `cli`: the variables that the tool and the module
+host set), `ci.fetch_runtime_pyenv` and, with the Python bindings,
+`python.sdk_bindings_interpreter`; without the option also
+`PythonModuleValidation.WithoutTheProviderPythonIsServiceUnavailable` (label `integration`) and
+`cli.providers.list_empty`. The tests that embed Python are registered only with
+`PRAENORA_WITH_PYTHON_ENVIRONMENT`, their executables with `praenora_add_gtest(... EMBEDS_PYTHON)`
+(on Windows, the tool's application manifest, which allows long paths):
+`praenora_python_core_tests` (label `unit`: `PythonCore.*`, the core through its C interface, and
+`PythonDigest.*`, its digest against the CMake function's), `praenora_python_provider_tests`
+(label `contract`, white-box: `PythonProvider.*`, `PythonEchoProvider.ServesEcho` and
+`PythonEchoProvider.EngineHasEnvironment`), `praenora_python_module_check_tests` (label
+`contract`: `ModuleCheck.Python*`, the contract checks of Python modules),
+`praenora_python_negative_tests` (label `negative`: `PythonEnvironmentFile.*` and
+`PythonProviderStart.*`, starts from edited copies of the provider's directory, with the helpers
+`praenora_python_start_probe` and `praenora_fake_python_core`) and `praenora_python_module_tests`
+(label `integration`, `SANDBOX_SKIP`: `PythonModuleRun.*`, `PythonModuleIsolation.*`,
+`PythonChildProcesses.*`, the other `PythonEchoProvider.*`, with the examples
+`PythonExample.RunsLikeTheCppPredictor`, and with the roadrunner provider
+`PythonRoadrunner.CoexistInOneProcess`); and `cli.providers.list_python`, the `providers.python.*`,
+`providers.python-core.exports` and `providers.test-python-echo.*` tests, `python.sdk` and
+`python.example_predictor`. `praenora_python_module_tests` also needs the tool
+(`PRAENORA_BUILD_CLI`), which some of its tests run.
 Build options are in `cmake/PraenoraOptions.cmake`, among them `PRAENORA_WITH_ROADRUNNER` (OFF),
 which builds the roadrunner provider; with it, the cache variable `LLVM_INSTALL_PREFIX`
 (`cmake/PraenoraRoadrunner.cmake`) names the LLVM that libRoadRunner was built with;
 `PRAENORA_WITH_ANTIMONY` (OFF), which builds the antimony provider
-(`cmake/PraenoraAntimony.cmake`); `PRAENORA_FETCH_JSON_SCHEMA_VALIDATOR` (OFF), which builds
+(`cmake/PraenoraAntimony.cmake`); `PRAENORA_WITH_PYTHON_ENVIRONMENT` (OFF), which builds what runs
+Python (the Python core, the provider `python`, the example Python module and the tests that embed
+Python) against a Python environment bundle (`cmake/PraenoraPythonEnvironment.cmake`) and installs
+the environment; `PRAENORA_FETCH_JSON_SCHEMA_VALIDATOR` (OFF), which builds
 json-schema-validator from its pinned sources, for the sanitizer builds
 (`cmake/PraenoraDependencies.cmake`); `PRAENORA_THIRD_PARTY_LICENSE_DIRS` (empty), absolute paths
 of directories whose contents every installation holds in `share/praenora/licenses/`, such as a
@@ -381,9 +528,11 @@ downloaded, with which Node.js then runs two `asyncapi.parser.*` tests of the `p
 CMakeLists.txt CMakePresets.json CMakeUserPresets.json.example AGENTS.md README.md
 LICENSE                       the MIT license of this repository's files (ADR-0040)
 .github/workflows/build.yml   the GitHub Actions workflow Build: a build job per platform key
-                              against the pinned dependency bundle, and the draft release
-                              (docs/releasing.md, ADR-0041)
-pyproject.toml                Python distribution praenora-runtime (scikit-build-core)
+                              against the pinned dependency bundle and Python environment
+                              bundle, and the draft release (docs/releasing.md, ADR-0041,
+                              ADR-0045)
+pyproject.toml                Python distribution praenora-runtime (scikit-build-core):
+                              praenora.runtime and praenora.sdk
 cmake/                        options, versions, compiler checks, warnings, sanitizers,
                               dependencies, praenora_add_module(), praenora_embed_resources(),
                               install rules and package configuration (PraenoraInstall.cmake,
@@ -392,15 +541,23 @@ cmake/                        options, versions, compiler checks, warnings, sani
                               (PraenoraProvider.cmake, not installed); the roadrunner and
                               antimony providers' dependencies (PraenoraRoadrunner.cmake,
                               PraenoraAntimony.cmake and its probe praenora_antimony_probe.cpp,
-                              and what both share, PraenoraEngineDependencies.cmake); the pin of
-                              the dependency bundles (PraenoraRuntimeDepsPin.cmake) and the
-                              script that fetches one (praenora_fetch_runtime_deps.cmake), which
-                              the build does not include
+                              and what both share, PraenoraEngineDependencies.cmake); the Python
+                              environment (PraenoraPythonEnvironment.cmake), the directory digest
+                              of Python sources (PraenoraPythonDigest.cmake, installed),
+                              praenora_add_python_module() (PraenoraPythonModule.cmake,
+                              installed) and praenora_add_python_provider()
+                              (PraenoraPythonProvider.cmake, not installed); the pins
+                              of the dependency bundles (PraenoraRuntimeDepsPin.cmake) and of the
+                              Python environment bundles (PraenoraRuntimePyenvPin.cmake) and the
+                              scripts that fetch one (praenora_fetch_runtime_deps.cmake,
+                              praenora_fetch_runtime_pyenv.cmake, and what both share,
+                              praenora_fetch_bundle.cmake), which the build does not include
 include/praenora/runtime/     public C++ API (runtime.hpp, workflow.hpp, version.hpp, error.hpp,
                               status.hpp, options.hpp; export.h is generated)
 include/praenora/sdk/         SDK: abi.h, status.h, simulation.h (the simulation service),
-                              model_conversion.h (the model conversion service), module.hpp,
-                              testing.hpp (version.h generated)
+                              model_conversion.h (the model conversion service), python.h (the
+                              Python service), module.hpp, python_module.hpp (the native side of
+                              Python modules), testing.hpp (version.h generated)
 src/runtime/                  runtime internals, one directory per component (api/, catalog/,
                               compat/, config/, core/, discovery/, document/, engine/, graph/,
                               instance/, io/, isolation/ (process isolation: the channel to a
@@ -415,12 +572,22 @@ src/module_host/              praenora-module-host, the module host (main.cpp; P
                               with the runtime's objects), installed in libexec/praenora/
 src/providers/                service providers built with the runtime: roadrunner/
                               (libRoadRunner; only with PRAENORA_WITH_ROADRUNNER=ON), antimony/
-                              (libAntimony; only with PRAENORA_WITH_ANTIMONY=ON), common/ (what
+                              (libAntimony; only with PRAENORA_WITH_ANTIMONY=ON), python/ (only
+                              with PRAENORA_WITH_PYTHON_ENVIRONMENT=ON: core/, the Python core,
+                              the one library that embeds CPython, with its internal interface
+                              python_core.h; common/, the static support library of the
+                              providers that run Python: the loader of the core and the service
+                              glue, and environment_files.hpp, the header-only readers of the
+                              environment's files that the core, the loader and
+                              src/frontend/python_environment.hpp share; provider/, the
+                              provider python), common/ (what
                               providers share: cancellable_lock.hpp, header-only, never installed)
 src/sdk/                      Praenora::ModuleSDK target
 src/frontend/                 what the CLI, the Python extension and the control API's server
                               share: frontend.hpp (praenora::frontend; header-only, internal,
-                              never installed)
+                              never installed); python_environment.hpp, the variables that the
+                              tool and the module host set from the provider python's
+                              environment file
 src/server/                   the control API, a third front end (praenora_server, static,
                               internal, linked by the tool only; praenora::server): addresses,
                               tokens and scopes, the routes (ControlApi) over the runs of both
@@ -433,13 +600,21 @@ src/cli/                      praenora command-line tool: main.cpp, args, output
 src/python/                   Python extension: SWIG interface praenora_runtime.i and the facade
                               (facade.hpp, facade.cpp) it wraps
 python/praenora/runtime/      pure-Python package praenora.runtime (praenora: namespace package)
+python/praenora/sdk/          pure-Python package praenora.sdk: Module and what modules use
+                              (__init__.py), the adapter (_adapter.py), the Python core's hooks
+                              (_runtime.py), the main module of child processes (_child_main.py)
+                              and the test kit (testing.py)
 spec/                         schemas/, catalog/, asyncapi/ (generated AsyncAPI documents,
                               committed; refreshed with PRAENORA_UPDATE_GOLDEN=1), openapi/ (the
                               control API's generated OpenAPI document, committed; refreshed the
                               same way)
-examples/                     modules/estimator/, modules/predictor/ (the example modules) and
-                              workflows/estimate-predict/ (configuration, data, README)
-tests/                        unit/, protocol/, negative/, contract/, lifecycle/, isolation/
+examples/                     modules/estimator/, modules/predictor/ (the example modules),
+                              modules/predictor-python/ (the predictor as a Python module, with
+                              PRAENORA_WITH_PYTHON_ENVIRONMENT) and workflows/estimate-predict/
+                              (configuration, its variant workflow-python.yaml, data, README)
+tests/                        unit/, protocol/, negative/ (with, for the Python environment,
+                              the helpers praenora_python_start_probe and
+                              praenora_fake_python_core), contract/, lifecycle/, isolation/
                               (process isolation, white-box, with the helper programs
                               praenora_isolation_parent_probe, praenora_fake_module_host,
                               praenora_isolation_short_host_probe and
@@ -449,30 +624,41 @@ tests/                        unit/, protocol/, negative/, contract/, lifecycle/
                               tool as a server, with listener_fixtures.hpp), telemetry/ (the OTLP
                               export's listener tests, against a fake collector),
                               cli/ (CLI tests and their driver run_cli.cmake), python/ (unittest
-                              suite of praenora.runtime), install/ (install tests: the driver
-                              run_install_test.cmake and the projects consumer-module/ and
-                              consumer-app/; the archive's driver check_package.cmake), perf/
+                              suite of praenora.runtime), python_sdk/ (python.sdk, the unittest
+                              tests of praenora.sdk), cmake/ (the script tests of the Python
+                              sources' CMake functions, with the tiny project
+                              python-module-template/), install/ (install tests: the driver
+                              run_install_test.cmake and the projects consumer-module/,
+                              consumer-python-module/ and consumer-app/; the archive's driver
+                              check_package.cmake), perf/
                               (performance probe praenora_perf and its driver run_perf.cmake),
                               providers/ (tests of provider libraries:
                               check_exports.cmake, run_twice.cmake, check_run_twice.cmake (its
-                              check), praenora_simulation_print and praenora_conversion_print),
+                              check), praenora_simulation_print, praenora_conversion_print and
+                              praenora_python_print),
                               docs/ (documentation test check_docs.cmake), ci/ (tests of the
-                              bundle fetch script, check_fetch_runtime_deps.cmake, and of the
-                              workflow, check_workflow_consistency.cmake), support/ (test
+                              bundle fetch scripts, check_fetch_runtime_deps.cmake and
+                              check_fetch_runtime_pyenv.cmake, and of the workflow,
+                              check_workflow_consistency.cmake), support/ (test
                               helpers, among them listener_support.hpp, the listener tests'
-                              skip, ClosedPort, SilentListener and FakeCollector; and
+                              skip, ClosedPort, SilentListener and FakeCollector; text_sink.hpp,
+                              a sink of the provider and Python core test programs; and
                               run_command.cmake, which the CMake drivers share);
-                              fixtures/: modules/ (fixture modules), providers/ (fixture
+                              fixtures/: modules/ (fixture modules; python/, the Python fixture
+                              modules, praenora_add_python_fixture_module(), and fx-python-call,
+                              a C++ module that calls the Python service), providers/ (fixture
                               providers, praenora_add_fixture_provider(); test-simulation and
                               test-conversion offer the public services, test-store drives the
-                              shared compiled models), models/ (sbml/ and
+                              shared compiled models, test-python-echo implements test.echo@0 in
+                              Python), python-core/ (the Python core's fixture classes),
+                              python-digest/ (the directory digest's fixture), models/ (sbml/ and
                               test-decay/ models of the simulation service, test-decay-text/
                               sources of the model conversion service, antimony/ Antimony models
                               and the antimony provider's expected outputs), documents/,
                               catalog/, catalog-bad/, catalog-shared-id/, manifests/ (bad module
-                              and provider manifests, search-path layouts), configs/ (good, bad
-                              and CLI configurations), data/ (target data), golden/ (golden
-                              outputs)
+                              and provider manifests, search-path layouts), configs/ (good, bad,
+                              CLI and python/ configurations), data/ (target data), golden/
+                              (golden outputs)
 tools/                        developer scripts (generate_example_data.py)
 docs/                         index.md, the guides (architecture, user-guide, configuration,
                               developer-guide, module-developer-guide, testing, python,
@@ -504,8 +690,11 @@ docs/                         index.md, the guides (architecture, user-guide, co
   kept loaded, so a process holds one engine per provider. Modules declare the services they
   require or can use in their manifests (PMM 0.2), reach them only through the host API's
   `get_service` and never link an engine; each service a run uses enters its fingerprint. The
-  repository builds two, each only with its build option: `roadrunner` (the simulation service,
-  libRoadRunner) and `antimony` (the model conversion service, libAntimony).
+  repository builds three, each only with its build option: `roadrunner` (the simulation service,
+  libRoadRunner), `antimony` (the model conversion service, libAntimony) and `python` (the Python
+  service, the pinned Python environment). The providers that run Python load one shared Python
+  core, the only code that links libpython, so a process holds one interpreter; a Python module is
+  a `praenora.sdk.Module` class and a generated module library that calls it through that service.
 - A YAML workflow configuration pins a versioned workflow definition from the protocol catalog and
   binds its steps to modules; connections come from the definition, never from the YAML. Every
   document is validated against an embedded JSON Schema (draft-07) before anything runs.
@@ -538,7 +727,11 @@ docs/                         index.md, the guides (architecture, user-guide, co
   `file(APPEND)`, which write in text mode on Windows, a carriage return before each line feed
   (`tests/providers/check_run_twice.cmake` shows a way).
 - **Tests.** Add GoogleTest executables with `praenora_add_gtest()` (`tests/CMakeLists.txt`) and
-  fixture modules with `praenora_add_fixture_module()` (`tests/fixtures/modules/CMakeLists.txt`).
+  fixture modules with `praenora_add_fixture_module()` (`tests/fixtures/modules/CMakeLists.txt`),
+  Python fixture modules with `praenora_add_python_fixture_module()`
+  (`tests/fixtures/modules/python/CMakeLists.txt`). A test that runs Python in its process is
+  registered only with `PRAENORA_WITH_PYTHON_ENVIRONMENT`, its executable with
+  `praenora_add_gtest(... EMBEDS_PYTHON)`.
   Tests are named `Suite.Case` in PascalCase, where the suite names the component (for example
   `Loader.LoadsModuleFromUnicodePath`); the case may end in a `_WhenCondition` suffix. Python
   tests are stdlib `unittest` modules `tests/python/test_*.py` (classes `<Topic>Test`, methods
@@ -555,6 +748,8 @@ docs/                         index.md, the guides (architecture, user-guide, co
   (cpp-httplib), brings its license files into the
   installation (`share/praenora/licenses/`): one built in the tree through the rules of
   `cmake/PraenoraInstall.cmake`, one found installed through `PRAENORA_THIRD_PARTY_LICENSE_DIRS`.
+  The Python environment, installed unchanged, brings its own license files, which the
+  installation copies to `share/praenora/licenses/python-environment/`.
 - **Agent standards.** Use `AGENTS.md` (this file) and the `agentskills.io` standard for agent skills.
   Use local symlinks as necessary for support in non-supporting agent tools.
 
@@ -565,11 +760,11 @@ docs/                         index.md, the guides (architecture, user-guide, co
   the ABI, the document formats or the catalog yet, so compatibility with earlier versions is not a
   concern. Every version stays as it is: the runtime package (but for a release, below), the SDK,
   PMP, the module ABI, the provider interface, the simulation service, the model conversion
-  service, each document format, each catalog entry and the modules of this repository. Make each
-  change within the current version: edit the schema file, header, catalog entry, documentation,
-  tests and fixtures it affects. Never raise a version number, and never add a schema file or a
-  catalog entry file for a new version. This holds until the maintainers decide to bump versions
-  again; until then, the bump rules of
+  service, the Python service, each document format, each catalog entry and the modules of this
+  repository. Make each change within the current version: edit the schema file, header, catalog
+  entry, documentation, tests and fixtures it affects. Never raise a version number, and never add
+  a schema file or a catalog entry file for a new version. This holds until the maintainers
+  decide to bump versions again; until then, the bump rules of
   [docs/specs/compatibility-policy.md](docs/specs/compatibility-policy.md#changing-a-version) and
   the specifications' rules that a change is a new version describe what will apply then, not what
   to do now. One exemption, decided by the maintainer on 2026-11-21: the runtime package's version,
@@ -583,6 +778,12 @@ docs/                         index.md, the guides (architecture, user-guide, co
   `tests/ci/check_workflow_consistency.cmake` when that release of praenora-runtime-deps moved its
   jobs to other runner images, following
   [docs/releasing.md](docs/releasing.md#raising-the-deps-pin).
+- **Python environment pin.** `cmake/PraenoraRuntimePyenvPin.cmake` is changed only after the
+  maintainer confirms the change, with every archive name and SHA-256 of the release of
+  praenora-runtime-pyenv it names, as the dependency bundle pin is, following
+  [docs/releasing.md](docs/releasing.md#raising-the-python-environment-pin); its platforms stay
+  those of the dependency bundle pin and the workflow's matrix, which `ci.workflow_consistency`
+  checks.
 - An ABI, protocol or document-format change adds an ADR in `docs/adr/`. Once versions are bumped
   again, it also bumps its version (ABI: `include/praenora/sdk/abi.h`; SDK, PMP and document
   formats: `cmake/PraenoraVersions.cmake`; runtime package: `project(VERSION)` in
@@ -625,17 +826,23 @@ docs/                         index.md, the guides (architecture, user-guide, co
   [configuration](docs/configuration.md), [developer guide](docs/developer-guide.md),
   [module developer guide](docs/module-developer-guide.md), [testing](docs/testing.md),
   [Python](docs/python.md), [platforms](docs/platforms.md), and
-  [releasing](docs/releasing.md) (the CI workflow, the dependency bundle pin and the release
-  procedure).
+  [releasing](docs/releasing.md) (the CI workflow, the dependency bundle pin, the Python
+  environment pin and the release procedure).
 - Normative specifications: `docs/specs/` (ABI, protocol, manifest, runtime services and
-  providers, the simulation service, the model conversion service, workflow definitions,
-  compatibility, error taxonomy, threading and ownership, process isolation, time and timeouts,
-  observability, the control API, reproducibility, the draft starting workflow), listed in
-  [docs/index.md](docs/index.md); the three on services are
+  providers, the simulation service, the model conversion service, the Python service, workflow
+  definitions, compatibility, error taxonomy, threading and ownership, process isolation, time and
+  timeouts, observability, the control API, reproducibility, the draft starting workflow), listed
+  in [docs/index.md](docs/index.md); the four on services are
   [runtime-services.md](docs/specs/runtime-services.md),
-  [simulation-service.md](docs/specs/simulation-service.md) and
-  [model-conversion-service.md](docs/specs/model-conversion-service.md); process isolation, module
-  hosts and their configuration are in [process-isolation.md](docs/specs/process-isolation.md);
+  [simulation-service.md](docs/specs/simulation-service.md),
+  [model-conversion-service.md](docs/specs/model-conversion-service.md) and
+  [python-service.md](docs/specs/python-service.md) (the Python service, Python modules, the
+  Python core and the providers that run Python, the environment file and the process's
+  environment, with the decisions of
+  [ADR-0044](docs/adr/ADR-0044-python-modules-and-providers-through-an-embedded-environment.md)
+  and [ADR-0045](docs/adr/ADR-0045-python-environment-pinned-in-ci-and-installation.md));
+  process isolation, module hosts and their configuration are in
+  [process-isolation.md](docs/specs/process-isolation.md);
   the control and status API over HTTP, its security rules, modes, routes and OpenAPI document
   in [control-api.md](docs/specs/control-api.md), and the OTLP export in
   [observability.md](docs/specs/observability.md#otlp-export).

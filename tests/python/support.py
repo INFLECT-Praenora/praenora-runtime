@@ -2,10 +2,12 @@
 the paths of the fixtures, a way to keep the runtime's log records out of the test output, and
 what a test does where a local listener is refused.
 
-CTest's environment names the fixture modules (PRAENORA_TEST_MODULES_DIR), the fixture service
-providers (PRAENORA_TEST_PROVIDERS_DIR), the test catalog (PRAENORA_TEST_CATALOG_DIR), the example
+CTest's environment names the fixture modules (PRAENORA_TEST_MODULES_DIR), the Python fixture
+modules (PRAENORA_TEST_PYTHON_MODULES_DIR), the fixture service providers
+(PRAENORA_TEST_PROVIDERS_DIR), the test catalog (PRAENORA_TEST_CATALOG_DIR), the example
 configuration (PRAENORA_EXAMPLE_CONFIG) and, when the examples are built, the example modules
-(PRAENORA_EXAMPLE_MODULES_DIR). It sets PRAENORA_LOG_LEVEL to off, so the runtime logs nothing
+(PRAENORA_EXAMPLE_MODULES_DIR); PRAENORA_TEST_WITH_PYTHON_ENVIRONMENT is 1 when the build tree has
+the provider python. It sets PRAENORA_LOG_LEVEL to off, so the runtime logs nothing
 unless a test asks for it, and OTEL_SDK_DISABLED to true, so the runtime exports nothing unless a
 test of the export removes it.
 """
@@ -31,11 +33,15 @@ def environment(name):
 
 
 TEST_MODULES = environment("PRAENORA_TEST_MODULES_DIR")
+TEST_PYTHON_MODULES = environment("PRAENORA_TEST_PYTHON_MODULES_DIR")
 TEST_PROVIDERS = environment("PRAENORA_TEST_PROVIDERS_DIR")
 TEST_CATALOG = environment("PRAENORA_TEST_CATALOG_DIR")
 EXAMPLE_CONFIG = environment("PRAENORA_EXAMPLE_CONFIG")
 EXAMPLE_MODULES = os.environ.get("PRAENORA_EXAMPLE_MODULES_DIR", "")
 needs_examples = unittest.skipUnless(EXAMPLE_MODULES, "the example modules are not built")
+needs_python_environment = unittest.skipUnless(
+    os.environ.get("PRAENORA_TEST_WITH_PYTHON_ENVIRONMENT", "") == "1",
+    "the build has no provider python (PRAENORA_WITH_PYTHON_ENVIRONMENT is off)")
 
 # The fixture modules and the test catalog, as keyword arguments.
 FIXTURE_PATHS = {"module_paths": [TEST_MODULES], "catalog_paths": [TEST_CATALOG]}

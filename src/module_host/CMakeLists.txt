@@ -30,14 +30,21 @@ foreach(_praenora_config IN LISTS CMAKE_CONFIGURATION_TYPES)
     set_target_properties(praenora_module_host PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY_${_praenora_config} "${_praenora_module_host_dir}")
 endforeach()
-# The runtime's objects, linked directly as white-box tests link them.
+# The runtime's objects, linked directly as white-box tests link them, and the header-only helper
+# with which the tool and the module host set the Python environment's variables
+# (src/frontend/python_environment.hpp; nlohmann/json comes with the runtime's dependencies).
 target_link_libraries(praenora_module_host PRIVATE praenora_runtime_objects praenora_runtime_deps)
+target_include_directories(praenora_module_host PRIVATE "${PROJECT_SOURCE_DIR}/src/frontend")
 target_compile_definitions(praenora_module_host PRIVATE PRAENORA_RUNTIME_STATIC_DEFINE)
 praenora_target_warnings(praenora_module_host)
+# Where the installed module host finds the provider python's environment file, below the
+# installation's library directory (src/frontend/python_environment.hpp).
+cmake_path(SET _praenora_module_host_destination NORMALIZE
+    "${CMAKE_INSTALL_LIBDIR}/praenora/../../libexec/praenora")
+praenora_python_environment_file_definition(praenora_module_host
+    "${_praenora_module_host_destination}")
 
 if(PRAENORA_INSTALL_RULES)
-    cmake_path(SET _praenora_module_host_destination NORMALIZE
-        "${CMAKE_INSTALL_LIBDIR}/praenora/../../libexec/praenora")
     install(TARGETS praenora_module_host
         RUNTIME DESTINATION "${_praenora_module_host_destination}")
 endif()

@@ -402,13 +402,34 @@ praenora_add_cli_test(cli.providers.list_shadowed_json
     EXPECT_STDOUT_REGEX "\"problem\":\"shadowed by '[^']*${_praenora_shadowing}'")
 # Nothing found: a note on standard error, an empty list and exit code 0. The build tree's
 # installation provider directory holds no provider, unless the build has the roadrunner provider
-# (PRAENORA_WITH_ROADRUNNER) or the antimony provider (PRAENORA_WITH_ANTIMONY).
-if(NOT PRAENORA_WITH_ROADRUNNER AND NOT PRAENORA_WITH_ANTIMONY)
+# (PRAENORA_WITH_ROADRUNNER), the antimony provider (PRAENORA_WITH_ANTIMONY) or the provider python
+# (PRAENORA_WITH_PYTHON_ENVIRONMENT).
+if(NOT PRAENORA_WITH_ROADRUNNER AND NOT PRAENORA_WITH_ANTIMONY AND
+   NOT PRAENORA_WITH_PYTHON_ENVIRONMENT)
     praenora_add_cli_test(cli.providers.list_empty
         CMD providers list --json
         ENVIRONMENT "${_praenora_no_providers}"
         EXPECT_STDOUT_REGEX "^\\{\"ok\":true,\"result\":\\[\\]\\}\n$"
         EXPECT_STDERR_REGEX "no provider manifests on the provider search paths")
+endif()
+# With the environment, the tool lists the provider python without a provider path, usable, from
+# the build tree's installation provider directory (lib/praenora/providers/python), offering
+# praenora.python@0.0 with the engine of the environment the build uses.
+if(PRAENORA_WITH_PYTHON_ENVIRONMENT)
+    set(_praenora_python_listed [=["engine":[{]"environment":[{]"lock_sha256":"@LOCK@",]=])
+    string(APPEND _praenora_python_listed
+        [=["name":"praenora-runtime-pyenv",[^}]*[}],"name":"cpython","version":"[^"]*"[}],]=]
+        [=["library":"[^"]*","manifest":"[^"]*providers@SEP@python@SEP@python[.]provider[.]json",]=]
+        [=["name":"python","platform":[{][^}]*[}],]=]
+        [=["services":\[[{]"major":0,"minor":0,"name":"praenora[.]python"[}]\],"usable":true]=])
+    string(REPLACE "@LOCK@" "${PRAENORA_PYTHON_ENVIRONMENT_LOCK_SHA256}" _praenora_python_listed
+        "${_praenora_python_listed}")
+    string(REPLACE "@SEP@" "${_praenora_separator}" _praenora_python_listed
+        "${_praenora_python_listed}")
+    praenora_add_cli_test(cli.providers.list_python
+        CMD providers list --json
+        ENVIRONMENT "${_praenora_no_providers}"
+        EXPECT_STDOUT_REGEX "${_praenora_python_listed}")
 endif()
 praenora_add_cli_test(cli.providers.list_takes_no_arguments
     CMD providers list extra
@@ -767,9 +788,11 @@ foreach(check IN ITEMS passes_empty_arguments shows_failing_command)
     set_tests_properties(cli.driver.${check} PROPERTIES LABELS cli)
 endforeach()
 
-# Unit tests of the tool's own helpers (src/cli) and of what it shares with the Python extension
-# (praenora_frontend, src/frontend), all header-only.
+# Unit tests of the tool's own helpers (src/cli), of what it shares with the Python extension
+# (praenora_frontend, src/frontend) and of what it and the module host do first thing, the Python
+# environment's variables (src/frontend/python_environment.hpp, which needs no Python), all
+# header-only.
 praenora_add_gtest(praenora_cli_tests LABEL cli
-    SOURCES table_test.cpp frontend_test.cpp
+    SOURCES table_test.cpp frontend_test.cpp python_environment_test.cpp
     LINK praenora_frontend)
 target_include_directories(praenora_cli_tests PRIVATE "${PROJECT_SOURCE_DIR}/src/cli")

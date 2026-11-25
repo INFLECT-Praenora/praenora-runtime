@@ -26,6 +26,15 @@ Both modules are deterministic and use only `+ - * /` arithmetic. Each comes wit
 (`vectors.json`, one case of two ticks taken from a run of this workflow), which the build copies
 next to its manifest.
 
+`workflow-python.yaml` is the same configuration with the predict step bound to
+`example-predictor-python` (`examples/modules/predictor-python`), the predictor as a Python module:
+the same parameters, outputs and test vectors, computed with numpy, every estimate's numbers going
+through the C++ predictor's operations in the same order. Its outputs are those of
+`workflow.yaml`, byte for byte, but for the start of each message's `id`, which names the run. It
+needs the runtime's provider `python`, which a build with `PRAENORA_WITH_PYTHON_ENVIRONMENT=ON`
+holds, and builds the module
+([module-developer-guide.md](../../../docs/module-developer-guide.md#modules-in-python)).
+
 ## Running it
 
 The configuration names no module search path: whoever runs it names the directory of the built
@@ -45,10 +54,20 @@ const auto workflow = runtime.open("examples/workflows/estimate-predict/workflow
 const praenora::RunSummary summary = workflow->run();
 ```
 
+With the Python predictor, from a build with the Python environment (the local preset
+`dev-python`), in module hosts, as Python steps are best run (macOS and Linux):
+
+```bash
+./build/dev-python/bin/praenora run examples/workflows/estimate-predict/workflow-python.yaml \
+    --module-path build/dev-python/modules --output-dir "${TMPDIR:-/tmp}/estimate-predict-python" \
+    --isolation process
+```
+
 The integration tests (`ctest --preset dev -L integration`) run it end to end and compare its
-outputs with the golden files in `tests/fixtures/golden/example.estimate-predict/`. Those are
-refreshed only on request, after checking that every tick from 1 on has a blend and that every
-value is finite and positive:
+outputs with the golden files in `tests/fixtures/golden/example.estimate-predict/`, and, with the
+Python environment, those of `workflow-python.yaml` with those of `workflow.yaml`. The golden
+files are refreshed only on request, after checking that every tick from 1 on has a blend and that
+every value is finite and positive:
 
 ```bash
 PRAENORA_UPDATE_GOLDEN=1 ctest --preset dev -R '^Example\.OutputsMatchGolden'

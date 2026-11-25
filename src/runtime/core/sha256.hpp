@@ -7,6 +7,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <iosfwd>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -34,8 +36,13 @@ private:
 
 std::string sha256_hex(std::string_view data);
 
-// The digest of a file's bytes, read in chunks. Throws praenora::Error(IO_ERROR) if the file cannot
-// be read.
+// The digest of every byte `in` gives until its end, read in chunks; nothing when a read fails.
+// It throws nothing of its own, so a caller reports a failure in its own terms.
+std::optional<std::string> sha256_stream_hex(std::istream& in);
+
+// The digest of a file's bytes (sha256_file.cpp: the rest of this header is defined in
+// sha256.cpp, which needs no other part of the runtime). Throws praenora::Error(IO_ERROR) if the
+// file cannot be read.
 std::string sha256_file_hex(const std::filesystem::path& file);
 
 } // namespace praenora::detail

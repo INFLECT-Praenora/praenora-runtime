@@ -23,7 +23,12 @@
 #   4. Unpacked, the archive holds one directory, <name>, whose files are those of
 #      cmake --install <BUILD_DIR> --config <CONFIG> (into <WORK_DIR>/i) without the example
 #      modules (<LIBDIR>/praenora/modules/), byte for byte, among them this project's LICENSE at
-#      <DATADIR>/praenora/licenses/praenora-runtime/LICENSE.
+#      <DATADIR>/praenora/licenses/praenora-runtime/LICENSE; a symbolic link of the installation
+#      (the Python environment has some) is a link in the archive, to the same target.
+# When every step passed, the installation (<WORK_DIR>/i), the unpacked archive (<WORK_DIR>/u) and
+# cpack's staging (<WORK_DIR>/_CPack_Packages, <WORK_DIR>/s), which with the Python environment
+# hold about a gigabyte each, are removed; the archive and its .sha256 file are kept. A failing run
+# keeps everything, for inspection, until the next run empties WORK_DIR.
 cmake_minimum_required(VERSION 3.24)
 include("${CMAKE_CURRENT_LIST_DIR}/../support/run_command.cmake")
 
@@ -144,7 +149,21 @@ if(NOT found STREQUAL expected)
     message(FATAL_ERROR "step 4: the archive's files differ from the installation's.\n"
         "installed (without the example modules):\n  ${expected}\narchived:\n  ${found}\n")
 endif()
+set(links 0)
 foreach(file IN LISTS expected)
+    if(IS_SYMLINK "${prefix}/${file}")
+        file(READ_SYMLINK "${prefix}/${file}" installed_target)
+        set(archived_target "")
+        if(IS_SYMLINK "${unpacked}/${name}/${file}")
+            file(READ_SYMLINK "${unpacked}/${name}/${file}" archived_target)
+        endif()
+        if(NOT archived_target STREQUAL installed_target)
+            message(FATAL_ERROR "step 4: the archive's ${file} is not a symbolic link to "
+                "${installed_target}, as the installation's is")
+        endif()
+        math(EXPR links "${links} + 1")
+        continue()
+    endif()
     file(SHA256 "${prefix}/${file}" installed_hash)
     file(SHA256 "${unpacked}/${name}/${file}" archived_hash)
     if(NOT archived_hash STREQUAL installed_hash)
@@ -162,4 +181,11 @@ if(NOT archived_hash STREQUAL source_hash)
 endif()
 list(LENGTH found file_count)
 message(STATUS "step 4: the archive holds ${name}/, with the ${file_count} files of the "
-    "installation, without the example modules, byte for byte, ${license} among them")
+    "installation, without the example modules, byte for byte (${links} of them symbolic links), "
+    "${license} among them")
+foreach(scratch IN ITEMS i u _CPack_Packages s)
+    file(REMOVE_RECURSE "${WORK_DIR}/${scratch}")
+endforeach()
+message(STATUS "the test passed: the installation, the unpacked archive and cpack's staging are "
+    "removed from ${WORK_DIR}; ${archives} and its .sha256 file are kept (a failing run keeps "
+    "everything)")

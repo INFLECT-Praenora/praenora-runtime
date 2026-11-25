@@ -1,0 +1,11 @@
+# fx-py-env outputs PYTHONHASHSEED as its process sees it: `praenora run` sets it to 0 when it is
+# unset, in its own process and so in a module host (PythonModuleRun.ToolSetsHashSeed).
+kind: workflow-config
+format_version: "0.1.0"
+workflow: { name: test.single, version: "0.1.0" }
+run: { ticks: 1 }
+inputs:
+  source: { source: json-document, path: ../source.json }
+steps:
+  a:
+    module: { name: fx-py-env, version: "0.1.0" }

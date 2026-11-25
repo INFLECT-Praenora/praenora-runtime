@@ -1,13 +1,10 @@
+// SHA-256 itself. It uses nothing else of the runtime, so the Python core compiles this file too
+// (src/providers/python); the digest of a file is in sha256_file.cpp.
 #include "core/sha256.hpp"
-
-#include "core/paths.hpp"
-
-#include <praenora/runtime/error.hpp>
 
 #include <algorithm>
 #include <cstring>
-#include <fstream>
-#include <system_error>
+#include <istream>
 #include <vector>
 
 namespace praenora::detail {
@@ -151,15 +148,7 @@ std::string sha256_hex(std::string_view data) {
     return hash.finish_hex();
 }
 
-std::string sha256_file_hex(const std::filesystem::path& file) {
-    std::error_code ec;
-    std::ifstream in;
-    if (!std::filesystem::is_directory(file, ec)) {
-        in.open(file, std::ios::binary);
-    }
-    if (!in.is_open()) {
-        throw Error(ErrorCode::IO_ERROR, "cannot open file '" + path_to_utf8(file) + "'");
-    }
+std::optional<std::string> sha256_stream_hex(std::istream& in) {
     Sha256 hash;
     std::vector<char> chunk(64 * 1024);
     while (in) {
@@ -170,7 +159,7 @@ std::string sha256_file_hex(const std::filesystem::path& file) {
         }
     }
     if (in.bad()) {
-        throw Error(ErrorCode::IO_ERROR, "cannot read file '" + path_to_utf8(file) + "'");
+        return std::nullopt;
     }
     return hash.finish_hex();
 }

@@ -1,5 +1,5 @@
-# Builds the runtime on each platform against its dependency bundle, tests it and archives the
-# installation (docs/releasing.md).
+# Builds the runtime on each platform against its dependency bundle and its Python environment
+# bundle, tests it and archives the installation (docs/releasing.md).
 #
 # - On a pull request to main: builds and tests every platform, checks that each archive needs only
 #   the system's libraries and its own, and keeps the archives as workflow artifacts for 7 days.
@@ -8,18 +8,21 @@
 #   draft release v<version> with the archives and their checksums; an administrator publishes it.
 #
 # Each build job fetches the dependency bundle of its key, which cmake/PraenoraRuntimeDepsPin.cmake
-# pins, with cmake/praenora_fetch_runtime_deps.cmake, and runs the CI presets ci-<key> of
-# CMakePresets.json (docs/developer-guide.md#ci-presets). A bundle is built with the compiler of
-# the runner image of praenora-runtime-deps' workflow, and the runtime must be built with that
-# compiler or a newer one of the same family, so the runner labels are those of that workflow,
-# fixed versions, never -latest.
+# pins, with cmake/praenora_fetch_runtime_deps.cmake, and the Python environment bundle of its key,
+# which cmake/PraenoraRuntimePyenvPin.cmake pins, with cmake/praenora_fetch_runtime_pyenv.cmake,
+# and runs the CI presets ci-<key> of CMakePresets.json (docs/developer-guide.md#ci-presets). A
+# bundle is built with the compiler of the runner image of its repository's workflow, and the
+# runtime must be built with that compiler or a newer one of the same family, so the runner labels
+# are those of praenora-runtime-deps' workflow, which praenora-runtime-pyenv's uses too, fixed
+# versions, never -latest.
 #
 # The test ci.workflow_consistency (tests/ci/check_workflow_consistency.cmake) reads this file as
 # text, line by line, and relies on this format: each matrix entry is a line "- key: <key>"
 # followed by a line "runner: <label>"; the keys are the platforms of
-# PRAENORA_RUNTIME_DEPS_PLATFORMS in the pin file, each with its presets ci-<key>; each runner
-# label is ubuntu-24.04, macos-26 or windows-2022, the one of its key's operating system, and each
-# runs-on value is one of these labels or the matrix's runner; each action is used on a line
+# PRAENORA_RUNTIME_DEPS_PLATFORMS and of PRAENORA_RUNTIME_PYENV_PLATFORMS in the two pin files,
+# each with its presets ci-<key>; each runner label is ubuntu-24.04, macos-26 or windows-2022, the
+# one of its key's operating system, and each runs-on value is one of these labels or the matrix's
+# runner; each action is used on a line
 # "uses: <owner>/<name>@<commit of 40 hexadecimal digits> # v<version>". Each of these values is
 # on the line of its key, unquoted and without a comment (but the version comment of uses:); the
 # test refuses a key whose value is on the lines after it.
@@ -51,6 +54,8 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       deps-version: ${{ steps.deps.outputs.version }}
       deps-repository: ${{ steps.deps.outputs.repository }}
+      python-environment-version: ${{ steps.pyenv.outputs.version }}
+      python-environment-repository: ${{ steps.pyenv.outputs.repository }}
     env:
       PUBLISH: ${{ github.event_name == 'workflow_dispatch' && inputs.publish }}
     steps:
@@ -84,6 +89,20 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "repository=$repository" >> "$GITHUB_OUTPUT"
           echo "Dependency bundles $version of $repository"
+      - name: Read the pin of the Python environment bundles
+        id: pyenv
+        run: |
+          pin=cmake/PraenoraRuntimePyenvPin.cmake
+          version=$(sed -n 's/^set(PRAENORA_RUNTIME_PYENV_VERSION "\([0-9.]*\)")$/\1/p' "$pin")
+          repository=$(sed -n 's/^set(PRAENORA_RUNTIME_PYENV_REPOSITORY "\([^"]*\)")$/\1/p' \
+              "$pin")
+          if [ -z "$version" ] || [ -z "$repository" ]; then
+            echo "::error::No PRAENORA_RUNTIME_PYENV_VERSION or _REPOSITORY found in $pin"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "repository=$repository" >> "$GITHUB_OUTPUT"
+          echo "Python environment bundles $version of $repository"
       - name: Check that a release can be made
         if: env.PUBLISH == 'true'
         env:
@@ -159,6 +178,13 @@ jobs:
         run: >-
           cmake "-DPLATFORM=${{ matrix.key }}" "-DDESTINATION=${{ runner.temp }}/deps"
           -P cmake/praenora_fetch_runtime_deps.cmake
+      # The same for the Python environment bundle of the key (PRAENORA_RUNTIME_PYENV), which the
+      # CI presets name as PraenoraRuntimePyenv_DIR. The environment is built in Release only, so
+      # both Windows keys fetch the same archive.
+      - name: Fetch the Python environment bundle
+        run: >-
+          cmake "-DPLATFORM=${{ matrix.key }}" "-DDESTINATION=${{ runner.temp }}/pyenv"
+          -P cmake/praenora_fetch_runtime_pyenv.cmake
       - name: Show the tools
         shell: bash
         env:
@@ -168,13 +194,20 @@ jobs:
           swig -version
           "$PYTHON" --version
           echo "PRAENORA_RUNTIME_DEPS=$PRAENORA_RUNTIME_DEPS"
+          echo "PRAENORA_RUNTIME_PYENV=$PRAENORA_RUNTIME_PYENV"
       # No step shortens the checkout's path on Windows, as praenora-runtime-deps' workflow does
       # with subst for its object files. In the checkout D:\a\praenora-runtime\praenora-runtime
-      # (39 characters with its last \), the longest path of a windows-x64-release job is
-      # estimated at 235 characters, below the limit of 259: a license file in CPack's staging
-      # directory, build\ci-windows-x64-release\package\_CPack_Packages\win64\ZIP\<archive name>\
-      # share\praenora\licenses\libroadrunner-deps\third_party\NuML\libnuml\LICENSE.txt. The
-      # longest object file path, which cl limits, is estimated at 172 (docs/releasing.md).
+      # (39 characters with its last \), the longest object file path, which cl limits to 259
+      # characters, is estimated at 172. The Python environment, whose deepest file is about 140
+      # characters below its root, takes other paths of a windows-x64-release job past 259: about
+      # 329 in CPack's staging directory, build\ci-windows-x64-release\package\_CPack_Packages\
+      # win64\ZIP\<archive name>\lib\praenora\python-environment\python\Lib\site-packages\...,
+      # 325 in that of install.package (build\ci-<key>\pkg\) and 273 in install.consumer's moved
+      # installation. The jobs rely on CMake and CPack, which alone open those paths, handling
+      # paths longer than 259 characters, as praenora-runtime-pyenv's workflow shows on
+      # windows-2022, where CPack archives paths of about 300 characters (not yet verified for this
+      # workflow); a shorter checkout path would not bring them below 259. The Python files that an
+      # installation's programs open stay below it (docs/releasing.md).
       - name: Configure
         run: >-
           cmake --preset ci-${{ matrix.key }}
@@ -196,7 +229,11 @@ jobs:
       # libraries that each program and library of bin/, lib/ (the service providers included) and
       # libexec/ names, with readelf -d (Linux), otool -L (macOS) or dumpbin -dependents
       # (Windows); a library that is neither the system's nor in the archive fails it, named with
-      # its file, and the archive is not uploaded (docs/releasing.md#the-workflow).
+      # its file, and the archive is not uploaded (docs/releasing.md#the-workflow). It skips the
+      # Python environment, lib/praenora/python-environment/, which the archive holds as
+      # praenora-runtime-pyenv's workflow checked it. On Windows it also accepts python3*.dll for
+      # the files of lib/praenora/providers/python/ (the Python core needs it) when the archive
+      # holds it in lib/praenora/python-environment/python/.
       - name: Check the archive's libraries
         shell: bash
         env:
@@ -233,6 +270,7 @@ jobs:
           mkdir -p "$work"
           (cd "$work" && cmake -E tar xf "$archive")
           cd "$work/$name"
+          environment=lib/praenora/python-environment
 
           # libraries <file>: the libraries that <file> names, one per line.
           libraries() {
@@ -251,7 +289,8 @@ jobs:
           in_archive() {
             [ -n "$(find . -name "$1" -print)" ]
           }
-          # allowed <library>: whether <library> is the system's or in the archive.
+          # allowed <library> <file>: whether <library>, which <file> needs, is the system's or in
+          # the archive.
           allowed() {
             case "$RUNNER_OS" in
               Linux)
@@ -276,6 +315,12 @@ jobs:
                   msvcp140*.dll | vcruntime140*.dll | concrt140*.dll | ucrtbase*.dll) return 0 ;;
                   praenora_runtime.dll) [ -f bin/praenora_runtime.dll ] ;;
                   */* | *\\*) return 1 ;;
+                  # The Python core's libpython, from the archive's Python environment.
+                  python3*.dll)
+                    case "$2" in
+                      lib/praenora/providers/python/*) [ -f "$environment/python/$1" ] ;;
+                      *) return 1 ;;
+                    esac ;;
                   *) [ -f "$system32/$1" ] ;;
                 esac ;;
               *) return 1 ;;
@@ -291,10 +336,15 @@ jobs:
             exit 1
           fi
           if [ "$RUNNER_OS" = Windows ]; then
-            files=$(find "${dirs[@]}" -type f \( -iname '*.exe' -o -iname '*.dll' \) | sort)
+            files=$(find "${dirs[@]}" -type f ! -path "$environment/*" \
+                \( -iname '*.exe' -o -iname '*.dll' \) | sort)
           else
-            files=$(find "${dirs[@]}" -type f \( -path 'bin/*' -o -path 'libexec/*' \
-                -o -name '*.so' -o -name '*.so.*' -o -name '*.dylib' \) | sort)
+            files=$(find "${dirs[@]}" -type f ! -path "$environment/*" \
+                \( -path 'bin/*' -o -path 'libexec/*' -o -name '*.so' -o -name '*.so.*' \
+                -o -name '*.dylib' \) | sort)
+          fi
+          if [ -d "$environment" ]; then
+            echo "$environment/: skipped, as praenora-runtime-pyenv's workflow checked it"
           fi
           if [ -z "$files" ]; then
             echo "::error::$name holds no program or library to check"
@@ -318,7 +368,7 @@ jobs:
             fi
             echo "$file: $(printf '%s' "$names" | tr '\n' ' ')"
             while IFS= read -r library; do
-              if ! allowed "$library"; then
+              if ! allowed "$library" "$file"; then
                 echo "::error::$file needs $library, which is neither the system's nor in" \
                     "the archive"
                 problems=$((problems + 1))
@@ -354,6 +404,8 @@ jobs:
       VERSION: ${{ needs.prepare.outputs.version }}
       DEPS_VERSION: ${{ needs.prepare.outputs.deps-version }}
       DEPS_REPOSITORY: ${{ needs.prepare.outputs.deps-repository }}
+      PYTHON_ENVIRONMENT_VERSION: ${{ needs.prepare.outputs.python-environment-version }}
+      PYTHON_ENVIRONMENT_REPOSITORY: ${{ needs.prepare.outputs.python-environment-repository }}
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
     steps:
@@ -389,6 +441,7 @@ jobs:
           "$praenora" providers list --json > "$RUNNER_TEMP/providers.json"
           docs="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/blob/$GITHUB_SHA/docs"
           deps="$DEPS_REPOSITORY/releases/tag/v$DEPS_VERSION"
+          pyenv="$PYTHON_ENVIRONMENT_REPOSITORY/releases/tag/v$PYTHON_ENVIRONMENT_VERSION"
           # paragraph <text>...: one line of Markdown, the arguments joined with spaces.
           paragraph() { echo "$*"; }
           {
@@ -409,18 +462,23 @@ jobs:
                 "$RUNNER_TEMP/providers.json"
             echo
             paragraph "Built against the dependency bundles of" \
-                "[praenora-runtime-deps $DEPS_VERSION]($deps)." \
+                "[praenora-runtime-deps $DEPS_VERSION]($deps), with the Python environment of" \
+                "[praenora-runtime-pyenv $PYTHON_ENVIRONMENT_VERSION]($pyenv), which each archive" \
+                "holds in \`lib/praenora/python-environment/\`." \
                 "Each archive has a \`.sha256\` file beside it. Checking, unpacking and running" \
                 "an archive: [docs/user-guide.md]($docs/user-guide.md#getting-the-tool)."
             echo
             paragraph "This repository's files are under the MIT license. The runtime and the" \
-                "service providers \`roadrunner\` and \`antimony\` in the archives hold" \
-                "third-party code, linked statically or compiled in from its headers, which keeps" \
-                "its own licenses: in the runtime, yaml-cpp, spdlog with the fmt library it" \
-                "bundles, json-schema-validator and nlohmann/json; in the providers," \
-                "libRoadRunner with LLVM, libSBML and libroadrunner-deps' other libraries, and" \
-                "libAntimony. Each archive holds their license files in" \
-                "\`share/praenora/licenses/\`" \
+                "service providers in the archives hold third-party code, linked statically or" \
+                "compiled in from its headers, which keeps its own licenses: in the runtime," \
+                "yaml-cpp, spdlog with the fmt library it bundles, json-schema-validator and" \
+                "nlohmann/json; in the providers, libRoadRunner with LLVM, libSBML and" \
+                "libroadrunner-deps' other libraries (\`roadrunner\`), libAntimony" \
+                "(\`antimony\`), and nlohmann/json (\`python\` and its Python core). The" \
+                "Python environment, which the provider \`python\` runs, holds" \
+                "CPython and the Python packages it pins, each under its own license. Each" \
+                "archive holds their license files in \`share/praenora/licenses/\` (the Python" \
+                "environment's in \`python-environment/\` there)" \
                 "([docs/developer-guide.md]($docs/developer-guide.md#license-files)). The terms" \
                 "of the NLEQ1 and NLEQ2 solvers that libRoadRunner links are an open question" \
                 "([docs/open-questions.md]($docs/open-questions.md), OQ-27)."

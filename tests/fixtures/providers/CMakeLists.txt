@@ -12,7 +12,9 @@
 # those with a FIXTURE_* definition, all but test-reordered and test-negative-zero, break one rule
 # of the provider interface on purpose; test-conflict, test-retry and test-order have none and are
 # correct. test-simulation, test-conversion and test-store are C++17 (with nlohmann/json); the
-# others are C99. All are compiled with the project's warnings.
+# others are C99. All are compiled with the project's warnings. With
+# PRAENORA_WITH_PYTHON_ENVIRONMENT, test-python-echo offers test.echo@0.0 too, its echo
+# implemented by a Python class (below).
 
 # praenora_add_fixture_provider(<name> SOURCES <source>... [SERVICES <service>@<major>.<minor>...]
 #                               [DEFINITIONS <definition>...] [LINK_LIBRARIES <library>...])
@@ -104,3 +106,26 @@ praenora_add_fixture_provider(test-conflict SOURCES ${variant})
 praenora_add_fixture_provider(test-retry SOURCES ${variant})
 # A correct provider used only by the test that a run starts its providers before any module.
 praenora_add_fixture_provider(test-order SOURCES ${variant})
+
+# test-python-echo: test.echo@0.0 implemented by the Python class test_python_echo:Echo
+# (test-python-echo/python/test_python_echo/), through the shared glue of the providers that run
+# Python. praenora_add_provider() cannot build it: praenora_add_python_provider()
+# (cmake/PraenoraPythonProvider.cmake) links the loader and the glue, copies its Python sources
+# into python/ beside the library, compiles their digest into it and writes its environment file,
+# python-environment.json. Its engine object is {"name": "test-python-echo-engine", "version":
+# "1.0.0"} with the environment's added. It links neither the runtime nor Python, and exists only
+# with the environment.
+if(PRAENORA_WITH_PYTHON_ENVIRONMENT)
+    praenora_add_python_provider(test_python_echo
+        NAME test-python-echo
+        VERSION 0.1.0
+        SERVICES test.echo@0.0
+        ENGINE_JSON "{\"name\": \"test-python-echo-engine\", \"version\": \"1.0.0\"}"
+        SOURCES test-python-echo/test_python_echo_provider.cpp
+        PYTHON_SOURCES test_python_echo
+        PYTHON_ROOT test-python-echo/python
+        OUTPUT_DIRECTORY "${PRAENORA_TEST_PROVIDERS_DIR}/test-python-echo")
+    target_include_directories(test_python_echo PRIVATE "${PROJECT_SOURCE_DIR}/tests/support")
+    praenora_target_warnings(test_python_echo)
+    add_dependencies(praenora_test_providers test_python_echo)
+endif()

@@ -3,8 +3,9 @@
 This guide is for teams that write Praenora modules: libraries, built in their own repositories,
 that implement one or more capabilities of the protocol catalog and that the runtime loads at run
 time. It covers the module SDK, the rules of the ABI, the C++ adapter, the manifest,
-`praenora_add_module()`, runtime services and the simulation service, the in-process test kit, test
-vectors, the contract checks, the determinism and portability rules, and versioning. The normative
+`praenora_add_module()`, runtime services and the simulation service, the in-process test kit,
+modules in Python, test vectors, the contract checks, the determinism and portability rules, and
+versioning. The normative
 rules are in [specs/module-abi.md](specs/module-abi.md), [specs/manifest.md](specs/manifest.md) and
 [specs/threading-and-ownership.md](specs/threading-and-ownership.md).
 
@@ -43,13 +44,18 @@ needs only a C or C++ compiler: no runtime library and no third-party package.
 | `praenora/sdk/module.hpp` | The optional C++ adapter (header-only, C++17 standard library only). |
 | `praenora/sdk/testing.hpp` | The in-process test kit (header-only). |
 | `PraenoraModule.cmake` | `praenora_add_module()`, loaded by `find_package`. |
+| `praenora/sdk/python.h` | The table of the Python service `praenora.python@0` (C99; [C and C++ modules that use Python](#c-and-c-modules-that-use-python)). |
+| `praenora/sdk/python_module.hpp` | The native side of Python modules, which `praenora_add_python_module()` generates a source for (header-only; [Modules in Python](#modules-in-python)). |
+| `PraenoraPythonDigest.cmake` | `praenora_python_directory_digest()`, the digest of a directory's Python sources ([python-service.md](specs/python-service.md#the-directory-digest)). |
+| `PraenoraPythonModule.cmake` | `praenora_add_python_module()`, loaded by `find_package` ([Modules in Python](#praenora_add_python_module)). |
 
 ```cmake
 find_package(Praenora 0.2 REQUIRED COMPONENTS ModuleSDK)
 ```
 
-gives the target `Praenora::ModuleSDK` and `praenora_add_module()`. The package accepts every
-0.2.z installation (`SameMinorVersion` while the version is 0.x).
+gives the target `Praenora::ModuleSDK`, `praenora_add_module()` and
+`praenora_add_python_module()`. The package accepts every 0.2.z installation (`SameMinorVersion`
+while the version is 0.x).
 
 ## A first module
 
@@ -810,6 +816,434 @@ framework:
   defines `PRAENORA_MODULE_NAME`, `PRAENORA_MODULE_VERSION` and `PRAENORA_MODULE_CAPABILITIES`
   itself, as `last_value_test.cpp` above does.
 
+## Modules in Python
+
+A module can be written in Python: a class derived from `praenora.sdk.Module`, its Python sources,
+and a module library that `praenora_add_python_module()` generates. The library forwards the ABI's
+table to the class through the runtime service `praenora.python@0`, which the provider `python`
+offers. Building a Python module needs no Python: a C++17 compiler and the SDK build its library,
+as for any module. Running it needs the provider `python`, which a build with
+`PRAENORA_WITH_PYTHON_ENVIRONMENT=ON` holds in its build tree (the local preset `dev-python`) and
+in its installation, with the Python environment it runs
+([user-guide.md](user-guide.md#the-python-environment-in-an-installation)). The specification is
+[python-service.md](specs/python-service.md#python-modules). The example predictor in Python,
+[`examples/modules/predictor-python`](../examples/modules/predictor-python), is a module of this
+repository built that way, with numpy; it gives the outputs of the C++ example predictor
+([user-guide.md](user-guide.md#running-the-example-workflow)).
+
+### The class
+
+`praenora.sdk` is pure Python, standard library only, in `python/praenora/sdk/` of this repository
+and in the `praenora-runtime` wheel. The class MUST derive from `sdk.Module`: the runtime creates
+its object through a class method that `sdk.Module` defines, and a class of its own fails `create`
+(`INTERNAL`, an `AttributeError` that names `_praenora_adapter`).
+
+```python
+from praenora import sdk
+
+class Estimator(sdk.Module):
+    def __init__(self, context):          # context.host (sdk.Host), context.document (create doc)
+        super().__init__(context)
+        self.gain = context.document["parameters"]["gain"]
+
+    def initialize(self, document):       # the run's fingerprint and seed, and the time settings
+        self.seed = document["run"]["seed"]
+
+    def invoke(self, document):           # the invocation document in, the result document out
+        host = self.context.host
+        if host.log_enabled(sdk.LogLevel.DEBUG):
+            host.log(sdk.LogLevel.DEBUG, "estimating")
+        if host.cancel_requested():
+            raise sdk.Cancelled()
+        x = document["inputs"]["x"]["data"]   # inputs are envelopes by port; data is the payload
+        return {"outputs": {"estimate": {"data": self.gain * x}}}
+
+    def finalize(self):
+        pass
+```
+
+Documents are the PMP documents as dicts of JSON values ([protocol.md](specs/protocol.md)); the
+input of port `x` is an envelope, and its payload is `document["inputs"]["x"]["data"]`.
+`diagnostics()` returns `{}` unless you override it. Raise
+`sdk.Error(sdk.Status.INVALID_ARGUMENT, "message", {"detail": 1})` to fail a call with a status
+code and details; any other exception fails it with `INTERNAL`, the message `"<Type>: <message>"`
+and its traceback in the details (`details.traceback`, a list of lines). Poll
+`host.cancel_requested()` in long loops and raise `sdk.Cancelled`: cancellation is cooperative, as
+for native modules. `print()`, `sys.stderr` and `logging` become log records of the step (levels
+info, warn, and `logging`'s own); nothing reaches the tool's standard output, which carries its
+`--json` documents.
+
+**Threads.** The runtime makes every call of an instance on one thread, the instance's own, in its
+process and in a module host alike, so what Python keeps per thread lasts from one call to the
+next, as in a Python program: a context variable, numpy's error state (`numpy.seterr()`),
+`decimal`'s context or a `threading.local` value set in `__init__` or `initialize` holds in each
+`invoke`. `host` acts for the call that runs on the calling thread. On a thread that the module
+starts (`threading`, `concurrent.futures.ThreadPoolExecutor`), `host.log()` records go to the
+provider's log rather than the step's, `host.cancel_requested()` is always false, and the thread
+has context variables of its own: log and poll on the thread of the call, and have workers report
+back to it. The test kit's `FakeHost` answers alike on every thread, so a test cannot show this.
+
+### A complete Python module
+
+This example implements `example.estimate@0.1.0` as [A first module](#a-first-module) does, in
+Python, with a self test. Install `praenora-runtime` somewhere, as there (`PREFIX`), and create the
+module's directory, for example `${TMPDIR:-/tmp}/last-value-py`, with these files.
+
+`CMakeLists.txt`:
+
+```cmake
+cmake_minimum_required(VERSION 3.24)
+project(last_value_py VERSION 0.1.0 LANGUAGES CXX)
+
+find_package(Praenora 0.2 REQUIRED COMPONENTS ModuleSDK)
+
+praenora_add_python_module(last_value_py
+    NAME last-value-py
+    VERSION 0.1.0
+    CAPABILITIES example.estimate@0.1.0
+    CLASS last_value_py.estimator:LastValue
+    PYTHON_SOURCES last_value_py
+    SELF_TEST
+    TEST_VECTORS vectors.json)
+```
+
+`last_value_py/__init__.py`, which makes `last_value_py` a package:
+
+```python
+"""last-value-py: the capability example.estimate@0.1.0, in Python."""
+```
+
+`last_value_py/estimator.py`, the class:
+
+```python
+"""Each tick, every series and variable is estimated by its latest usable observation in the
+tick's batch."""
+
+from praenora import sdk
+
+
+def latest_estimates(batch):
+    """The latest usable observation of each series and variable, as estimates, sorted by key."""
+    latest = {}
+    for row in batch["observations"]:
+        if row.get("missing", False) or row.get("censoring", "none") != "none":
+            continue
+        if not isinstance(row.get("value"), (int, float)):
+            continue
+        # Rows arrive sorted by time, so the last usable row of a key is its latest.
+        latest[(row["series_id"], row["variable_id"])] = row
+    return [{"series_id": series, "variable_id": variable, "time": row["time"],
+             "value": row["value"], "basis": "observation"}
+            for (series, variable), row in sorted(latest.items())]
+
+
+class LastValue(sdk.Module):
+    def invoke(self, document):
+        try:
+            batch = document["inputs"]["observations"]["data"]
+            estimates = latest_estimates(batch)
+            state = {"time_unit": batch["time_unit"], "estimates": estimates}
+        except (KeyError, TypeError) as error:
+            raise sdk.Error(sdk.Status.DATA_INVALID, "bad observation batch: %r" % (error,))
+        host = self.context.host
+        if host.log_enabled(sdk.LogLevel.DEBUG):
+            host.log(sdk.LogLevel.DEBUG, "%d estimates" % len(estimates))
+        return {"outputs": {"state": {"data": state}}}
+
+    @classmethod
+    def self_test(cls, host):
+        batch = {"observations": [
+            {"series_id": "S", "variable_id": "v", "time": 0.0, "value": 1.0},
+            {"series_id": "S", "variable_id": "v", "time": 1.0, "value": 2.0},
+        ]}
+        latest = latest_estimates(batch)
+        passed = len(latest) == 1 and latest[0]["value"] == 2.0
+        return {"passed": passed, "checks": [
+            {"name": "latest-wins", "passed": passed, "message": "the later row is the estimate"}]}
+```
+
+`vectors.json`: the vectors of [A first module](#a-first-module), unchanged.
+
+`test_estimator.py`, a unit test of the class with the test kit ([The Python test
+kit](#the-python-test-kit)), no runtime involved:
+
+```python
+import unittest
+
+from praenora.sdk import testing
+
+from last_value_py.estimator import LastValue
+
+
+class LastValueTest(unittest.TestCase):
+    def test_latest_observation_wins(self):
+        driver = testing.ModuleDriver(LastValue, {}, step="estimate", seed=7)
+        driver.create()
+        driver.initialize()
+        batch = {"window": {"start": 0.0, "end": 1.0}, "time_unit": "d", "observations": [
+            {"series_id": "S01", "variable_id": "population", "time": 0.25, "value": 10.0},
+            {"series_id": "S01", "variable_id": "population", "time": 0.75, "value": 12.5}]}
+        result = driver.invoke({"observations": batch}, tick=0)
+        driver.finalize()
+        state = result["outputs"]["state"]["data"]
+        self.assertEqual([e["value"] for e in state["estimates"]], [12.5])
+
+    def test_self_test(self):
+        self.assertTrue(LastValue.self_test(testing.FakeHost())["passed"])
+
+
+if __name__ == "__main__":
+    unittest.main()
+```
+
+Test the class, build the library, then check and run the module with a tree that holds the
+provider `python` (here the build tree of `dev-python`):
+
+```bash
+MODULE="${TMPDIR:-/tmp}/last-value-py"
+PYTHONPATH="$PWD/python" python3 -B -m unittest discover -s "$MODULE" -p "test_*.py"
+cmake -S "$MODULE" -B "$MODULE/build" -G Ninja -DCMAKE_PREFIX_PATH="$PREFIX"
+cmake --build "$MODULE/build"
+./build/dev-python/bin/praenora modules check \
+    "$MODULE/build/last-value-py/last-value-py.pmm.json"
+```
+
+`PYTHONPATH` names the checkout's `python/` directory, which holds `praenora.sdk`; the wheel's
+`praenora-runtime` holds it too, and so does an installation with the Python environment, in
+`<prefix>/lib/praenora/providers/python/python` (`lib64` or the like where the build named another
+library directory), which may be named instead. The build writes `build/last-value-py/`: the library
+`last-value-py.so` (`.dll` on Windows), its manifest, a copy of the vectors and the copy of the
+sources, `last-value-py.python/last_value_py/`. The check ends with
+`17 checks: 17 passed, 0 failed, 0 skipped`. The module runs in the example workflow in place of
+the example estimator, as the C++ one does, in the runtime's process or in module hosts:
+
+```bash
+WF="${TMPDIR:-/tmp}/last-value-py-workflow"
+mkdir -p "$WF/data"
+cp examples/workflows/estimate-predict/data/observations.csv "$WF/data/"
+sed -e 's/name: example-estimator/name: last-value-py/' \
+    -e 's/parameters: { gain: 0.6 }/parameters: {}/' \
+    examples/workflows/estimate-predict/workflow.yaml > "$WF/workflow.yaml"
+./build/dev-python/bin/praenora run "$WF/workflow.yaml" --module-path "$MODULE/build" \
+    --module-path build/dev-python/modules --ticks 3 --isolation process
+```
+
+### `praenora_add_python_module()`
+
+```cmake
+praenora_add_python_module(<target>
+    NAME <name> VERSION <semver> CAPABILITIES <id@version>... CLASS <package.module:Class>
+    PYTHON_SOURCES <file-or-directory>... [PYTHON_ROOT <dir>] [SELF_TEST]
+    [REQUIRES_SERVICES <name>@<major>.<minor>...] [OPTIONAL_SERVICES <name>@<major>.<minor>...]
+    [MANIFEST_TEMPLATE <file>] [TEST_VECTORS <file>] [OUTPUT_DIRECTORY <dir>]
+    [INSTALL_DESTINATION <dir> [INSTALL_COMPONENT <component>] [INSTALL_EXCLUDE_FROM_ALL]])
+```
+
+`find_package(Praenora COMPONENTS ModuleSDK)` loads it (`PraenoraPythonModule.cmake`); it needs
+CMake 3.21 or later. The arguments it shares with [`praenora_add_module()`](#praenora_add_module)
+mean what they mean there. The others:
+
+- `CLASS` names the class, `package.module:Class` (the attribute may be dotted), each part an ASCII
+  Python identifier. Its top-level package (`package/` or `package.py`) must be among the sources,
+  and nothing may lie beside it: the sources' one top-level entry below `PYTHON_ROOT` is that
+  package, or the configuration stops. The Python modules of a process share one import path, on
+  which a `helpers.py` or a directory beside the package (a namespace package) could be another
+  module's: put such files into the package.
+- `PYTHON_SOURCES` are files and directories (every file below a directory, but those below
+  `__pycache__`), relative to `PYTHON_ROOT` (by default the current source directory) or absolute
+  below it. Their paths below `PYTHON_ROOT` are their paths in the import path: with `PYTHON_ROOT`
+  `src` and the source `src/mypkg`, the package is `mypkg`.
+- `SELF_TEST`: the table's `self_test` calls the class method `self_test(host)`, which returns
+  `{"passed": bool, "checks": [{"name", "passed", "message"}]}`. Without a `MANIFEST_TEMPLATE` the
+  generated manifest declares `"features": {"self_test": true}`; with one, the template must
+  declare it, and without `SELF_TEST` it must not: the configuration stops otherwise, and for a
+  configured template that is not JSON. Without `SELF_TEST` the table has no `self_test`, and the
+  contract checks skip it.
+- The manifest requires `praenora.python@0.0`, first in `requires.services`;
+  `REQUIRES_SERVICES` and `OPTIONAL_SERVICES` add others but must not name `praenora.python`. A
+  module's Python code reaches no other runtime service in this version.
+
+The layout, in the output directory (`<current binary dir>/<name>` by default):
+
+```text
+<name>.pmm.json      the manifest
+<name>.so            the library (<name>.dll on Windows)
+<name>.python/       a copy of the sources, made by the build, holding them and nothing else
+vectors.json         a copy of TEST_VECTORS, when given
+```
+
+With `INSTALL_DESTINATION` all four are installed there, side by side. The target property
+`PRAENORA_PYTHON_MODULE_DIR` names the copy of the sources and
+`PRAENORA_PYTHON_MODULE_SOURCES_SHA256` their digest.
+
+### The sources' digest
+
+The configuration computes the directory digest of the sources
+([python-service.md](specs/python-service.md#the-directory-digest)) and compiles it into the
+generated library, `<target>_python_module.cpp` in the binary directory. Editing a source
+configures the project again (the files of a directory are globbed with `CONFIGURE_DEPENDS`), and
+the build copies the sources again. So the library's SHA-256, which the run fingerprint records,
+changes with every byte of the Python sources, and a run's fingerprint names the Python code it
+runs.
+
+When it creates the module's object, the runtime checks the files in `<name>.python/` against the
+digest: sources edited after the build fail `create` with `DATA_INVALID` ("the Python sources below
+... differ from those the module was built with"); build again instead. The code below a path is
+fixed for the life of a process: once imported, it is never imported again, and another build at
+the same path in the same process fails `create` with `DATA_INVALID`, which says to use a new
+process. Two modules that ship a top-level package of the same name cannot run in one process
+(`INVALID_ARGUMENT`: "package ... is already loaded from ..."), nor can a module that would shadow a
+package of the environment: give each module's package a name of its own, or run the steps in
+module hosts. The runtime checks the location of that one package; `praenora_add_python_module()`
+keeps every other name off the import path, since the sources hold nothing beside the package.
+
+### Determinism and seeds
+
+The runtime's interpreter has the hash seed 0, so the iteration order of a set of strings is the
+same in every run. Take randomness from the run's seed, in the initialize
+document, never from the clock or the operating system:
+
+```python
+import numpy
+from praenora import sdk
+
+class Noisy(sdk.Module):
+    def initialize(self, document):
+        self.generator = numpy.random.default_rng(document["run"]["seed"])
+```
+
+The seed of the initialize document is the step's own, derived from the run's seed, so two steps
+of one module draw different numbers and a run with the same seed draws the same ones
+([reproducibility.md](specs/reproducibility.md#seeds)).
+
+### Child processes and `finalize()`
+
+A module may start more interpreters: `multiprocessing` and `subprocess` with `sys.executable`.
+
+- The default start method is `spawn`: the runtime's process is never forked, and `fork` is not
+  supported. A child runs the environment's interpreter, isolated and without writing bytecode,
+  with the import path of the module's process, so it finds the module's package and
+  `praenora.sdk`. The runtime's interpreter reads no cached bytecode, but a child does read a
+  `.pyc` that lies in a `__pycache__` directory beside a source: ship sources without them. The
+  runtime's interpreter has no cache path to write bytecode to: `py_compile.compile()` without
+  `cfile=` raises `NotADirectoryError` and `compileall` without `legacy=True` reports every file
+  as failed.
+- A child of `multiprocessing` runs isolated and so ignores `PYTHONHASHSEED`: its hash seed is
+  random. Code that runs in a child MUST NOT depend on the iteration order of a set of strings (or
+  of anything else ordered by string hashes); sort what it returns.
+- What a child prints goes to the runtime's standard error, not to the step's log records, and
+  never to standard output. A child has no host: it cannot log through the runtime or see a cancel
+  request. A process started with `subprocess` is the module's own: pass `stdout=`.
+- Stop the children in `finalize()`. The runtime's process never shuts its interpreter down, so the
+  exit handlers of `multiprocessing` never run there, and a pool left open outlives the run. A
+  module host's children end with it, also when it is killed.
+
+```python
+import multiprocessing
+from praenora import sdk
+
+def square(x):
+    return x * x
+
+class Pooled(sdk.Module):
+    def initialize(self, document):
+        self.pool = multiprocessing.get_context("spawn").Pool(2)
+
+    def invoke(self, document):
+        squares = self.pool.map(square, document["inputs"]["values"]["data"]["values"])
+        return {"outputs": {"squares": {"data": {"values": squares}}}}
+
+    def finalize(self):
+        self.pool.close()
+        self.pool.join()
+```
+
+The function a child runs must be importable by name, so it lives at the top level of a module of
+the package, as `square` does here.
+
+### Process isolation
+
+Run Python steps in module hosts (`isolation: { mode: process }`,
+[In a module host](#in-a-module-host)) unless there is a reason not to:
+
+- a crash of the module or of a package it uses (a segmentation fault, `os.abort()`) ends only its
+  module host, and fails only its step (`MODULE_CRASHED`);
+- a call that never returns is ended by killing the module host at its deadline plus the
+  cancellation grace; in the runtime's process such a call is abandoned and keeps running Python
+  code until the process exits;
+- each module host imports its module's code afresh, so two modules with a package of the same
+  name can run in one run, and a rebuilt module needs no new runtime process;
+- a process holds one Python interpreter: a program that runs another one (the Python front end,
+  `praenora.runtime`) runs its Python steps in module hosts only ([python.md](python.md)).
+
+Under the restricted sandbox profile (macOS, `sandbox: restricted`,
+[In a module host](#in-a-module-host)) a module host may read files and load libraries, and the
+interpreter runs; but it may start no process, so a `multiprocessing` pool fails (a Python
+exception, which fails the step as any exception does), and it may write only below its own
+temporary directory (a `PermissionError` elsewhere).
+
+### The Python test kit
+
+`praenora.sdk.testing` drives the class without the runtime, from `unittest` or any test framework,
+as `test_estimator.py` above does:
+
+```python
+import unittest
+from praenora.sdk import testing
+
+class EstimatorTest(unittest.TestCase):
+    def test_gain(self):
+        driver = testing.ModuleDriver(Estimator, {"gain": 2.0}, step="estimate", seed=7)
+        driver.create()
+        driver.initialize()
+        result = driver.invoke({"x": 3.0}, tick=0)    # payloads by port, wrapped in envelopes
+        driver.finalize()
+        self.assertEqual(result["outputs"]["estimate"]["data"], 6.0)
+```
+
+The driver builds the create, initialize and invocation documents with the fields the runtime sends;
+pass `capability=`, `module=` or `time=` to change the defaults. It drives the class as the runtime
+does: it creates the module through the class method that `sdk.Module` defines (a class of its own
+fails here as it fails `create` in a run), and it writes every document and every result as JSON
+and reads it back, as the runtime does. A result that the runtime cannot write fails the call here
+as in a run, with `sdk.Error` `INVALID_ARGUMENT` and the runtime's message: a numpy integer,
+`float32` or `bool_`, or an array (`counts.sum()` of an integer array, `(values > 0).all()`), NaN
+or an infinity, a set. (A `float64`, such as `values.sum()` of a float array, is a `float` and
+passes, as does the `bool` of `values.size > 0`.) Convert the others first (`float()`, `int()`,
+`bool()`, `.tolist()`); a tuple comes back as a list, as a run gives it.
+`driver.diagnostics()` returns the diagnostics document and `driver.self_test()` runs the class's
+self test as the runtime runs it, on the class alone. `FakeHost(cancel_after=N)` reports
+cancellation after `N` polls, and records every log record in `logs`; pass it as `host=` to the
+driver to inspect or to cancel. The driver makes every call on the test's thread; the runtime makes
+an instance's calls on one thread too ([The class](#the-class)).
+
+### C and C++ modules that use Python
+
+A module in C or C++ may use `praenora.python@0` itself
+([python.h](../include/praenora/sdk/python.h), [python-service.md](specs/python-service.md)): it
+declares the service (`REQUIRES_SERVICES praenora.python@0.0`), gets the table from its host API,
+creates objects from Python sources it ships and calls their methods with JSON documents.
+`praenora::sdk::library_directory()` of `praenora/sdk/python_module.hpp` gives the directory of the
+library that holds an address (pass one of the module's own objects), beside which the module
+installs its sources; pass their digest as `path_sha256`, so the module's library carries it, as a
+Python module's does. The build then needs three pieces, which `praenora_add_python_module()` makes
+for a Python module but not for a C or C++ one:
+
+- **the digest**, compiled in: `praenora_python_directory_digest()` of the installed
+  `PraenoraPythonDigest.cmake` over the files, which runs when the project is configured, so the
+  project must be configured again when a file changes: glob the files with `CONFIGURE_DEPENDS` and
+  add them to the directory's `CMAKE_CONFIGURE_DEPENDS`, or a rebuilt library carries the digest of
+  older sources and its `create_object` fails with `DATA_INVALID` ("differ from those the module
+  was built with");
+- **a copy of the sources beside the library**, made by the build (a custom command), which holds
+  exactly the files of the digest and nothing beside the package;
+- **its install** beside the installed library, from that copy.
+
+The repository's fixture `fx-python-call` (`tests/fixtures/modules/python/CMakeLists.txt`) shows the
+first; the other two use a helper that is internal to this repository. Such a module gets only the
+service's check of its callable's top-level package
+([python-service.md](specs/python-service.md#create_object)): keep its sources to one package too.
+
 ## Test vectors
 
 A test vectors document (`kind: module-test-vectors`, schema
@@ -884,7 +1318,7 @@ results are the same. What a module can meet there:
   through the host API.
 - The library loads on a thread with a main thread's stack (8 MiB unless `RLIMIT_STACK` says
   otherwise), as it does in the runtime's process on its caller's thread; the calls run on a thread
-  with the stack of the instance's worker thread, as they do there.
+  with the stack of the instance's worker thread, a main thread's too, as they do there.
 - The runtime's built-in services are not offered; the services the manifest declares are
   ([Requiring services](#requiring-services)).
 - **Under the restricted sandbox profile** (`sandbox: restricted`, macOS,

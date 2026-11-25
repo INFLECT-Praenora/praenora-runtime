@@ -68,3 +68,5 @@ Some ADRs have a split status, for example "Accepted (shape) / Proposed (details
 | [ADR-0041](ADR-0041-ci-and-releases-against-pinned-dependency-bundles.md) | CI and releases against pinned dependency bundles | Accepted | 2026-11-21 |
 | [ADR-0042](ADR-0042-control-and-status-api-over-http.md) | Control and status API over HTTP | Accepted | 2026-11-22 |
 | [ADR-0043](ADR-0043-otlp-export-of-metrics-and-logs.md) | OTLP export of metrics and logs | Accepted | 2026-11-22 |
+| [ADR-0044](ADR-0044-python-modules-and-providers-through-an-embedded-environment.md) | Python modules and providers through an embedded Python environment | Proposed | 2026-11-24 |
+| [ADR-0045](ADR-0045-python-environment-pinned-in-ci-and-installation.md) | The Python environment bundle pinned in CI and shipped in the installation | Proposed | 2026-11-24 |

@@ -4,6 +4,7 @@
 #include <dlfcn.h>
 #include <pthread.h>
 #include <pwd.h>
+#include <sys/resource.h>
 #include <unistd.h>
 
 #include <algorithm>
@@ -11,7 +12,9 @@
 #include <cstddef>
 #include <cstdlib>
 #include <cstring>
+#include <exception>
 #include <system_error>
+#include <utility>
 #include <vector>
 
 namespace praenora::detail {
@@ -23,6 +26,13 @@ const char kRuntimeMarker = 0;
 
 // The largest buffer home_directory() offers getpwuid_r() for one password database entry.
 constexpr std::size_t kMaxPasswordEntryBytes = std::size_t(1) << 20;
+
+// The start routine of a ModuleThread: runs and frees the body it is given.
+void* run_module_thread(void* raw) noexcept {
+    const std::unique_ptr<std::function<void()>> body(static_cast<std::function<void()>*>(raw));
+    (*body)();
+    return nullptr;
+}
 
 } // namespace
 
@@ -93,5 +103,88 @@ void set_current_thread_name(const std::string& name) noexcept {
 }
 
 std::int64_t current_process_id() noexcept { return static_cast<std::int64_t>(getpid()); }
+
+std::size_t module_thread_stack_size() noexcept {
+    constexpr rlim_t kFallback = rlim_t{8} << 20;
+    constexpr rlim_t kLeast = rlim_t{1} << 20;
+    constexpr rlim_t kMost = rlim_t{1} << 30;
+    rlim_t size = kFallback;
+    rlimit limit{};
+    if (::getrlimit(RLIMIT_STACK, &limit) == 0 && limit.rlim_cur != RLIM_INFINITY) {
+        size = std::clamp(limit.rlim_cur, kLeast, kMost);
+    }
+    const long page = ::sysconf(_SC_PAGESIZE);
+    if (page > 0) {
+        const auto unit = static_cast<rlim_t>(page);
+        size = (size + unit - 1) / unit * unit;
+    }
+    return static_cast<std::size_t>(size);
+}
+
+struct ModuleThread::Native {
+    pthread_t thread{};
+};
+
+ModuleThread::ModuleThread() noexcept = default;
+
+ModuleThread::ModuleThread(std::function<void()> body) {
+    auto start = std::make_unique<std::function<void()>>(std::move(body));
+    auto native = std::make_unique<Native>();
+    pthread_attr_t attributes;
+    int result = ::pthread_attr_init(&attributes);
+    if (result != 0) {
+        throw std::system_error(result, std::generic_category(), "pthread_attr_init");
+    }
+    // A size the system refuses leaves the default stack.
+    static_cast<void>(::pthread_attr_setstacksize(&attributes, module_thread_stack_size()));
+    result = ::pthread_create(&native->thread, &attributes, &run_module_thread, start.get());
+    static_cast<void>(::pthread_attr_destroy(&attributes));
+    if (result != 0) {
+        throw std::system_error(result, std::generic_category(), "pthread_create");
+    }
+    static_cast<void>(start.release()); // the thread frees it
+    native_ = std::move(native);
+}
+
+ModuleThread::ModuleThread(ModuleThread&& other) noexcept = default;
+
+ModuleThread& ModuleThread::operator=(ModuleThread&& other) noexcept {
+    if (this != &other) {
+        if (joinable()) {
+            std::terminate();
+        }
+        native_ = std::move(other.native_);
+    }
+    return *this;
+}
+
+ModuleThread::~ModuleThread() {
+    if (joinable()) {
+        std::terminate();
+    }
+}
+
+bool ModuleThread::joinable() const noexcept { return native_ != nullptr; }
+
+void ModuleThread::join() {
+    if (!joinable()) {
+        throw std::system_error(std::make_error_code(std::errc::invalid_argument));
+    }
+    if (::pthread_equal(native_->thread, ::pthread_self()) != 0) {
+        throw std::system_error(std::make_error_code(std::errc::resource_deadlock_would_occur));
+    }
+    const int result = ::pthread_join(native_->thread, nullptr);
+    if (result != 0) {
+        throw std::system_error(result, std::generic_category(), "pthread_join");
+    }
+    native_.reset();
+}
+
+void ModuleThread::detach() noexcept {
+    if (joinable()) {
+        static_cast<void>(::pthread_detach(native_->thread));
+        native_.reset();
+    }
+}
 
 } // namespace praenora::detail

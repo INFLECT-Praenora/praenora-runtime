@@ -32,9 +32,13 @@ and catalog, and the license files in `share/praenora/licenses/`: this repositor
 directories that `PRAENORA_THIRD_PARTY_LICENSE_DIRS` names. A static or header-only library found
 installed brings its license files only through that variable, so the installation of a `dev`
 build holds `praenora-runtime/LICENSE` alone unless the variable is set
-([developer-guide.md](developer-guide.md#license-files)). The example modules are installed only
-on request, as the component `Examples`, into the installation's module directory, where the tool
-finds them without a search path. An installation can be moved:
+([developer-guide.md](developer-guide.md#license-files)). The service providers built in the tree
+are installed too, and a build with the Python environment installs the environment with the
+provider `python`
+([The Python environment in an installation](#the-python-environment-in-an-installation)). The
+example modules are installed only on request, as the component `Examples`, into the
+installation's module directory, where the tool finds them without a search path. An installation
+can be moved:
 
 ```bash
 cmake --install build/dev --prefix "${TMPDIR:-/tmp}/praenora-install"
@@ -45,17 +49,21 @@ cmake --install build/dev --prefix "${TMPDIR:-/tmp}/praenora-install" --componen
 A release archive holds such an installation, without the example modules, below one directory of
 its own name, `praenora-runtime-<version>-<os>-<arch>-<compiler>-<config>`
 ([developer-guide.md](developer-guide.md#archiving-an-installation)); the Python package is built
-as a wheel instead ([python.md](python.md#building-a-wheel)). It holds both service
-providers, `roadrunner` and `antimony`, and the license files of the third-party libraries that
-they and the runtime link statically, in `share/praenora/licenses/`. Beside it, a `.sha256` file
-holds its SHA-256. Check it, unpack it anywhere and run the tool where it is (`<name>` stands for
-the archive's name):
+as a wheel instead ([python.md](python.md#building-a-wheel)). It holds the three service
+providers that the CI presets build, `roadrunner`, `antimony` and `python` (those of v0.2.0, made
+before the provider `python`, hold the first two), the Python environment that `python` runs, in
+`lib/praenora/python-environment/` (about a gigabyte unpacked;
+[The Python environment in an installation](#the-python-environment-in-an-installation)), and the
+license files of the third-party libraries that the providers and the runtime link statically and
+of the environment, in `share/praenora/licenses/` (the environment's in `python-environment/`
+there). Beside it, a `.sha256` file holds its SHA-256. Check it, unpack it anywhere and run the
+tool where it is (`<name>` stands for the archive's name):
 
 ```bash
 shasum -a 256 -c <name>.tar.xz.sha256          # sha256sum -c on Linux
 tar -xJf <name>.tar.xz
 ./<name>/bin/praenora version
-./<name>/bin/praenora providers list           # both providers, usable
+./<name>/bin/praenora providers list           # the three providers, usable
 ```
 
 On macOS, a browser marks what it downloads as quarantined, and Gatekeeper may then refuse to run
@@ -69,8 +77,9 @@ xattr -dr com.apple.quarantine <name>
 ```
 
 On Windows the archive is a `.zip` and the tool `<name>\bin\praenora.exe`. In PowerShell, compare
-the archive's SHA-256 with the first word of its `.sha256` file, then unpack it (not yet
-verified):
+the archive's SHA-256 with the first word of its `.sha256` file, then unpack it into a short
+directory, since the Python environment's paths are long
+([Long paths on Windows](#the-python-environment-in-an-installation)) (not yet verified):
 
 ```powershell
 $expected = (-split (Get-Content <name>.zip.sha256))[0]
@@ -227,6 +236,18 @@ the same; the run record says where each step ran:
     --module-path build/dev/modules --output-dir "$RUN" --overwrite --isolation process
 ```
 
+A build with the Python environment (the local preset `dev-python`) also builds
+`example-predictor-python`, the predictor as a Python module
+([module-developer-guide.md](module-developer-guide.md#modules-in-python)), and the configuration
+`workflow-python.yaml` binds the `predict` step to it. Its outputs are those of `workflow.yaml`,
+byte for byte, but for the start of each message's `id`, which names the run: the module differs,
+and so does the fingerprint. Python steps are best run in module hosts:
+
+```bash
+./build/dev-python/bin/praenora run examples/workflows/estimate-predict/workflow-python.yaml \
+    --module-path build/dev-python/modules --output-dir "$RUN-python" --isolation process
+```
+
 ## Process isolation
 
 A module is native code: in the runtime's process, a segmentation fault or an `abort()` in it ends
@@ -348,6 +369,108 @@ provider path:
 antimony    0.2.0  macos-arm64  praenora.model-conversion@0.0  .../build/dev-engines/lib/praenora/providers/antimony/antimony.provider.json      usable
 roadrunner  0.2.0  macos-arm64  praenora.simulation@0.0        .../build/dev-engines/lib/praenora/providers/roadrunner/roadrunner.provider.json  usable
 ```
+
+A build with `-DPRAENORA_WITH_PYTHON_ENVIRONMENT=ON` holds the provider `python` in its build tree
+and in its installation, with the Python environment it runs
+([The Python environment in an installation](#the-python-environment-in-an-installation)), where
+the tool finds it without a provider path. It offers
+`praenora.python@0.0`, objects of the runtime's Python environment called with JSON documents
+([specs/python-service.md](specs/python-service.md)). Its engine names the interpreter and the
+environment (package and lock), so a run's fingerprint names the environment it used. With the
+local preset `dev-python`:
+
+```bash
+./build/dev-python/bin/praenora providers list
+```
+
+```text
+python  0.2.0  macos-arm64  praenora.python@0.0  .../build/dev-python/lib/praenora/providers/python/python.provider.json  usable
+```
+
+The provider loads the environment's Python interpreter into the process when it starts, and a
+process holds one interpreter: in a process that runs another one, such as a Python interpreter
+that imported `praenora.runtime`, its start fails (`LIBRARY_LOAD_FAILED`, with a cause of status
+`UNSUPPORTED` that says so), and such a step runs in a module host instead (`isolation: process`,
+[Process isolation](#process-isolation)). A start fails too, saying which file, when the provider's
+environment file (`python-environment.json`, beside its library), the environment it names or its
+Python core is missing or of another build
+([specs/python-service.md](specs/python-service.md#loading-and-starting-the-core)).
+
+**Python steps.** A step bound to a Python module
+([module-developer-guide.md](module-developer-guide.md#modules-in-python)) runs like any other,
+given a provider of `praenora.python@0`: without one, validation refuses it with
+`SERVICE_UNAVAILABLE` at `/requires/services/0` of the module's manifest. What the module prints,
+and what it logs with `logging`, become log records of its step, and nothing reaches the tool's
+standard output; what a child process of the module prints goes to the tool's standard error. An
+exception fails the step with the module's error `INTERNAL`, whose details hold the traceback
+(`praenora run --json` shows it in `error.details.cause.details.traceback`). Run Python steps in
+module hosts (`isolation: { mode: process }`, [Process isolation](#process-isolation)): a crash then
+fails only its step, a call that never returns is ended at its deadline, and each step imports its
+module's code in a process of its own, so two modules that ship a package of one name can share a
+run. A Python step that simulates with the environment's `roadrunner` package and a step that the
+roadrunner provider serves each bring a libRoadRunner and an LLVM of their own; they run in one
+process too (verified on macOS arm64, where the run loads the provider before the Python step
+imports the package; not yet verified on Linux and Windows), and module hosts keep them apart. In
+the runtime's process, a call that ignores its deadline is abandoned and keeps running until the
+process exits; `praenora run` exits all the same, at the deadline plus the
+cancellation grace, with `MODULE_UNRESPONSIVE`. A module's Python sources changed after it was built
+are refused (`STEP_FAILED`, the module's error `DATA_INVALID`): build the module again.
+
+**The Python environment's variables.** The packages of the environment, and the Python processes
+that its code starts with `subprocess` and the process's environment, without `-I` or `-E`, read
+some variables of the process's environment: each directory variable the environment's manifest
+lists (`environment.paths`, but `PYTHONHOME`), and `PYTHONHASHSEED` (the children of
+`multiprocessing` run isolated and read none of them). The `praenora` tool and the module host set
+them first thing, each only when it is unset, when their tree has the provider `python`; a value
+you set stays. A program that embeds the runtime, through the C++ API or the Python package, sets
+them itself before it starts threads, to the absolute paths below the environment's directory and
+`PYTHONHASHSEED` to `0`; otherwise the provider's start logs a warning for each that is unset or
+differs, and the run goes on
+([specs/python-service.md](specs/python-service.md#the-processs-environment)). A step of such a
+program that runs in a module host gets them all the same: the module host sets them.
+
+### The Python environment in an installation
+
+The installation of a build with `PRAENORA_WITH_PYTHON_ENVIRONMENT=ON` holds, below its prefix
+(with `lib` the library directory, or `lib64` and the like where the build named another):
+
+| Path | Content |
+|---|---|
+| `lib/praenora/python-environment/` | The Python environment the build used, unchanged: its manifest `praenora-runtime-pyenv.json`, the interpreter and its packages in `python/`, its license files in `licenses/` and its CMake package. About a gigabyte. |
+| `lib/praenora/providers/python/` | The provider `python`: its library and manifest, the Python core (the one library that embeds the interpreter), the environment file `python-environment.json`, which names the environment and the core relative to itself (`../../python-environment`), and `python/praenora/sdk/`, the package `praenora.sdk` that Python modules import. |
+| `share/praenora/licenses/python-environment/` | A copy of the environment's license files. |
+
+Nothing there names a directory outside the installation: the core finds the environment's
+interpreter library relative to itself, and the tool and the module host find the provider's
+environment file below the installation's library directory, so the installation can be moved,
+also to a directory whose name holds spaces or characters that are not ASCII. A spawn pool that a
+module opens starts its children with the environment's interpreter, `python/bin/python3.12`, of
+the installation where it now is (on Windows `python/python.exe`, not yet verified). The installed
+tool lists the provider without a provider path:
+
+```bash
+cmake --install build/dev-python --prefix "${TMPDIR:-/tmp}/praenora-python"
+"${TMPDIR:-/tmp}/praenora-python/bin/praenora" providers list
+```
+
+```text
+python  0.2.0  macos-arm64  praenora.python@0.0  .../praenora-python/lib/praenora/providers/python/python.provider.json  usable
+```
+
+An archive of such a build, made by the target `package`
+([developer-guide.md](developer-guide.md#archiving-an-installation)), holds the same. A Python
+module installed elsewhere, with `praenora_add_python_module()`'s `INSTALL_DESTINATION`, keeps its
+sources in `<name>.python/` beside its manifest and library, and the installed tool runs it with
+the installation's provider and environment
+([module-developer-guide.md](module-developer-guide.md#modules-in-python)).
+
+**Long paths on Windows.** The environment's deepest files lie about 140 characters below its
+directory, so an installation in a deep directory holds paths longer than the 260 characters that
+Windows allows by default. `praenora.exe` declares in its application manifest that it handles
+long paths; Windows honors that only where long paths are enabled, with the setting
+`LongPathsEnabled` (`HKLM\SYSTEM\CurrentControlSet\Control\FileSystem`, a DWORD of 1) or the group
+policy "Enable Win32 long paths". Where they are not, install into a short directory, such as
+`C:\praenora` (not yet verified on Windows).
 
 ## What a run writes
 

@@ -1,12 +1,13 @@
 // The dedicated thread of one module instance: every call into the instance runs there, one at a
-// time, in the order posted.
+// time, in the order posted. Its stack is a main thread's (platform/platform.hpp, ModuleThread).
 #ifndef PRAENORA_RUNTIME_INSTANCE_WORKER_HPP
 #define PRAENORA_RUNTIME_INSTANCE_WORKER_HPP
+
+#include "platform/platform.hpp"
 
 #include <functional>
 #include <memory>
 #include <string>
-#include <thread>
 
 namespace praenora::detail {
 
@@ -43,7 +44,7 @@ private:
     void stop() noexcept;
 
     std::shared_ptr<Queue> queue_;
-    std::thread thread_;
+    ModuleThread thread_;
     bool detached_ = false;
 };
 

@@ -6,6 +6,8 @@
 #   LIBRARY=<file>    the provider library
 #   BINARY=<format>   macho (nm -gU lists the exports, with a leading '_') or elf
 #                     (nm -D --defined-only lists them)
+#   ENTRY=<name>      the one symbol the library may export, without macho's '_' (default
+#                     praenora_provider_get_api; the Python core's is praenora_python_core_get_api)
 #
 # nm's standard error is ignored; only the symbols it lists on standard output count.
 cmake_minimum_required(VERSION 3.24)
@@ -17,12 +19,15 @@ foreach(variable IN ITEMS NM LIBRARY BINARY)
     endif()
 endforeach()
 
+if(NOT DEFINED ENTRY OR ENTRY STREQUAL "")
+    set(ENTRY praenora_provider_get_api)
+endif()
 if(BINARY STREQUAL "macho")
     set(command "${NM}" -gU "${LIBRARY}")
-    set(entry_point "_praenora_provider_get_api")
+    set(entry_point "_${ENTRY}")
 else()
     set(command "${NM}" -D --defined-only "${LIBRARY}")
-    set(entry_point "praenora_provider_get_api")
+    set(entry_point "${ENTRY}")
 endif()
 praenora_test_run(NM "nm" "${command}")
 if(NOT NM_EXIT STREQUAL "0")

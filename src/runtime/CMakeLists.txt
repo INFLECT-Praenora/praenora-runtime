@@ -68,6 +68,7 @@ add_library(praenora_runtime_objects OBJECT
     core/seed.cpp
     core/semver.cpp
     core/sha256.cpp
+    core/sha256_file.cpp
     core/status_names.cpp
     core/time.cpp
     document/json_util.cpp

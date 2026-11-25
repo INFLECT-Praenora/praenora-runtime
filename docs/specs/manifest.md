@@ -294,6 +294,12 @@ evaluated. With `INSTALL_DESTINATION`, the library, the manifest and the test ve
 together; since the manifest names the other two relative to itself, an installed module works
 wherever the installation is moved.
 
+A Python module is built with `praenora_add_python_module()`
+([`PraenoraPythonModule.cmake`](../../cmake/PraenoraPythonModule.cmake), installed with the module
+SDK), which calls `praenora_add_module()` with a generated library: its manifest requires
+`praenora.python@0.0` first, and, with `SELF_TEST` and no template, declares
+`"features": {"self_test": true}` ([python-service.md](python-service.md#python-modules)).
+
 ## References
 
 - [ADR-0009](../adr/ADR-0009-module-manifests.md): module manifests.

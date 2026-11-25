@@ -52,6 +52,15 @@
       }
     },
     {
+      "name": "dev-python-local",
+      "hidden": true,
+      "cacheVariables": {
+        "CMAKE_PREFIX_PATH": "/path/to/dependency/prefix;/path/to/praenora-runtime-pyenv/bundle",
+        "CMAKE_OSX_DEPLOYMENT_TARGET": "14.0",
+        "PRAENORA_WITH_PYTHON_ENVIRONMENT": "ON"
+      }
+    },
+    {
       "name": "dev-antimony",
       "displayName": "Local development with the antimony provider, Debug",
       "inherits": ["macos-arm64-debug", "dev-antimony-local", "dev-local"]
@@ -65,6 +74,26 @@
       "name": "dev-engines",
       "displayName": "Local development with the roadrunner and antimony providers, Debug",
       "inherits": ["macos-arm64-debug", "dev-engines-local", "dev-local"]
+    },
+    {
+      "name": "dev-python",
+      "displayName": "Local development with the Python environment, Debug",
+      "inherits": ["macos-arm64-debug", "dev-python-local", "dev-local"]
+    },
+    {
+      "name": "dev-python-release",
+      "displayName": "Local development with the Python environment, Release",
+      "inherits": ["macos-arm64-release", "dev-python-local", "dev-local"]
+    },
+    {
+      "name": "dev-python-asan",
+      "displayName": "Local development with the Python environment, AddressSanitizer and UndefinedBehaviorSanitizer",
+      "inherits": ["macos-arm64-asan", "dev-python-local", "dev-local"]
+    },
+    {
+      "name": "dev-python-tsan",
+      "displayName": "Local development with the Python environment, ThreadSanitizer",
+      "inherits": ["macos-arm64-tsan", "dev-python-local", "dev-local"]
     }
   ],
   "buildPresets": [
@@ -102,6 +131,26 @@
       "name": "dev-engines",
       "inherits": "macos-arm64-debug",
       "configurePreset": "dev-engines"
+    },
+    {
+      "name": "dev-python",
+      "inherits": "macos-arm64-debug",
+      "configurePreset": "dev-python"
+    },
+    {
+      "name": "dev-python-release",
+      "inherits": "macos-arm64-release",
+      "configurePreset": "dev-python-release"
+    },
+    {
+      "name": "dev-python-asan",
+      "inherits": "macos-arm64-asan",
+      "configurePreset": "dev-python-asan"
+    },
+    {
+      "name": "dev-python-tsan",
+      "inherits": "macos-arm64-tsan",
+      "configurePreset": "dev-python-tsan"
     }
   ],
   "testPresets": [
@@ -139,6 +188,26 @@
       "name": "dev-engines",
       "inherits": "macos-arm64-debug",
       "configurePreset": "dev-engines"
+    },
+    {
+      "name": "dev-python",
+      "inherits": "macos-arm64-debug",
+      "configurePreset": "dev-python"
+    },
+    {
+      "name": "dev-python-release",
+      "inherits": "macos-arm64-release",
+      "configurePreset": "dev-python-release"
+    },
+    {
+      "name": "dev-python-asan",
+      "inherits": "macos-arm64-asan",
+      "configurePreset": "dev-python-asan"
+    },
+    {
+      "name": "dev-python-tsan",
+      "inherits": "macos-arm64-tsan",
+      "configurePreset": "dev-python-tsan"
     }
   ]
 }

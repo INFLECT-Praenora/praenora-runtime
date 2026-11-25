@@ -143,6 +143,18 @@ mode, as a step in a module host fails to load with `MODULE_HOST_UNAVAILABLE` (c
 (`isolation="in-process"`, the default), or use the runtime of a build tree or of a full
 installation.
 
+**Python steps run in a module host.** A step whose module uses the runtime's Python environment
+(its service `praenora.python@0`, from the provider `python` of a build with
+`PRAENORA_WITH_PYTHON_ENVIRONMENT`) cannot run in the Python process: a process holds one Python
+interpreter, and this one runs yours. The provider refuses to start there, and the run or
+`validate(load=True)` fails with `LIBRARY_LOAD_FAILED` (`details.reason` `"start"`), whose
+`details.cause` has the status `UNSUPPORTED` (5) and says to run the step in a module host. Give
+such steps `isolation="process"` (or their configuration's `isolation.mode: process`): the module
+host is a process of its own, where the provider starts the environment's interpreter. On Windows,
+where there is no module host in this version, the Python front end cannot run them at all; the
+`praenora` tool can (not yet verified on Windows)
+([specs/python-service.md](specs/python-service.md#loading-and-starting-the-core)).
+
 ## Errors
 
 Every failure of the runtime raises `praenora.runtime.PraenoraError`, with the attributes `code`
@@ -328,6 +340,15 @@ registered but disabled, because an instrumented extension does not load into an
 not instrumented; `ctest --preset dev-asan -L python`, a run of that label alone, then exits with 8
 ([testing.md](testing.md#sanitizer-builds)).
 
+Its `PythonEnvironmentTest` needs a build with `PRAENORA_WITH_PYTHON_ENVIRONMENT` and is skipped
+without one: it checks that a Python step fails in this process (`UNSUPPORTED`, as
+[Process isolation](#process-isolation) says) and, on POSIX, runs in a module host. The label
+also holds `python.sdk_bindings_interpreter` (not in builds with `PRAENORA_SANITIZERS`), which runs
+the tests of the package `praenora.sdk` with the same interpreter, isolated and with the standard
+library only. With the Python environment it also holds `python.sdk` and, with the examples,
+`python.example_predictor`, which test `praenora.sdk` and the example Python module's class with
+the environment's own interpreter ([testing.md](testing.md#the-python-environment)).
+
 ## Building a wheel
 
 The root [`pyproject.toml`](../pyproject.toml) builds the distribution `praenora-runtime` with
@@ -370,16 +391,21 @@ running release, as for the [local presets](developer-guide.md#local-presets). W
 binaries target 11.0, the linker warns about every Homebrew library, and the tag names the running
 macOS version all the same (`macosx_15_0_arm64` on macOS 15).
 
-**Contents.** A wheel build has only the Python package's install rules, so the wheel holds just
-`praenora/runtime/` and its `.dist-info` (`METADATA`, `WHEEL`, `RECORD` and `licenses/LICENSE`);
-`praenora` has no `__init__.py`. `licenses/LICENSE` is this repository's MIT license, which
-scikit-build-core copies from the root by its default `wheel.license-files` patterns, and
-`METADATA` says `License: MIT`, from `pyproject.toml`'s `license = { text = "MIT" }`
+**Contents.** A wheel build has only the Python package's install rules, so the wheel holds the
+packages of `python/praenora`, which `wheel.packages` names, and its `.dist-info` (`METADATA`,
+`WHEEL`, `RECORD` and `licenses/LICENSE`); `praenora` has no `__init__.py`. Beside
+`praenora/runtime/`, that is `praenora/sdk/`, the pure-Python package that Python modules import
+and test with
+([specs/python-service.md](specs/python-service.md#the-python-package-praenorasdk)); the wheel
+holds no Python environment and no provider `python`. `licenses/LICENSE` is this repository's MIT
+license, which scikit-build-core copies from the root by its default `wheel.license-files`
+patterns, and `METADATA` says `License: MIT`, from `pyproject.toml`'s `license = { text = "MIT" }`
 ([ADR-0040](adr/ADR-0040-mit-license.md)). The license files of the third-party code linked into
 the runtime library, such as a static json-schema-validator, are not in the wheel, whose
 distribution is open ([open-questions.md](open-questions.md), OQ-13). cpp-httplib, whose header is
 compiled into the runtime library for the OTLP export, is MIT-licensed too; its license file is not
-in the wheel either. The wheel built above is 1.17 MB, and 2.7 MB once installed:
+in the wheel either. The wheel built above is 1.18 MB, 13 files, and 2.8 MB once installed; beside
+its `.dist-info`, it holds the four files of `praenora/runtime/` and the five of `praenora/sdk/`:
 
 | File | Size | From |
 |---|---|---|
@@ -387,10 +413,12 @@ in the wheel either. The wheel built above is 1.17 MB, and 2.7 MB once installed
 | `_bindings.py` | 9.4 kB | SWIG's proxy module, installed by the build |
 | `_bindings_native.cpython-312-darwin.so` | 366 kB | The extension, installed by the build |
 | `libpraenora_runtime.0.2.dylib` | 2.3 MB | The runtime library, installed by the build |
+| `praenora/sdk/`: `__init__.py`, `_adapter.py`, `_child_main.py`, `_runtime.py`, `testing.py` | 28.8 kB together | `python/praenora/sdk/`, through `wheel.packages` |
 
 The wheel holds no module host (`praenora-module-host`): steps in process mode are refused there
-(checked with the wheel above) with `MODULE_HOST_UNAVAILABLE`, `details.reason` `"missing"`
-([Process isolation](#process-isolation), [open-questions.md](open-questions.md), OQ-13).
+(checked with a wheel built before `praenora.sdk` existed) with `MODULE_HOST_UNAVAILABLE`,
+`details.reason` `"missing"` ([Process isolation](#process-isolation),
+[open-questions.md](open-questions.md), OQ-13).
 
 The binaries are Release builds, stripped on installation. The extension finds the runtime library
 beside itself (an RPATH of `$ORIGIN` on Linux, `@loader_path` on macOS; on Windows the DLL lies next
@@ -413,13 +441,15 @@ uv pip install --python build/wheel-test build/wheel/praenora_runtime-0.2.0-cp31
 build/wheel-test/bin/python -c 'import praenora.runtime as pr; print(pr.version()["runtime"], pr.version()["build_type"])'
 ```
 
-prints `0.2.0 Release`. The tests of `tests/python` pass against the wheel's package as well, run
-with that environment's Python, CTest's environment for `python.unittest` and `PYTHONPATH` naming
-the environment's `site-packages` instead of `build/<preset>/python`, but for the three of
-`IsolationWorkflowTest` that run a step in a module host (`test_isolation_keyword` in mode
-`process`, `test_validate_loads_in_a_module_host` and `test_crash_in_a_module_host`), which fail
-with `MODULE_HOST_UNAVAILABLE` since the wheel holds no module host; and the test of the OTLP
-export skips where a local listener is refused ([Tests](#tests)).
+prints `0.2.0 Release`, and `praenora.sdk` and `praenora.sdk.testing` import there too. The tests of
+`tests/python` pass against a wheel's package as well (checked with a wheel built before
+`praenora.sdk` existed), run with that environment's Python, CTest's environment for
+`python.unittest` and `PYTHONPATH` naming the environment's `site-packages` instead of
+`build/<preset>/python`, but for the three of `IsolationWorkflowTest` that run a step in a module
+host (`test_isolation_keyword` in mode `process`, `test_validate_loads_in_a_module_host` and
+`test_crash_in_a_module_host`), which fail with `MODULE_HOST_UNAVAILABLE` since the wheel holds no
+module host; and the test of the OTLP export skips where a local listener is refused
+([Tests](#tests)).
 
 The runtime's third-party shared libraries are not bundled into the wheel: the macOS wheel above
 links yaml-cpp, spdlog and fmt from Homebrew by their absolute paths (json-schema-validator is

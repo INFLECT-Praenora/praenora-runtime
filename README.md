@@ -17,7 +17,8 @@ OpenTelemetry collector over OTLP. Heavy engines
 come from service providers that the runtime loads on demand: modules simulate models through the
 simulation service `praenora.simulation@0`, and translate them from one format to another, such as
 Antimony to SBML, through the model conversion service `praenora.model-conversion@0`, without
-linking an engine themselves.
+linking an engine themselves. A module can also be written in Python, against the packages of a
+pinned Python environment that the runtime embeds and its installations carry.
 
 ## Status
 
@@ -86,6 +87,22 @@ the logs and the metrics now carries the prefix `praenora.` (but `logger`). Neit
 run's results. They need cpp-httplib 0.67, header-only
 ([docs/platforms.md](docs/platforms.md#cpp-httplib)), and are verified on macOS arm64 locally and
 by CI on every platform key, with cpp-httplib downloaded in fetch mode.
+
+Then modules and service providers in Python, proposed
+([ADR-0044](docs/adr/ADR-0044-python-modules-and-providers-through-an-embedded-environment.md),
+[ADR-0045](docs/adr/ADR-0045-python-environment-pinned-in-ci-and-installation.md)). A build with
+`-DPRAENORA_WITH_PYTHON_ENVIRONMENT=ON` and a Python environment bundle of praenora-runtime-pyenv
+(CPython 3.12 with the packages its lock pins) has the provider `python`, which offers the service
+`praenora.python@0`: Python objects of that environment, called with JSON documents
+([docs/specs/python-service.md](docs/specs/python-service.md)). A Python module is a class derived
+from `praenora.sdk.Module`, with a native library that `praenora_add_python_module()` generates and
+that needs no Python to build; its sources' digest is in the run fingerprint, what it prints
+becomes log records of its step, and it runs in the runtime's process or in a module host
+([docs/module-developer-guide.md](docs/module-developer-guide.md#modules-in-python)). The
+installation carries the environment unchanged and can still be moved, and CI is set up to fetch
+the pinned environment as it fetches the dependency bundles. The example predictor exists as a
+Python module too, which gives the same predictions. Verified on macOS arm64 locally; not yet
+verified on Linux, on Windows or by CI.
 
 ## Quick start
 
@@ -159,12 +176,13 @@ failed, 2 usage, 3 validation, 4 load, 5 timeout, 70 internal, 74 I/O, 130 inter
 - [docs/user-guide.md](docs/user-guide.md): the `praenora` tool, the example workflow, outputs,
   status, watching and running over HTTP, the OTLP export, and troubleshooting.
 - [docs/configuration.md](docs/configuration.md): writing a workflow configuration.
-- [docs/module-developer-guide.md](docs/module-developer-guide.md): writing a module.
+- [docs/module-developer-guide.md](docs/module-developer-guide.md): writing a module, in C++ or in
+  Python.
 - [docs/python.md](docs/python.md): the Python API.
 - [docs/developer-guide.md](docs/developer-guide.md) and [docs/testing.md](docs/testing.md):
   working on the runtime.
-- [docs/releasing.md](docs/releasing.md): the CI workflow, the dependency bundles it builds
-  against, and making a release.
+- [docs/releasing.md](docs/releasing.md): the CI workflow, the dependency bundles and Python
+  environment bundles it builds against, and making a release.
 - [docs/architecture.md](docs/architecture.md): how it fits together.
 - [docs/index.md](docs/index.md): every document, the specifications included.
 - [AGENTS.md](AGENTS.md): guide for contributors and coding agents (commands, layout, conventions,
@@ -182,4 +200,6 @@ repository's, those of the dependencies built in the tree, and those of the dire
 ([docs/developer-guide.md](docs/developer-guide.md#license-files)). Distributing the providers
 raises questions that are still open: the terms of the NLEQ solvers and the statically linked
 LGPL-2.1 libSBML (OQ-27), and libAntimony's license and those of its dependencies (OQ-29)
-([docs/open-questions.md](docs/open-questions.md)).
+([docs/open-questions.md](docs/open-questions.md)). With the Python environment, installations
+and archives also hold the environment, CPython and the packages its lock pins, each under its own
+license, with their license files in `share/praenora/licenses/python-environment/`.

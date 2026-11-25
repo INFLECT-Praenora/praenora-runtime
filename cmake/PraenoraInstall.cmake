@@ -1,7 +1,7 @@
 # The install rules of the package that belong to no single directory: the CMake package
 # configuration that find_package(Praenora) reads, the export sets of Praenora::Runtime and
-# Praenora::ModuleSDK, the module helper PraenoraModule.cmake, the schemas and the catalog, and the
-# license files.
+# Praenora::ModuleSDK, the module helper PraenoraModule.cmake, the schemas and the catalog, the
+# license files and, with PRAENORA_WITH_PYTHON_ENVIRONMENT, the Python environment.
 # The top-level CMakeLists.txt includes this file after every target is defined, when
 # PRAENORA_INSTALL_RULES is ON (never in a wheel build; cmake/PraenoraOptions.cmake). The targets,
 # the headers and the example modules are installed by their own directories (src/runtime,
@@ -15,19 +15,30 @@
 #   ${CMAKE_INSTALL_INCLUDEDIR}/praenora/{runtime,sdk}/   the public headers, generated ones
 #                                 (export.h, version.h) included
 #   ${CMAKE_INSTALL_LIBDIR}/cmake/Praenora/   PraenoraConfig.cmake, PraenoraConfigVersion.cmake,
-#                                 PraenoraRuntimeTargets*.cmake, PraenoraModuleSDKTargets*.cmake
-#                                 and PraenoraModule.cmake
+#                                 PraenoraRuntimeTargets*.cmake, PraenoraModuleSDKTargets*.cmake,
+#                                 PraenoraModule.cmake, PraenoraPythonDigest.cmake and
+#                                 PraenoraPythonModule.cmake
 #   ${CMAKE_INSTALL_DATADIR}/praenora/{schemas,catalog}/   the documents embedded in the runtime
 #   ${CMAKE_INSTALL_DATADIR}/praenora/licenses/   license files: praenora-runtime/LICENSE, this
 #                                 project's; <name>/ for each dependency built in this tree
 #                                 (PRAENORA_FETCHED_DEPENDENCIES), its license files under their
-#                                 paths in its sources; and the contents of each directory of
-#                                 PRAENORA_THIRD_PARTY_LICENSE_DIRS
+#                                 paths in its sources; the contents of each directory of
+#                                 PRAENORA_THIRD_PARTY_LICENSE_DIRS; and, with the Python
+#                                 environment, python-environment/: a copy of its licenses/
 #   ${CMAKE_INSTALL_LIBDIR}/praenora/modules/<name>/   the example modules: install component
 #                                 Examples, part of a default installation only with
 #                                 PRAENORA_INSTALL_EXAMPLES; that is the installation's module
 #                                 directory, the last place the runtime looks for modules
-# Every installed CMake file names locations relative to the installation, so it can be moved.
+#   ${CMAKE_INSTALL_LIBDIR}/praenora/providers/<name>/   the service providers built in this tree,
+#                                 each with its manifest (their directories install them); the
+#                                 provider python's holds the Python core too
+#                                 (src/providers/python)
+#   ${CMAKE_INSTALL_LIBDIR}/praenora/python-environment/   with
+#                                 PRAENORA_WITH_PYTHON_ENVIRONMENT, the Python environment the
+#                                 build used (PRAENORA_PYTHON_ENVIRONMENT_DIR), unchanged: every
+#                                 file with its permissions, symbolic links as links
+# Every installed CMake file names locations relative to the installation, so it can be moved, and
+# so does every installed environment file of a provider that runs Python.
 
 include_guard(GLOBAL)
 include(CMakePackageConfigHelpers)
@@ -54,6 +65,8 @@ install(FILES
     "${PROJECT_BINARY_DIR}/cmake/PraenoraConfig.cmake"
     "${PROJECT_BINARY_DIR}/cmake/PraenoraConfigVersion.cmake"
     "${CMAKE_CURRENT_LIST_DIR}/PraenoraModule.cmake"
+    "${CMAKE_CURRENT_LIST_DIR}/PraenoraPythonDigest.cmake"
+    "${CMAKE_CURRENT_LIST_DIR}/PraenoraPythonModule.cmake"
     DESTINATION "${_praenora_package_dir}")
 
 # The schemas and the catalog, as embedded in the runtime (cmake/PraenoraEmbedResources.cmake).
@@ -119,3 +132,16 @@ foreach(_praenora_license_entry IN LISTS PRAENORA_THIRD_PARTY_LICENSE_DIRS)
     endif()
     install(DIRECTORY "${_praenora_license_entry_dir}/" DESTINATION "${_praenora_licenses_dir}")
 endforeach()
+
+# The Python environment the build used, unchanged, in the default component, so in every
+# installation and archive of the build: the provider python's installed environment file names it
+# as ../../python-environment, and the installed core finds its libpython there
+# (src/providers/python). Its license files are also copied where an installation's license files
+# are.
+if(PRAENORA_WITH_PYTHON_ENVIRONMENT)
+    install(DIRECTORY "${PRAENORA_PYTHON_ENVIRONMENT_DIR}/"
+        DESTINATION "${CMAKE_INSTALL_LIBDIR}/praenora/python-environment"
+        USE_SOURCE_PERMISSIONS)
+    install(DIRECTORY "${PRAENORA_PYTHON_ENVIRONMENT_DIR}/licenses/"
+        DESTINATION "${_praenora_licenses_dir}/python-environment")
+endif()

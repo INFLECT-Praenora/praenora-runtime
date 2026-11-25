@@ -53,6 +53,24 @@
 # Removes <name>'s directory below praenora_build_tree_provider_dir() (for each configuration of a
 # multi-config generator) when it exists and lies in CMAKE_BINARY_DIR: a build tree that built the
 # provider before, and is configured again without it, must not keep finding it.
+#
+# praenora_python_environment_file_from(<variable> <directory>)
+#
+# Sets <variable> to the path of the installation's environment file of the provider python,
+# ${CMAKE_INSTALL_LIBDIR}/praenora/providers/python/python-environment.json, relative to the
+# installation's directory <directory> (relative to the installation's prefix, or absolute), with
+# '/' separators: ../lib64/praenora/providers/python/python-environment.json from bin, for
+# example. A relative directory is taken below CMAKE_INSTALL_PREFIX, as an absolute
+# CMAKE_INSTALL_LIBDIR is expected to be.
+#
+# praenora_python_environment_file_definition(<target> <directory>)
+#
+# Gives <target>, a program of the runtime that an installation holds in <directory>, the compile
+# definition PRAENORA_PYTHON_ENVIRONMENT_FILE: a C string literal holding
+# praenora_python_environment_file_from()'s path, so that the program finds the file below the
+# installation's library directory, whatever it is named (src/frontend/python_environment.hpp).
+# Every program that sets the Python environment's variables gets it, whether or not the tree has
+# the provider.
 
 include_guard(GLOBAL)
 include("${CMAKE_CURRENT_LIST_DIR}/PraenoraModule.cmake") # _praenora_module_platform()
@@ -98,6 +116,24 @@ function(praenora_remove_build_tree_provider name)
                 "built into ${stale}")
         endif()
     endforeach()
+endfunction()
+
+function(praenora_python_environment_file_from variable directory)
+    set(file "${CMAKE_INSTALL_LIBDIR}/praenora/providers/python/python-environment.json")
+    set(base "${directory}")
+    foreach(path IN ITEMS file base)
+        if(NOT IS_ABSOLUTE "${${path}}")
+            set(${path} "${CMAKE_INSTALL_PREFIX}/${${path}}")
+        endif()
+        cmake_path(SET ${path} NORMALIZE "${${path}}")
+    endforeach()
+    cmake_path(RELATIVE_PATH file BASE_DIRECTORY "${base}")
+    set(${variable} "${file}" PARENT_SCOPE)
+endfunction()
+
+function(praenora_python_environment_file_definition target directory)
+    praenora_python_environment_file_from(file "${directory}")
+    target_compile_definitions(${target} PRIVATE "PRAENORA_PYTHON_ENVIRONMENT_FILE=\"${file}\"")
 endfunction()
 
 function(praenora_add_provider target)

@@ -444,6 +444,48 @@ inline praenora_status fail(praenora_sink* error_json, praenora_status code,
     return code;
 }
 
+// The host fields every v0 host API has: struct_size, abi_major, abi_minor and context.
+inline constexpr std::size_t kHostFixedSize = offsetof(praenora_host_api, context) + sizeof(void*);
+
+// True for a host API of ABI v0 that holds at least its fixed fields; `host` is not NULL.
+inline bool is_v0_host(const praenora_host_api* host) noexcept {
+    return host->struct_size >= kHostFixedSize && host->abi_major == PRAENORA_ABI_MAJOR;
+}
+
+// True when `bytes` can be read: its data may be NULL only when its size is 0.
+inline bool readable(praenora_bytes bytes) noexcept {
+    return bytes.data != nullptr || bytes.size == 0;
+}
+
+// The adapter's object behind an instance handle.
+template <class Instance> Instance* instance_from(praenora_instance* handle) noexcept {
+    return reinterpret_cast<Instance*>(handle);
+}
+
+// Writes the identity document of describe() for Identity, which provides name(), version() and
+// capabilities() as static functions (the last a JSON array); the sink's status, or
+// INVALID_ARGUMENT for an unusable sink. Both module adapters (this header's and
+// python_module.hpp's) describe themselves with it.
+template <class Identity> praenora_status write_identity(praenora_sink* out_json) noexcept {
+    if (!usable(out_json)) {
+        return PRAENORA_STATUS_INVALID_ARGUMENT;
+    }
+    SinkWriter out(out_json);
+    out.append("{\"name\":\"");
+    out.append_escaped(message_of(Identity::name()));
+    out.append("\",\"version\":\"");
+    out.append_escaped(message_of(Identity::version()));
+    out.append("\",\"abi\":{\"major\":");
+    out.append_number(PRAENORA_ABI_MAJOR);
+    out.append(",\"minor\":");
+    out.append_number(PRAENORA_ABI_MINOR);
+    out.append("},\"sdk_version\":\"" PRAENORA_SDK_VERSION_STRING
+               "\",\"pmp_version\":\"" PRAENORA_PMP_VERSION_STRING "\",\"capabilities\":");
+    out.append(message_of(Identity::capabilities()));
+    out.append("}");
+    return out.finish();
+}
+
 // The v0 table of module class M, whose identity Identity provides as static functions name(),
 // version() and capabilities(). Used through the macros below.
 template <class M, class Identity> class ModuleAdapter {
@@ -480,16 +522,8 @@ private:
         std::unique_ptr<Module> module;
     };
 
-    // The host fields every v0 host API has: struct_size, abi_major, abi_minor and context.
-    static constexpr std::size_t kHostFixedSize =
-        offsetof(praenora_host_api, context) + sizeof(void*);
-
     static Instance* from(praenora_instance* handle) noexcept {
-        return reinterpret_cast<Instance*>(handle);
-    }
-
-    static bool readable(praenora_bytes bytes) noexcept {
-        return bytes.data != nullptr || bytes.size == 0;
+        return instance_from<Instance>(handle);
     }
 
     static std::string_view view(praenora_bytes bytes) noexcept {
@@ -497,23 +531,7 @@ private:
     }
 
     static praenora_status PRAENORA_CALL describe(praenora_sink* out_json) noexcept {
-        if (!usable(out_json)) {
-            return PRAENORA_STATUS_INVALID_ARGUMENT;
-        }
-        SinkWriter out(out_json);
-        out.append("{\"name\":\"");
-        out.append_escaped(message_of(Identity::name()));
-        out.append("\",\"version\":\"");
-        out.append_escaped(message_of(Identity::version()));
-        out.append("\",\"abi\":{\"major\":");
-        out.append_number(PRAENORA_ABI_MAJOR);
-        out.append(",\"minor\":");
-        out.append_number(PRAENORA_ABI_MINOR);
-        out.append("},\"sdk_version\":\"" PRAENORA_SDK_VERSION_STRING
-                   "\",\"pmp_version\":\"" PRAENORA_PMP_VERSION_STRING "\",\"capabilities\":");
-        out.append(message_of(Identity::capabilities()));
-        out.append("}");
-        return out.finish();
+        return write_identity<Identity>(out_json);
     }
 
     static praenora_status PRAENORA_CALL create(const praenora_host_api* host,
@@ -529,7 +547,7 @@ private:
             return fail(error_json, PRAENORA_STATUS_INVALID_ARGUMENT,
                         "create: the host API is NULL");
         }
-        if (host->struct_size < kHostFixedSize || host->abi_major != PRAENORA_ABI_MAJOR) {
+        if (!is_v0_host(host)) {
             return fail(error_json, PRAENORA_STATUS_UNSUPPORTED,
                         "create: the host API is not an ABI v0 host API");
         }

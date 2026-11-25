@@ -3,7 +3,10 @@
 # an external module project builds its modules, into ${PRAENORA_EXAMPLE_MODULES_DIR}/<name>/
 # (the library, its manifest and its test vectors). Besides the module SDK they use nlohmann/json.
 # They are compiled with -ffp-contract=off on GCC and Clang, so no multiply and add are fused into
-# one rounding, which narrows the differences between platforms.
+# one rounding, which narrows the differences between platforms. With
+# PRAENORA_WITH_PYTHON_ENVIRONMENT a third module, example-predictor-python, the predictor as a
+# Python module (praenora_add_python_module()), is built the same way; the workflow's variant
+# workflow-python.yaml binds the predict step to it.
 
 # praenora_example_modules builds every example module; the integration tests depend on it.
 add_custom_target(praenora_example_modules)
@@ -37,3 +40,6 @@ endfunction()
 
 add_subdirectory(modules/estimator)
 add_subdirectory(modules/predictor)
+if(PRAENORA_WITH_PYTHON_ENVIRONMENT)
+    add_subdirectory(modules/predictor-python)
+endif()

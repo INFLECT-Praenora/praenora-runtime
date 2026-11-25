@@ -45,7 +45,11 @@ services they require or can use in their manifests (`requires.services`, module
     [`simulation.h`](../../include/praenora/sdk/simulation.h));
   - `praenora.model-conversion@0`, translating a model source from one format to another, such as
     Antimony to SBML ([model-conversion-service.md](model-conversion-service.md);
-    [`model_conversion.h`](../../include/praenora/sdk/model_conversion.h)).
+    [`model_conversion.h`](../../include/praenora/sdk/model_conversion.h));
+  - `praenora.python@0`, objects of the runtime's Python environment created and called with JSON
+    documents, offered by the provider `python`, which a build with
+    `PRAENORA_WITH_PYTHON_ENVIRONMENT` has ([python-service.md](python-service.md);
+    [`python.h`](../../include/praenora/sdk/python.h)).
 
 ## Provider manifest
 
@@ -407,6 +411,14 @@ compile definitions `PRAENORA_PROVIDER_NAME`, `PRAENORA_PROVIDER_VERSION`,
 `PRAENORA_PROVIDER_SERVICES` and `PRAENORA_PROVIDER_ENGINE` let `describe()` report exactly what the
 manifest says. `INSTALL_DESTINATION` installs the library and its manifest together.
 
+A provider that runs Python is built with `praenora_add_python_provider()`
+([`cmake/PraenoraPythonProvider.cmake`](../../cmake/PraenoraPythonProvider.cmake), not installed),
+which calls `praenora_add_provider()` and adds what the provider needs to load the process's Python
+core at its start: the loader, the environment file beside the library and the engine object of the
+environment ([python-service.md](python-service.md#the-providers-that-run-python)). Such a provider
+may implement a service's typed table in Python, its table functions forwarding to a Python object
+of its own ([python-service.md](python-service.md#providers-implemented-in-python)).
+
 ## References
 
 - [ADR-0021](../adr/ADR-0021-runtime-services-through-host-api.md): runtime services through the
@@ -414,6 +426,9 @@ manifest says. `INSTALL_DESTINATION` installs the library and its manifest toget
 - [ADR-0026](../adr/ADR-0026-runtime-service-providers.md): service providers.
 - [simulation-service.md](simulation-service.md) and
   [ADR-0027](../adr/ADR-0027-simulation-service-v0.md): the simulation service.
+- [python-service.md](python-service.md) and
+  [ADR-0044](../adr/ADR-0044-python-modules-and-providers-through-an-embedded-environment.md): the
+  Python service and the provider `python`.
 - [module-abi.md](module-abi.md): the module ABI and its host API.
 - [manifest.md](manifest.md): module manifests, their service requirements and their discovery.
 - [reproducibility.md](reproducibility.md): the run fingerprint.

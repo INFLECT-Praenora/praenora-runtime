@@ -1,0 +1,12 @@
+# fx-py-print prints to sys.stdout and sys.stderr and logs a warning in each of its two ticks: the
+# lines are log records of step a, and `praenora run --json` prints one JSON document on standard
+# output all the same (PythonModuleRun.PrintIsALogRecord).
+kind: workflow-config
+format_version: "0.1.0"
+workflow: { name: test.single, version: "0.1.0" }
+run: { ticks: 2 }
+inputs:
+  source: { source: json-document, path: ../source.json }
+steps:
+  a:
+    module: { name: fx-py-print, version: "0.1.0" }

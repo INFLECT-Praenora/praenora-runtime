@@ -53,32 +53,32 @@ names. [Listeners](#listeners) has the rules of the tests that open them.
 
 | Label | What it covers | Tests |
 |---|---|---|
-| `unit` | Runtime internals, white-box: documents and YAML, canonical JSON, SHA-256, versions, durations, seeds, CSV and other input sources, configuration, logging, metrics, health, status files, run records, the store of shared compiled models (its limits and its least-recently-used order), the sandbox profiles (their names, the restricted profile's text, a module host's private temporary directory), the error table against `status.h`, the SDK's headers, adapter and test kit, and the antimony provider's rules that read a source's text alone. The control API's server core (`src/server`), through the shared library and without sockets: listener addresses, token files, scopes, the Host check, every route's answer and status over a fake run source, the HTTP status of every error, the Prometheus text, and the runs of serve and run mode with the fixture modules (the output root's numbering, the configuration root and the names it refuses, `--max-runs`, deleting, forced isolation, the status's placeholders, shutdown, queries racing a delete and a shutdown, and the results of a run as `praenora run` gives them). The OTLP export, without sockets: its settings (every `OTEL_*` variable, set for the test, and `TelemetryOptions`, the values it ignores and why), its JSON encoding against golden documents, the exporter over a fake transport (batches, the queue's limit and its count of dropped records, also for a batch put back, retries, `Retry-After`, the warning's rate, the flush of its destructor, a stop during a wait, an end within one export timeout against a collector that never answers, an error on its thread that is counted and not fatal, a record that is not UTF-8 in a valid request), and runs that export over a fake transport that the test gives the runtime (what is exported, no change to health or snapshots when the export fails, the same outputs, trace and fingerprint as without it). | `praenora_unit_tests`, `praenora_server_tests` |
+| `unit` | Runtime internals, white-box: documents and YAML, canonical JSON, SHA-256, versions, durations, seeds, CSV and other input sources, configuration, logging, metrics, health, status files, run records, the store of shared compiled models (its limits and its least-recently-used order), the sandbox profiles (their names, the restricted profile's text, a module host's private temporary directory), the error table against `status.h`, the SDK's headers, adapter and test kit, and the antimony provider's rules that read a source's text alone. The control API's server core (`src/server`), through the shared library and without sockets: listener addresses, token files, scopes, the Host check, every route's answer and status over a fake run source, the HTTP status of every error, the Prometheus text, and the runs of serve and run mode with the fixture modules (the output root's numbering, the configuration root and the names it refuses, `--max-runs`, deleting, forced isolation, the status's placeholders, shutdown, queries racing a delete and a shutdown, and the results of a run as `praenora run` gives them). The OTLP export, without sockets: its settings (every `OTEL_*` variable, set for the test, and `TelemetryOptions`, the values it ignores and why), its JSON encoding against golden documents, the exporter over a fake transport (batches, the queue's limit and its count of dropped records, also for a batch put back, retries, `Retry-After`, the warning's rate, the flush of its destructor, a stop during a wait, an end within one export timeout against a collector that never answers, an error on its thread that is counted and not fatal, a record that is not UTF-8 in a valid request), and runs that export over a fake transport that the test gives the runtime (what is exported, no change to health or snapshots when the export fails, the same outputs, trace and fingerprint as without it). With the Python environment, the Python core and its directory digest; in every tree, `python.h`, the native side of Python modules against a fake service table, and the CMake functions of Python sources ([The Python environment](#the-python-environment)). | `praenora_unit_tests`, `praenora_server_tests`; `python.digest_cmake`, `python.module_template_check`, `python.provider_cmake`; with the Python environment, `praenora_python_core_tests` |
 | `protocol` | Every schema and catalog entry, valid and invalid documents per kind, graph validation and schedules, graph export, and the committed AsyncAPI documents, also against the official AsyncAPI 3.0.0 schema when the build names a copy of it ([below](#the-official-asyncapi-schema)), and through the official AsyncAPI parser when the build names an installation of it ([below](#the-official-asyncapi-parser)); the control API's OpenAPI document and its committed copy in `spec/openapi/` ([specs/control-api.md](specs/control-api.md#the-openapi-document)). | `praenora_protocol_tests`, `praenora_openapi_tests`, `praenora_asyncapi_official_schema_tests`, `asyncapi.parser.accepts_committed_documents`, `asyncapi.parser.refuses_broken_copies` |
-| `contract` | Manifests and discovery, the loader, module instances, the engine and the contract checks, through the real loader and the fixture modules; service providers and runs that use their services, with the fixture providers; the service checks of the simulation and model conversion services; provider libraries as files: their exported symbols, and the same results in two processes, and how the driver of the latter shows two outputs that differ and a run that fails. | `praenora_contract_tests`, `providers.<provider>.exports`, `providers.<provider>.processes`, `providers.run_twice.shows_first_difference` |
-| `negative` | What must be refused: bad manifests, configurations and graphs, incompatible modules, failing validations, services no provider serves, providers that do not load in a run, each with its code and location. | `praenora_negative_tests` |
+| `contract` | Manifests and discovery, the loader, module instances, the engine and the contract checks, through the real loader and the fixture modules; service providers and runs that use their services, with the fixture providers; the service checks of the simulation and model conversion services; provider libraries as files: their exported symbols, and the same results in two processes, and how the driver of the latter shows two outputs that differ and a run that fails. With the Python environment, the provider `python`, the fixture provider `test-python-echo`, whose table is implemented in Python, and the contract checks of Python modules. | `praenora_contract_tests`, `providers.<provider>.exports`, `providers.<provider>.processes`, `providers.run_twice.shows_first_difference`; with the Python environment, `praenora_python_provider_tests`, `praenora_python_module_check_tests` |
+| `negative` | What must be refused: bad manifests, configurations and graphs, incompatible modules, failing validations, services no provider serves, providers that do not load in a run, each with its code and location. With the Python environment, the start of the provider `python` from edited copies of its directory (an unedited copy starts): no environment file, a file that names no bundle, another lock, no core, a core of another build, edited `praenora.sdk` sources; and another Python interpreter in the process. | `praenora_negative_tests`; with the Python environment, `praenora_python_negative_tests` |
 | `lifecycle` | Call order and cleanup, timeouts, unresponsive modules, cancellation and stop requests, calls into one library from instances of several loads of it (they take turns, and are refused behind an abandoned call), and the runtime services an instance is served. | `praenora_lifecycle_tests` |
 | `isolation` | Process isolation, white-box: child processes and their process groups (and `SIGPIPE` at its default disposition in them), module instances in a module host (calls with the results of the runtime's process, logs, lookups, cancellation and deadlines, a call that never returns killed, crashes in every call and at load, garbage on the channel, sink limits, load errors, a missing or foreign module host, a stop during the start, a runtime that dies), and the service providers of a module in its module host (their services, their log records, their load errors, and that the runtime's process loads only the providers of its own steps), and the compiled models that module hosts share (through the store, during the load and between calls, under each provider's namespace, none for a step that does not share, nor for a host too short for the store's callbacks, entries and keys over their limits refused, store requests that break the protocol, a stored model that does not load compiled instead), writes to a module host that stops reading or reads slowly (none waits for good, and a stop during one leaves no failed teardown), and the sandbox profiles of a module host (what the restricted profile refuses and allows, its temporary directory, a sandboxed runtime that cannot apply it, module hosts that share compiled models under it) ([below](#module-hosts)). | `praenora_isolation_tests` |
-| `integration` | The public API through the shared library only, and the example workflow end to end: golden outputs, determinism, the fingerprint, files on disk, status queries during a run; and steps in module hosts: the same outputs, trace and fingerprint as in the runtime's process, crashes, a killed call, stops, Ctrl+C, `validate --load`, and service providers loaded in module hosts (the same outputs, trace and provider records; a changed provider library, a provider that fails to start or crashes; with the engines' providers, roadrunner and antimony, and a long antimony translation ended with its module host), and steps that share compiled models (the second loads what the first compiled, a step that does not share never reads the store, and the outputs and fingerprint are those of steps that do not share and of the runtime's process; with test-simulation, and with roadrunner), and steps under the restricted sandbox profile (a run and `validate --load` give the module host its profile, and the results are those of the runtime's process; with test-simulation, and with roadrunner). | `praenora_integration_tests` |
-| `cli` | The `praenora` tool: every command, exit code, `--json` shape and diagnostics format (`cli.<command>.<case>`, driven by `tests/cli/run_cli.cmake`), that driver passing each argument of a command to its program, an empty one included (`cli.driver.passes_empty_arguments`), and showing a command that fails (`cli.driver.shows_failing_command`), and the unit tests of its helpers (`CliTable.*`) and of what it shares with the Python extension (`Frontend.*`, `src/frontend`). The control API's command lines, their usage (`cli.serve.help`, `cli.status.help_lists_server`, `cli.run.help_lists_listen`, `cli.usage.tool_help_lists_serve`, `cli.usage.tool_help_lists_status_server`) and those refused before anything listens (the other `cli.serve.*` tests, the `cli.status.*` tests of `--server`, `cli.run.listen_host_name_refused`, `cli.run.server_flags_need_listen`): a missing `--config-root`, host names, a token file that others may read, a short token, tokens with a Unix socket, a Unix socket's path over the platform's limit, `--max-runs 0`, a non-loopback address without a token, and `status --server` of a socket that does not exist. | `praenora_cli_tests`, the CLI driver and `tests/cli/check_driver.cmake` |
-| `python` | The Python package: CLI parity, errors, the context manager, calls from a second thread, and the OTLP export through the environment to a fake collector of the test's own (`TelemetryTest`, a listener test: [Listeners](#listeners)). One CTest test, `python.unittest`, runs the `unittest` suite of `tests/python`. | `python.unittest` |
+| `integration` | The public API through the shared library only, and the example workflow end to end: golden outputs, determinism, the fingerprint, files on disk, status queries during a run; and steps in module hosts: the same outputs, trace and fingerprint as in the runtime's process, crashes, a killed call, stops, Ctrl+C, `validate --load`, and service providers loaded in module hosts (the same outputs, trace and provider records; a changed provider library, a provider that fails to start or crashes; with the engines' providers, roadrunner and antimony, and a long antimony translation ended with its module host), and steps that share compiled models (the second loads what the first compiled, a step that does not share never reads the store, and the outputs and fingerprint are those of steps that do not share and of the runtime's process; with test-simulation, and with roadrunner), and steps under the restricted sandbox profile (a run and `validate --load` give the module host its profile, and the results are those of the runtime's process; with test-simulation, and with roadrunner). With the Python environment, Python modules run in the runtime's process and in module hosts, child processes, the provider `test-python-echo` in runs, and the example with its Python predictor ([The Python environment](#the-python-environment)). | `praenora_integration_tests`; with the Python environment, `praenora_python_module_tests` |
+| `cli` | The `praenora` tool: every command, exit code, `--json` shape and diagnostics format (`cli.<command>.<case>`, driven by `tests/cli/run_cli.cmake`), that driver passing each argument of a command to its program, an empty one included (`cli.driver.passes_empty_arguments`), and showing a command that fails (`cli.driver.shows_failing_command`), and the unit tests of its helpers (`CliTable.*`) and of what it shares with the Python extension (`Frontend.*`, `src/frontend`). The control API's command lines, their usage (`cli.serve.help`, `cli.status.help_lists_server`, `cli.run.help_lists_listen`, `cli.usage.tool_help_lists_serve`, `cli.usage.tool_help_lists_status_server`) and those refused before anything listens (the other `cli.serve.*` tests, the `cli.status.*` tests of `--server`, `cli.run.listen_host_name_refused`, `cli.run.server_flags_need_listen`): a missing `--config-root`, host names, a token file that others may read, a short token, tokens with a Unix socket, a Unix socket's path over the platform's limit, `--max-runs 0`, a non-loopback address without a token, and `status --server` of a socket that does not exist. The variables of the Python environment that the tool and the module host set (`Frontend.PythonEnvironment*`), and, with the environment, `cli.providers.list_python`. | `praenora_cli_tests`, the CLI driver and `tests/cli/check_driver.cmake` |
+| `python` | The Python package: CLI parity, errors, the context manager, calls from a second thread, and the OTLP export through the environment to a fake collector of the test's own (`TelemetryTest`, a listener test: [Listeners](#listeners)). One CTest test, `python.unittest`, runs the `unittest` suite of `tests/python`; `python.sdk_bindings_interpreter` runs the tests of `praenora.sdk` with the same interpreter. With the Python environment, `python.sdk` (those tests) and, with the examples, `python.example_predictor` run `unittest` tests with the environment's interpreter ([The Python environment](#the-python-environment)). | `python.unittest`, `python.sdk_bindings_interpreter`, `python.sdk`, `python.example_predictor` |
 | `server` | Listener tests, which open local listeners under the rules of [Listeners](#listeners) and skip where one is refused: the OTLP export against a fake collector of the test's own, over real connections on 127.0.0.1 (the HTTP client's POST, headers, statuses and `Retry-After`, a refused port, a collector that never answers, on POSIX a collector that resets the connection while the request is written, which fails the request and not the process, with `SIGPIPE` at its default disposition, the exporter's retry through it), and runs that export: the example workflow, also with a step in a module host (every attribute key with the prefix, the runtime's `process.pid`), a collector that answers 500 (the run completes, healthy), a collector that is down or never answers (the end waits about the export timeout), and the same results with and without the export. The control API's listener and client in the test's own process (`praenora_server_listener_tests`): TCP on 127.0.0.1 and `[::1]` at the port the system chose, the request as the handler gets it, a body over 64 KiB (413) and the HTTP layer's other refusals as error documents, raw requests (HTTP/1.0 without `Host` reaching the Host check, two `Host` headers, error answers closing their connections), a handler that throws (500 without its text), tokens and the Host check over a real connection, stopping (the requests in flight answered, then the port refused), queries racing a `DELETE` and a shutdown (run under ThreadSanitizer too), the client's answers and errors (on POSIX, a connection reset while the request is written fails it without `SIGPIPE` ending the process); on POSIX, Unix sockets of mode 0600, a stale socket replaced, a live one and a file of another kind refused and kept, a path that the socket address cannot hold refused, the socket removed when it stops. And, on POSIX, the `praenora` tool as a server, started by the test: `run --listen` on a Unix socket and on TCP (the address file and the note, the run's status while it runs, stop ending it with 130), a stale socket, a live one and a file, a refused listener and an address file that cannot be written opening nothing; `serve` (runs opened, polled, their records, `DELETE`, a second run of the same configuration and seed, `/metrics`, tokens, the Host check and the body limit, SIGTERM with a run inside a call that does not return, sent once fx-slow wrote its `entered_file`, a second signal); `praenora status --server` (its table, `--run`, `--json`, the server's errors, a token over TCP); and the example workflow's outputs, trace, reproducibility section and fingerprint, the same from `praenora run`, `run --listen` and `serve`. | `praenora_otlp_listener_tests`, `praenora_server_listener_tests` |
-| `install` | An installation into a scratch prefix: its layout (service providers, the module host and the license files included: this repository's `LICENSE`, byte for byte, a file for each dependency built in the tree, and the files of the directories that `PRAENORA_THIRD_PARTY_LICENSE_DIRS` names), a module and an application built against it, the installed tool (also the usage of `serve` and of `status --server`, and `serve` refusing a missing `--config-root`; listening is tested in the build tree, label `server`), a step run in the installation's module host, a moved installation, no build or source paths in installed files. The archive of an installation that the target `package` makes ([developer-guide.md](developer-guide.md#archiving-an-installation)), made with `cpack -C <config>`: its name (`praenora-runtime-<version>-<os>-<arch>-<compiler>-<config>`, `.tar.xz`, or `.zip` on Windows), its `.sha256` file in the format of `sha256sum`, one top-level directory, and its files, those of an installation without the example modules, byte for byte; a configuration other than Release or Debug must make cpack stop, writing no archive; and there is no source package (no target `package_source`, and cpack stops for the source configuration). | `install.consumer`, `install.package` |
+| `install` | An installation into a scratch prefix: its layout (service providers, the module host and the license files included: this repository's `LICENSE`, byte for byte, a file for each dependency built in the tree, and the files of the directories that `PRAENORA_THIRD_PARTY_LICENSE_DIRS` names), a module and an application built against it, the installed tool (also the usage of `serve` and of `status --server`, and `serve` refusing a missing `--config-root`; listening is tested in the build tree, label `server`), a step run in the installation's module host, a moved installation, no build or source paths in installed files; a Python module built against the installation with `praenora_add_python_module()`, in every tree, without Python. With the Python environment: the environment installed unchanged (every file by SHA-256, its links as links) with its license files, the provider `python`'s directory (its five entries, a relative environment file, relative run paths, and in a sanitizer build on macOS also the compiler's sanitizer runtime directory), Python steps run by the installed tool in its process and in module hosts, the example with the Python predictor giving the C++ predictor's outputs, an application's step in a module host that set the environment's variables itself, and, in the moved installation, a spawn pool whose children run the moved installation's interpreter. The archive of an installation that the target `package` makes ([developer-guide.md](developer-guide.md#archiving-an-installation)), made with `cpack -C <config>`: its name (`praenora-runtime-<version>-<os>-<arch>-<compiler>-<config>`, `.tar.xz`, or `.zip` on Windows), its `.sha256` file in the format of `sha256sum`, one top-level directory, and its files, those of an installation without the example modules, byte for byte, symbolic links as links; a configuration other than Release or Debug must make cpack stop, writing no archive; and there is no source package (no target `package_source`, and cpack stops for the source configuration). | `install.consumer`, `install.package` |
 | `perf` | The performance probe `praenora_perf`: 2000 ticks of a four-step chain of no-op modules, with and without payload validation, and, on POSIX, with every step in a module host. It prints a JSON report and fails only when the probe fails, never on timings. | `perf.validation_strict`, `perf.validation_off`, `perf.process_isolation` |
 | `docs` | The documentation against the source tree: every error code in the error taxonomy, every schema file in the protocol specification, every ADR in its index, every relative link resolving, the open-questions register complete. | `docs.consistency` |
-| `ci` | The CI tooling: `cmake/praenora_fetch_runtime_deps.cmake`, which downloads, checks and unpacks a pinned dependency bundle, run on fake bundle archives (`.tar.xz` and `.zip`) from `file://` URLs whose paths hold a space and a non-ASCII character, with pin files of the test's own: the bundle directory it prints, an absolute path also for a relative destination, and appends to the file that `GITHUB_ENV` names; what a second run reuses (the kept archive and the bundle) and what it downloads or unpacks again (an archive with another SHA-256, a bundle whose manifest names another version); that the leftovers of a stopped run (a partial download, a staging directory) are removed; a download that fails tried 3 times, and one with another SHA-256 than the pinned one not tried again; its errors (an archive with another SHA-256 than the pinned one, a platform the pin does not name, an archive without the manifest or whose manifest names another version, `PLATFORM` or `DESTINATION` not set); and that it accepts each platform of the repository's pin file, `cmake/PraenoraRuntimeDepsPin.cmake`, and checks a download against its pinned SHA-256. And the workflow `.github/workflows/build.yml`, read as text in the format its header comment states ([releasing.md](releasing.md)): its matrix keys are the platforms of the pin file, each once, each with a configure, a build and a test preset `ci-<key>` in `CMakePresets.json`; each key's runner is the label of its operating system (`ubuntu-24.04`, `macos-26`, `windows-2022`), and each `runs-on` is one of these labels or the matrix's runner, never a `-latest` label; and each action is pinned to a commit, 40 hexadecimal digits, followed by a comment `# v<version>`; and no `runs-on:`, `uses:`, `runner:` or `- key:` leaves its value to a later line. Lines that end in `\` are read as lines of their own, so each problem names its line. No network. | `ci.fetch_runtime_deps`, `ci.workflow_consistency` |
+| `ci` | The CI tooling: `cmake/praenora_fetch_runtime_deps.cmake`, which downloads, checks and unpacks a pinned dependency bundle, run on fake bundle archives (`.tar.xz` and `.zip`) from `file://` URLs whose paths hold a space and a non-ASCII character, with pin files of the test's own: the bundle directory it prints, an absolute path also for a relative destination, and appends to the file that `GITHUB_ENV` names; what a second run reuses (the kept archive and the bundle) and what it downloads or unpacks again (an archive with another SHA-256, a bundle whose manifest names another version); that the leftovers of a stopped run (a partial download, a staging directory) are removed; a download that fails tried 3 times, and one with another SHA-256 than the pinned one not tried again; its errors (an archive with another SHA-256 than the pinned one, a platform the pin does not name, an archive without the manifest or whose manifest names another version, `PLATFORM` or `DESTINATION` not set); and that it accepts each platform of the repository's pin file, `cmake/PraenoraRuntimeDepsPin.cmake`, and checks a download against its pinned SHA-256. The same cases for `cmake/praenora_fetch_runtime_pyenv.cmake`, which fetches a pinned Python environment bundle with the same implementation (`cmake/praenora_fetch_bundle.cmake`): its line `PRAENORA_RUNTIME_PYENV=<bundle>`, its manifest `praenora-runtime-pyenv.json` (an archive that holds a dependency bundle's manifest instead is refused), its pin file's variables (the dependency bundles' pin file is refused, and so is a pin file that does not exist), its usage, which names the script, and each platform of `cmake/PraenoraRuntimePyenvPin.cmake`. And the workflow `.github/workflows/build.yml`, read as text in the format its header comment states ([releasing.md](releasing.md)): its matrix keys are the platforms of both pin files, each once, each with a configure, a build and a test preset `ci-<key>` in `CMakePresets.json`; each key's runner is the label of its operating system (`ubuntu-24.04`, `macos-26`, `windows-2022`), and each `runs-on` is one of these labels or the matrix's runner, never a `-latest` label; and each action is pinned to a commit, 40 hexadecimal digits, followed by a comment `# v<version>`; and no `runs-on:`, `uses:`, `runner:` or `- key:` leaves its value to a later line. Lines that end in `\` are read as lines of their own, so each problem names its line. No network. | `ci.fetch_runtime_deps`, `ci.fetch_runtime_pyenv`, `ci.workflow_consistency` |
 
 The suites of the GoogleTest labels name the components they test:
 
 | Label | Suites |
 |---|---|
-| `unit` | `Adapter`, `AntimonyImportCheck`, `AntimonyTextCheck`, `Channel`, `CompiledModelStore`, `Config`, `Csv`, `Duration`, `Error`, `ErrorTaxonomy`, `Fingerprint`, `Health`, `InputSource`, `Json`, `JsonDocument`, `JsonNear`, `LibraryGate`, `Locale`, `Logging`, `Metrics`, `MetricsJson`, `ModelConversionAbi`, `NestingScan`, `ObservationCsv`, `OtlpEndpoint`, `OtlpExporter`, `OtlpHttp` (`RetryAfterIsDelaySeconds`), `OtlpJson`, `OtlpResource`, `OtlpRuntime`, `OtlpSettings`, `OutputDir`, `OutputRecorder`, `OutputSink`, `PathAnchors`, `Paths`, `Platform`, `ProviderAbi`, `Resources`, `RunRecord`, `RuntimeContext`, `Sandbox`, `SbmlTextCheck`, `Schema`, `SchemaRegistry`, `SdkAbi`, `Seed`, `SemVer`, `Sha256`, `SimulationAbi`, `StatusFile`, `StatusJson`, `StatusNames`, `TestKit`, `Time`, `TraceWriter`, `ValidationReport`, `Version`, `Yaml`; and the control API's (`praenora_server_tests`): `ConfigurationRoot`, `ControlApi`, `Credentials`, `HostCheck`, `HttpStatus`, `ListenAddress`, `OutputRoot`, `Prometheus`, `RunRegistry`, `Scopes`, `ServerClock`, `SingleRun`, `TokenFile` |
+| `unit` | `Adapter`, `AntimonyImportCheck`, `AntimonyTextCheck`, `Channel`, `CompiledModelStore`, `Config`, `Csv`, `Duration`, `Error`, `ErrorTaxonomy`, `Fingerprint`, `Health`, `InputSource`, `Json`, `JsonDocument`, `JsonNear`, `LibraryGate`, `Locale`, `Logging`, `Metrics`, `MetricsJson`, `ModelConversionAbi`, `NestingScan`, `ObservationCsv`, `OtlpEndpoint`, `OtlpExporter`, `OtlpHttp` (`RetryAfterIsDelaySeconds`), `OtlpJson`, `OtlpResource`, `OtlpRuntime`, `OtlpSettings`, `OutputDir`, `OutputRecorder`, `OutputSink`, `PathAnchors`, `Paths`, `Platform`, `ProviderAbi`, `PythonAbi`, `PythonModuleAdapter`, `Resources`, `RunRecord`, `RuntimeContext`, `Sandbox`, `SbmlTextCheck`, `Schema`, `SchemaRegistry`, `SdkAbi`, `Seed`, `SemVer`, `Sha256`, `SimulationAbi`, `StatusFile`, `StatusJson`, `StatusNames`, `TestKit`, `Time`, `TraceWriter`, `ValidationReport`, `Version`, `Yaml`; and the control API's (`praenora_server_tests`): `ConfigurationRoot`, `ControlApi`, `Credentials`, `HostCheck`, `HttpStatus`, `ListenAddress`, `OutputRoot`, `Prometheus`, `RunRegistry`, `Scopes`, `ServerClock`, `SingleRun`, `TokenFile`; with the Python environment, `PythonCore` and `PythonDigest` |
 | `protocol` | `Catalog`, `Graph`, `GraphExport`, `OpenApi`, `Schemas` |
-| `contract` | `Discovery`, `Engine`, `Envelope`, `Instance`, `Loader`, `Manifest`, `ModuleCheck`, `ProviderDiscovery`, `ProviderIndex`, `ProviderLoader`, `ProviderManifest`, `Runtime`, `ServiceRun`, `Services`, `TestConversionProvider`, the parameterized `SimulationService` and `ModelConversionService` (the service checks: `<Provider>/SimulationService.<Check>/<ParameterSet>` and `<Provider>/ModelConversionService.<Check>/<ParameterSet>`), and `RoadrunnerProvider` and `RoadrunnerEngine` with the roadrunner provider and `AntimonyProvider` with the antimony provider |
-| `negative` | `Compat`, `Config`, `ConfigBadFixtures`, `Graph`, `IsolationValidation`, `Manifest`, `ProviderLoadFailure`, `ProviderManifest`, `ServiceValidation`, `Validation` |
+| `contract` | `Discovery`, `Engine`, `Envelope`, `Instance`, `Loader`, `Manifest`, `ModuleCheck`, `ProviderDiscovery`, `ProviderIndex`, `ProviderLoader`, `ProviderManifest`, `Runtime`, `ServiceRun`, `Services`, `TestConversionProvider`, the parameterized `SimulationService` and `ModelConversionService` (the service checks: `<Provider>/SimulationService.<Check>/<ParameterSet>` and `<Provider>/ModelConversionService.<Check>/<ParameterSet>`), and `RoadrunnerProvider` and `RoadrunnerEngine` with the roadrunner provider, `AntimonyProvider` with the antimony provider, and `PythonProvider` and `PythonEchoProvider` with the Python environment |
+| `negative` | `Compat`, `Config`, `ConfigBadFixtures`, `Graph`, `IsolationValidation`, `Manifest`, `ProviderLoadFailure`, `ProviderManifest`, `ServiceValidation`, `Validation`; with the Python environment, `PythonEnvironmentFile` and `PythonProviderStart` |
 | `lifecycle` | `Cancel`, `Lifecycle`, `ServiceLookups`, `ServiceVisibility`, `Timeout` |
 | `isolation` | `ChildProcess`, `Isolation` |
-| `integration` | `Api`, `Example`, `IsolationExample`, `IsolationRun`, `IsolationValidation`, and the parameterized `IsolationRunCrash` (a crash in each call of a run: `EveryCall/IsolationRunCrash.EndsOnlyItsStep/<Call><How>`) and `IsolationRunProviders` (a module that uses the fixture providers, in a module host and in the runtime's process: `Fixtures/IsolationRunProviders.GiveTheResultsOfTheRuntimesProcess/<Module>`) |
+| `integration` | `Api`, `Example`, `IsolationExample`, `IsolationRun`, `IsolationValidation`, and the parameterized `IsolationRunCrash` (a crash in each call of a run: `EveryCall/IsolationRunCrash.EndsOnlyItsStep/<Call><How>`) and `IsolationRunProviders` (a module that uses the fixture providers, in a module host and in the runtime's process: `Fixtures/IsolationRunProviders.GiveTheResultsOfTheRuntimesProcess/<Module>`); without the Python environment `PythonModuleValidation`, with it `PythonChildProcesses`, `PythonEchoProvider`, `PythonModuleIsolation` and `PythonModuleRun`, and `PythonExample` with the examples too, and with it and the roadrunner provider `PythonRoadrunner` |
 | `cli` | `CliTable`, `Frontend` (beside the `cli.<command>.<case>` driver tests, which are not GoogleTest) |
 | `server` | `ControlClient`, `ListenerTest` (the listener, the client and the tool as a server), `OtlpExport`, `OtlpHttp`, `TelemetryRun`, `ToolListen`, `UnixSocketPath` |
 
@@ -87,17 +87,32 @@ need them: `PRAENORA_BUILD_EXAMPLES=OFF` drops the `Example.*` tests, the CLI te
 workflow, the contract checks of the example modules and the `TelemetryRun` tests of the example
 workflow (and the Python tests that need the example modules are skipped),
 `PRAENORA_BUILD_CLI=OFF` drops the `cli` label and the control API's tests
-(`praenora_server_tests`, `praenora_openapi_tests`, `praenora_server_listener_tests`),
-`PRAENORA_BUILD_PYTHON=OFF` drops `python.unittest`, and `PRAENORA_INSTALL=OFF` drops
+(`praenora_server_tests`, `praenora_openapi_tests`, `praenora_server_listener_tests`), and, with the
+Python environment, `praenora_python_module_tests`, some of whose tests run the tool,
+`PRAENORA_BUILD_PYTHON=OFF` drops `python.unittest` and `python.sdk_bindings_interpreter`, and
+`PRAENORA_INSTALL=OFF` drops
 `install.consumer` and `install.package` (a build of praenora-runtime as a sub-project of another
 has no `install.package`). On Windows,
 where no module host is built, the `isolation` label holds only
 `Isolation.IsNotAvailableOnWindows`, and the tests of steps in module hosts (`IsolationRun.*`,
 `IsolationRunCrash`, `IsolationRunProviders`, `IsolationExample.*`, `cli.run.isolation_*`,
 `perf.process_isolation`, the Python `IsolationWorkflowTest`,
-`TelemetryRun.TheRuntimesProcessExportsAStepInAModuleHost`) are left out or check the refusal;
+`TelemetryRun.TheRuntimesProcessExportsAStepInAModuleHost`, and, with the Python environment, the
+runs of Python modules in module hosts, `PythonModuleIsolation.*`, the children of a killed module
+host and the module-host half of `PythonEnvironmentTest`) are left out or check the refusal;
 so are the listener tests that start the tool as a server (`tests/server/tool_listener_test.cpp`),
 which send it signals, and the tests of Unix sockets.
+
+The install tests work in scratch directories of the build tree, `build/<preset>/tests/install/work`
+(`install.consumer`) and `build/<preset>/pkg` (`install.package`), which each run empties first.
+When a test passes it removes what is large: `install.consumer` its installation (moved, or not
+when the tool is not built), `install.package` its installation, the unpacked archive and cpack's
+staging; with the Python environment each of these is about a gigabyte. What stays is small: the
+consumer projects' builds and installations and the runs' outputs, and the archive with its
+`.sha256` file (about 190 MB with the environment). A failing test keeps everything, for
+inspection, until its next run. The target `package` keeps its own staging,
+`build/<preset>/package/_CPack_Packages/`
+([developer-guide.md](developer-guide.md#archiving-an-installation)).
 
 ### Listeners
 
@@ -219,8 +234,9 @@ that none is left running.
   immutable file however it ends). macOS applies no second sandbox, so a test process that runs in
   a sandbox already (a developer tool's or a CI service's own) cannot test the restricted profile:
   there its tests skip, saying "nested sandbox: this process runs in a sandbox already, ...",
-  which CTest shows as skipped: the `SKIP_REGULAR_EXPRESSION` of the two executables that have
-  such tests (`praenora_add_gtest(... SANDBOX_SKIP)`) names that start of the message, beside
+  which CTest shows as skipped: the `SKIP_REGULAR_EXPRESSION` of the executables that have such
+  tests (`praenora_add_gtest(... SANDBOX_SKIP)`: the isolation and integration tests, and, with
+  the Python environment, `praenora_python_module_tests`) names that start of the message, beside
   GoogleTest's own skips. Whether the process runs in a sandbox is asked of `/usr/bin/sandbox-exec`
   (`tests/support/sandbox_support.hpp`), not of the runtime. A few tests run in both places and
   check the other side there: in a sandbox, that a restricted load fails with
@@ -350,6 +366,110 @@ of such a build. The Antimony models and the expected outputs are in
 runs the concurrency checks under ThreadSanitizer, which sees only the provider's own code:
 libAntimony, libSBML and SBMLNetwork are not instrumented. The local preset `dev-engines` builds
 both providers and runs the tests of both in one tree.
+
+### The Python environment
+
+The Python fixture modules (`tests/fixtures/modules/python/`, built with
+`praenora_add_python_module()`) and `fx-python-call`, a C++ module that calls `praenora.python@0`
+itself, build in every tree, since a Python module's library needs no Python, into a search path of
+their own, `build/<preset>/test-python-modules/` (so the listings of the other fixture modules stay
+as they are); a second build of `fx-py-echo` from sources that differ in one line goes to
+`build/<preset>/test-python-modules-variant/`. Every tree has the tests of the Python side that need
+no Python: `PythonAbi.*` and `PythonModuleAdapter.*` (label `unit`: `python.h`, and
+`python_module.hpp` against a fake service table), `python.digest_cmake`,
+`python.module_template_check` and `python.provider_cmake` (label `unit`:
+`praenora_python_directory_digest()`; `praenora_add_python_module()` refusing a `SELF_TEST` that its
+manifest does not declare, a manifest that declares one without `SELF_TEST`, a class outside its
+sources, sources with a module or a directory beside the class's package, and a manifest template
+that is not JSON (said as such), by configuring a tiny project; and, in script mode, the engine
+object that
+`praenora_add_python_provider()` composes from `ENGINE_JSON`, byte for byte, the JSON strings of its
+environment files and the arguments it refuses, and the path, relative to `bin/` and to the module
+host's directory, at which `praenora` and `praenora-module-host` find an installation's environment
+file, for the library directories `lib`, `lib64`, a multiarch one and an absolute one), and
+`Frontend.PythonEnvironment*` (label `cli`: the variables set from a build tree's file and from an
+installation's, below `lib64/`); and, in a tree with the Python bindings but no sanitizers,
+`python.sdk_bindings_interpreter` (label `python`: the tests of `praenora.sdk`, as `python.sdk`
+runs them below, with the bindings' interpreter).
+Without `PRAENORA_WITH_PYTHON_ENVIRONMENT`,
+`PythonModuleValidation.WithoutTheProviderPythonIsServiceUnavailable` (label `integration`) checks
+that a Python module's step is refused there, at `/requires/services/0`; with it, the build tree's
+provider `python` is always found, so the test is left out.
+
+A build with `PRAENORA_WITH_PYTHON_ENVIRONMENT` (the local preset `dev-python`) adds the tests that
+embed Python, every one with the environment the build uses:
+
+- `PythonCore.*` and `PythonDigest.*` (`praenora_python_core_tests`, label `unit`): the Python core
+  through its C interface (among them what Python keeps per thread lasting from one call on a
+  thread to the next and released when the thread ends, and cached bytecode beside a source never
+  read), and its directory digest against the CMake function's;
+- `python.sdk` (label `python`): `praenora.sdk`'s own `unittest` tests, run by the environment's
+  interpreter, isolated and with the standard library only (`-I -S -B`; among them the test kit
+  creating a module through the class method of `sdk.Module` and refusing, as the runtime does, a
+  result that JSON cannot hold); and, with the examples, `python.example_predictor` (label
+  `python`): the unit tests
+  of the example Python module's class with `praenora.sdk`'s test kit
+  (`examples/modules/predictor-python/test_example_predictor_python.py`), among them that an
+  invocation failing on a later estimate counts the integration steps of those before it, as the
+  C++ example predictor does;
+- `PythonProvider.*` (`praenora_python_provider_tests`, label `contract`), and
+  `providers.python.exports` and `providers.python.processes`: the provider `python`; and
+  `providers.python-core.exports` (label `contract`): the Python core exports its entry point
+  alone;
+- `PythonEchoProvider.ServesEcho` and `PythonEchoProvider.EngineHasEnvironment`
+  (`praenora_python_provider_tests`, label `contract`), and `providers.test-python-echo.exports`
+  and `providers.test-python-echo.processes` (with `praenora_python_print`'s provider mode): the
+  fixture provider `test-python-echo`, whose table of `test.echo@0` is implemented by a Python
+  class (every byte echoed, also from four threads at once, its records reaching the calling
+  module's host, and its engine object as its build wrote it);
+- `PythonEnvironmentFile.*` and `PythonProviderStart.*` (`praenora_python_negative_tests`, label
+  `negative`): its start from edited copies of its directory, a file beside `praenora/sdk` in the
+  core's `python/` among them;
+- `cli.providers.list_python` (label `cli`), in place of `cli.providers.list_empty`;
+- `PythonModuleRun.*`, `PythonModuleIsolation.*` and `PythonChildProcesses.*`
+  (`praenora_python_module_tests`, label `integration`, `tests/integration/python_module_test.cpp`):
+  Python modules run in the runtime's process and in module hosts (the same outputs and
+  fingerprint), parameters, an exception's traceback, a deadline that a polling class honors
+  (`STEP_TIMEOUT`) and one that a busy loop ignores (`praenora run`, run by the test, exits at the
+  deadline plus the grace with `MODULE_UNRESPONSIVE`), `print()` and `logging` as log records and
+  `--json`'s standard output kept one document, numpy and its seeded generator, two modules in one
+  interpreter, a package clash refused in one process and run in module hosts, sources edited
+  after the build refused, another build of one path in one process refused, the fingerprint
+  following the sources, two instances of one module called at once (two runs of one `Runtime`,
+  their invokes meeting at a barrier), a result of 10 MiB delivered and one over 16 MiB refused,
+  `fx-python-call`, `PYTHONHASHSEED` set by the tool, Python code that recurses 900 calls deep
+  through `functools.lru_cache` (run by the tool, in its process and in a module host: the module
+  threads' stacks), a context variable, numpy's error state and a `threading.local` value set in
+  `initialize` and read in each `invoke`, and a class that does not derive from
+  `praenora.sdk.Module`; `os.abort()` contained in a module host; a step under the restricted
+  sandbox profile, and a spawn pool refused there (both skip in a sandbox,
+  [Module hosts](#module-hosts)); and a spawn pool in the runtime's process and in a module host
+  (the same outputs over three runs), its children's output kept off `--json`'s standard output,
+  and the children of a module host killed at its deadline gone with it; and `PythonEchoProvider.*`
+  (`test-python-echo` serving `fx-service` in the runtime's process and in a module host, its
+  sources edited after the build failing its start, and a run of `praenora` in which it and the
+  provider `python` start the one Python core and a Python module sees its package) and, in a
+  build with `PRAENORA_WITH_ROADRUNNER` too, `PythonRoadrunner.CoexistInOneProcess` (a roadrunner
+  step and a Python step that simulates with the environment's `roadrunner` package, in one
+  process, the provider loaded first, as a run loads it);
+- `PythonExample.RunsLikeTheCppPredictor` (`praenora_python_module_tests`, label `integration`,
+  `tests/integration/python_example_test.cpp`, with the examples): the example workflow with its
+  `predict` step bound to `example-predictor-python` (`workflow-python.yaml`), in the runtime's
+  process and in a module host, gives the outputs of the C++ predictor's run, byte for byte but for
+  the start of each envelope's `id`, which names the run, and logs what it logs;
+- `install.consumer` and `install.package` (label `install`): the installation holds the
+  environment and the provider `python`, and runs Python steps, also moved ([Labels](#labels));
+- `ModuleCheck.Python*` (`praenora_python_module_check_tests`, label `contract`,
+  `tests/contract/python_module_check_test.cpp`): the contract checks of Python modules, which run
+  them in the test's own process: a module with its vectors, a self test that passes, one that
+  fails, one that the manifest declares and the class lacks, and a module without one;
+- in `python.unittest`, `PythonEnvironmentTest`: a Python step in the Python front end's process
+  fails (another interpreter runs there), and in a module host it runs. Without the environment
+  the class is skipped.
+
+The tests that run the `praenora` tool as a child process remove nothing from its environment but
+what they test (`PYTHONHASHSEED`, for `PythonModuleRun.ToolSetsHashSeed`), and read its standard
+output and error from files in their scratch directory.
 
 ### The official AsyncAPI schema
 
@@ -542,7 +662,8 @@ ctest --preset dev-tsan
 - The module hosts that tests make crash on purpose run with the sanitizers' own signal handling
   off, so they end by the crash's signal ([Module hosts](#module-hosts)).
 - `python.unittest` is registered but disabled: an instrumented extension cannot be loaded into an
-  interpreter that is not instrumented. A run of the label alone therefore matches no test that
+  interpreter that is not instrumented. `python.sdk_bindings_interpreter`, which tests nothing that
+  is instrumented, is not registered there. A run of the label alone therefore matches no test that
   runs, and the presets' "no tests" rule makes it fail with exit code 8:
 
 ```bash
@@ -550,6 +671,19 @@ ctest --preset dev-asan -L python
 ```
 
 A full run of a sanitizer tree is unaffected and lists `python.unittest` as not run.
+
+- With the Python environment (the local presets `dev-python-asan` and `dev-python-tsan`,
+  [developer-guide.md](developer-guide.md#the-python-environment)), the runtime, the Python core
+  and the providers are instrumented, and the environment's libpython and packages are not, as
+  installed third-party libraries are not. `python.sdk` and `python.example_predictor` run the
+  environment's own interpreter, which loads nothing instrumented, so they run in these trees too,
+  and a run of the label `python` alone runs them. No test is disabled and no report suppressed
+  for the environment; `python.unittest` is disabled there only as in every sanitizer tree (above).
+  On macOS, `PythonModuleRun.SourcesChangedInOneProcessRefused` skips under AddressSanitizer, whose
+  test runs keep module libraries loaded (above): it replaces a module's library within one process,
+  where the old library, kept loaded, would run instead of the new one being refused. On macOS arm64
+  both trees ran every test without a report, all passing but that skip
+  ([platforms.md](platforms.md#verification-status)).
 
 ## Golden files
 
@@ -597,7 +731,7 @@ Start from the label:
 
 | Failing label | Component | Likely owner |
 |---|---|---|
-| `unit` | The suite's component (`Csv` is `src/runtime/io/csv`, `Yaml` is `src/runtime/document`, `SdkAbi`, `Adapter` and `TestKit` are the SDK; the suites of `praenora_server_tests`, `ControlApi`, `RunRegistry` and the others, are `src/server`). | runtime |
+| `unit` | The suite's component (`Csv` is `src/runtime/io/csv`, `Yaml` is `src/runtime/document`, `SdkAbi`, `Adapter` and `TestKit` are the SDK; the suites of `praenora_server_tests`, `ControlApi`, `RunRegistry` and the others, are `src/server`; `PythonCore` and `PythonDigest` are `src/providers/python/core`, `PythonAbi` and `PythonModuleAdapter` the SDK's `python.h` and `python_module.hpp`, and `python.*_cmake` and `python.module_template_check` the Python CMake functions in `cmake/`). | runtime |
 | `protocol` | `spec/schemas/`, `spec/catalog/` or the graph code (`src/runtime/graph`, `src/runtime/api/graph_export`), or `src/server/openapi.cpp` for `OpenApi`. A difference from the committed AsyncAPI documents or the committed OpenAPI document needs a refresh or is a regression. For `asyncapi.parser.*`, the diagnostics that the test prints: a committed document that the parser refuses, or a parser of another version ([The official AsyncAPI parser](#the-official-asyncapi-parser)). | protocol |
 | `contract` | The loader, discovery, instance or engine code, or a fixture module that changed. For `providers.run_twice.*`, the driver `tests/providers/run_twice.cmake` or the drivers' shared `tests/support/run_command.cmake`, or, after an intended change of its report, the expected texts in `tests/providers/check_run_twice.cmake`. | runtime |
 | `negative` | Validation: a bad input was accepted, or refused with another code or location. | runtime |
@@ -605,12 +739,12 @@ Start from the label:
 | `isolation` | `src/runtime/isolation` (the channel, the runtime's side of a module host, the store of shared compiled models, the sandbox profiles, the module host's server), `src/module_host`, and the platform's child processes (`src/runtime/platform/posix/child_process_posix.cpp`). | runtime |
 | `integration` | The public API (`src/runtime/api`), or the example modules when their outputs changed (golden files). | runtime, or the example modules |
 | `cli` | `src/cli`, or the API behind the command; the test's name says which command. For `cli.driver.*`, the drivers' shared `tests/support/run_command.cmake`. | runtime |
-| `python` | `src/python` and `python/praenora/runtime`; or the interpreter, when the import fails. | runtime, or environment |
+| `python` | `src/python` and `python/praenora/runtime`; or the interpreter, when the import fails. For `python.sdk` and `python.sdk_bindings_interpreter`, `python/praenora/sdk`; for `python.example_predictor`, `examples/modules/predictor-python`; for `PythonEnvironmentTest`, the provider `python` (`src/providers/python`). | runtime, or environment |
 | `server` | The OTLP export (`src/runtime/observability/otlp`), the control API's listener and client (`src/server/listener.cpp`, `client.cpp`) or the tool's server commands (`src/cli/serving.cpp`, `src/cli/commands/serve.cpp`, `run.cpp`, `status.cpp`), or the fake collector and listeners of `tests/support/listener_support.hpp` and `tests/server/listener_fixtures.hpp`; a failure that names `PRAENORA_TESTS_REQUIRE_LISTENERS` is a listener that the machine refused ([Listeners](#listeners)). | runtime, or environment |
-| `install` | The install rules and the CMake package (`cmake/PraenoraInstall.cmake`, `cmake/PraenoraConfig.cmake.in`, `cmake/PraenoraModule.cmake`); the driver prints each step it checked. | runtime, or environment |
+| `install` | The install rules and the CMake package (`cmake/PraenoraInstall.cmake`, `cmake/PraenoraConfig.cmake.in`, `cmake/PraenoraModule.cmake`, `cmake/PraenoraPythonModule.cmake`, and the provider `python`'s rules in `src/providers/python/CMakeLists.txt`); the driver prints each step it checked. | runtime, or environment |
 | `perf` | Only when the probe crashes or prints no report. | runtime |
 | `docs` | The document or link named in the message: a new error code, schema or ADR without its documentation, or a moved file. | whoever changed it |
-| `ci` | `cmake/praenora_fetch_runtime_deps.cmake`, or the pin file `cmake/PraenoraRuntimeDepsPin.cmake`; the report names the case that failed (`tests/ci/check_fetch_runtime_deps.cmake` describes each). | runtime |
+| `ci` | `cmake/praenora_fetch_bundle.cmake`, which both fetch scripts share, `cmake/praenora_fetch_runtime_deps.cmake` or `cmake/praenora_fetch_runtime_pyenv.cmake`, or the pin file `cmake/PraenoraRuntimeDepsPin.cmake` or `cmake/PraenoraRuntimePyenvPin.cmake`; the report names the case that failed (`tests/ci/check_fetch_runtime_deps.cmake` and `check_fetch_runtime_pyenv.cmake` describe each). For `ci.workflow_consistency`, `.github/workflows/build.yml`, the pin files or `CMakePresets.json`; each problem names its file and line. | runtime |
 
 When a run or a validation fails, its error code points further. By code range:
 
@@ -706,10 +840,13 @@ gate in every build that has them: the contract tests run the checks on them.
   converted, in workflows (`Api.ConvertingModule*`) and in its own test vectors
   (`ModuleCheck.ConvertingModulePassesWithTheConversionService`).
 - **Provider files.** `tests/providers/` tests a provider library as a file, for `test-simulation`,
-  `test-conversion` and, when built, `roadrunner` and `antimony`: `providers.<provider>.exports`
+  `test-conversion`, when built, `roadrunner` and `antimony`, and, with the Python environment,
+  `python` and `test-python-echo`: `providers.<provider>.exports`
   lists its exported symbols with `nm` (`check_exports.cmake`; not on Windows) and requires the
-  entry point to be the only one, and `providers.<provider>.processes` runs a print tool twice, each
-  time in a new process (`run_twice.cmake`), and the two outputs must be the same bytes. Each run's
+  entry point to be the only one (`providers.python-core.exports` does the same for the Python
+  core, whose entry point is `praenora_python_core_get_api`: `-DENTRY=`), and
+  `providers.<provider>.processes` runs a print tool twice, each time in a new process
+  (`run_twice.cmake`), and the two outputs must be the same bytes. Each run's
   standard output is written to a file, `first.out` or `second.out` in
   `build/<preset>/tests/providers/processes/<provider>/`, and the two files are compared byte for
   byte: CMake's capture of an output drops the carriage return of each carriage return and line
@@ -757,7 +894,20 @@ gate in every build that has them: the contract tests run the checks on them.
   `ENVIRONMENT "PRAENORA_PROVIDER_PATH="`, an empty value, which counts as unset.
 - **Python tests.** Add a `test_*.py` module of stdlib `unittest` tests to `tests/python/`
   (classes `<Topic>Test`, methods `test_<what>`); `tests/python/support.py` holds the environment
-  and fixture paths they share. `python.unittest` discovers them.
+  and fixture paths they share. `python.unittest` discovers them. Tests of `praenora.sdk` itself go
+  into `tests/python_sdk/test_sdk.py`, which `python.sdk` runs with the Python environment's
+  interpreter and `python.sdk_bindings_interpreter` with the bindings', both with `-I -S -B`: they
+  may import the standard library alone.
+- **The Python environment.** A test that runs Python in its process is registered only with
+  `PRAENORA_WITH_PYTHON_ENVIRONMENT`, in an executable added with
+  `praenora_add_gtest(... EMBEDS_PYTHON)`, which on Windows gets the tool's application manifest
+  that allows long paths. Add a Python fixture module with `praenora_add_python_fixture_module()`
+  in
+  [`tests/fixtures/modules/python/CMakeLists.txt`](../tests/fixtures/modules/python/CMakeLists.txt):
+  its library builds in every tree, as it needs no Python. Fixtures use numpy and the standard
+  library, not the environment's native engines (the one exception is the fixture of
+  `PythonRoadrunner.CoexistInOneProcess`). A test that needs no Python, such as a CMake script in
+  `tests/cmake/`, is registered in every tree ([The Python environment](#the-python-environment)).
 - **Documents.** A new error code, schema file or ADR needs its documentation, or `docs.consistency`
   fails, naming what is missing.
 - **Data.** Test data and golden files use LF line endings (`.gitattributes`), except the fixtures

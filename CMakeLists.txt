@@ -28,15 +28,21 @@ endif()
 
 # Modules built in this tree: test fixtures below PRAENORA_TEST_MODULES_DIR and examples below
 # PRAENORA_EXAMPLE_MODULES_DIR, one directory per module holding the library and its manifest.
-# Fixture service providers go below PRAENORA_TEST_PROVIDERS_DIR the same way. Multi-config
-# generators put the configuration first (test-modules/<config>/<name>), so one directory per
-# configuration holds all of its modules.
+# The fixture modules that use the Python service, Python modules among them, go below
+# PRAENORA_TEST_PYTHON_MODULES_DIR, a search path of their own, and a variant of one of them below
+# PRAENORA_TEST_PYTHON_MODULES_VARIANT_DIR. Fixture service providers go below
+# PRAENORA_TEST_PROVIDERS_DIR the same way. Multi-config generators put the configuration first
+# (test-modules/<config>/<name>), so one directory per configuration holds all of its modules.
 get_property(_praenora_multi_config GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
 set(PRAENORA_TEST_MODULES_DIR "${PROJECT_BINARY_DIR}/test-modules")
+set(PRAENORA_TEST_PYTHON_MODULES_DIR "${PROJECT_BINARY_DIR}/test-python-modules")
+set(PRAENORA_TEST_PYTHON_MODULES_VARIANT_DIR "${PROJECT_BINARY_DIR}/test-python-modules-variant")
 set(PRAENORA_EXAMPLE_MODULES_DIR "${PROJECT_BINARY_DIR}/modules")
 set(PRAENORA_TEST_PROVIDERS_DIR "${PROJECT_BINARY_DIR}/test-providers")
 if(_praenora_multi_config)
     string(APPEND PRAENORA_TEST_MODULES_DIR "/$<CONFIG>")
+    string(APPEND PRAENORA_TEST_PYTHON_MODULES_DIR "/$<CONFIG>")
+    string(APPEND PRAENORA_TEST_PYTHON_MODULES_VARIANT_DIR "/$<CONFIG>")
     string(APPEND PRAENORA_EXAMPLE_MODULES_DIR "/$<CONFIG>")
     string(APPEND PRAENORA_TEST_PROVIDERS_DIR "/$<CONFIG>")
 endif()
@@ -45,10 +51,16 @@ include(GNUInstallDirs)
 include(PraenoraWarnings)
 include(PraenoraSanitizers)
 include(PraenoraModule)
+include(PraenoraPythonDigest)
+include(PraenoraPythonModule)
 include(PraenoraProvider)
 include(PraenoraEmbedResources)
 include(PraenoraDependencies)
 praenora_find_dependencies()
+if(PRAENORA_WITH_PYTHON_ENVIRONMENT)
+    include(PraenoraPythonEnvironment)
+    include(PraenoraPythonProvider)
+endif()
 if(PRAENORA_WITH_ROADRUNNER)
     include(PraenoraRoadrunner)
     praenora_find_roadrunner()
@@ -76,6 +88,14 @@ if(PRAENORA_WITH_ANTIMONY)
     add_subdirectory(src/providers/antimony)
 else()
     praenora_remove_build_tree_provider(antimony)
+endif()
+# What runs Python, built only with PRAENORA_WITH_PYTHON_ENVIRONMENT (src/providers/python): the
+# Python core, the one library that embeds CPython, the loader that the providers that run Python
+# link, and the provider python, which offers praenora.python@0.
+if(PRAENORA_WITH_PYTHON_ENVIRONMENT)
+    add_subdirectory(src/providers/python)
+else()
+    praenora_remove_build_tree_provider(python)
 endif()
 # What the two front ends below share (header-only, internal).
 if(PRAENORA_BUILD_CLI OR PRAENORA_BUILD_PYTHON)

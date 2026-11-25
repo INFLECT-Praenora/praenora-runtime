@@ -1,9 +1,11 @@
 # Python tests (label python): CTest test python.unittest runs the unittest suite of tests/python
 # with the interpreter the extension is built for, against the package in the build tree
-# (PYTHONPATH). The environment names the fixture modules, the fixture providers, the test
-# catalog, the example configuration and, when the examples are built, the example modules
-# (tests/python/support.py reads them). It sets PRAENORA_LOG_LEVEL to off, so the output shows
-# only the tests' own lines (a test that wants log records asks for them), unsets the other
+# (PYTHONPATH). The environment names the fixture modules, the Python fixture modules, the fixture
+# providers, the test catalog, the example configuration and, when the examples are built, the
+# example modules, and says whether the build tree has the provider python
+# (PRAENORA_TEST_WITH_PYTHON_ENVIRONMENT; tests/python/support.py reads them all). It sets
+# PRAENORA_LOG_LEVEL to off, so the output shows only the tests' own lines (a test that wants log
+# records asks for them), unsets the other
 # PRAENORA_* variables that the runtime reads, so the caller's environment cannot change the
 # results, turns the OTLP export off (OTEL_SDK_DISABLED; the test of the export sets the OTEL_*
 # variables it reads itself), and keeps Python from writing bytecode beside the tests. The tests
@@ -18,12 +20,16 @@ set(_praenora_python_environment
     "PRAENORA_LOG_LEVEL=off"
     "OTEL_SDK_DISABLED=true"
     "PRAENORA_TEST_MODULES_DIR=${PRAENORA_TEST_MODULES_DIR}"
+    "PRAENORA_TEST_PYTHON_MODULES_DIR=${PRAENORA_TEST_PYTHON_MODULES_DIR}"
     "PRAENORA_TEST_PROVIDERS_DIR=${PRAENORA_TEST_PROVIDERS_DIR}"
     "PRAENORA_TEST_CATALOG_DIR=${PROJECT_SOURCE_DIR}/tests/fixtures/catalog"
     "PRAENORA_EXAMPLE_CONFIG=${_praenora_example_config}")
 if(PRAENORA_BUILD_EXAMPLES)
     list(APPEND _praenora_python_environment
         "PRAENORA_EXAMPLE_MODULES_DIR=${PRAENORA_EXAMPLE_MODULES_DIR}")
+endif()
+if(PRAENORA_WITH_PYTHON_ENVIRONMENT)
+    list(APPEND _praenora_python_environment "PRAENORA_TEST_WITH_PYTHON_ENVIRONMENT=1")
 endif()
 set(_praenora_python_unset
     "PRAENORA_MODULE_PATH=unset:"

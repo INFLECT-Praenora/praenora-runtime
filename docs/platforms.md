@@ -10,9 +10,9 @@ are given as they should work and are marked "not yet verified".
 
 | Platform | Compiler | Status |
 |---|---|---|
-| macOS arm64 (macOS 15; macOS 26 in CI) | AppleClang 17; AppleClang 21 in CI | Verified: configure, build without warnings, and every test in the `dev` (Debug), `dev-release`, `dev-asan` and `dev-tsan` builds; an installation, moved; the Python bindings with CPython 3.12; a Python wheel built offline and installed into a fresh virtual environment ([python.md](python.md#building-a-wheel)); the roadrunner provider with libRoadRunner 2.11.0 and LLVM 13.0.1, every test in a Debug build and the labels `unit`, `contract`, `negative`, `lifecycle`, `integration` and `install` in a ThreadSanitizer build ([The roadrunner provider](#the-roadrunner-provider)); the antimony provider with libAntimony 3.3.0 built from source, every test in a Debug build and in a Debug build with both providers, and the labels `unit`, `contract` and `integration` in a ThreadSanitizer build ([The antimony provider](#the-antimony-provider)); process isolation in module hosts, with the shared compiled models and the restricted sandbox profile, whose tests run outside any other sandbox ([specs/process-isolation.md](specs/process-isolation.md)); the `ci-macos-arm64-release` preset against a dependency bundle built locally, with installed yaml-cpp, spdlog and GoogleTest instead of fetched ones ([The CI presets](#the-ci-presets)); and by CI, the `ci-macos-arm64-release` preset with AppleClang 21 on `macos-26`, against the dependency bundle, with fetched yaml-cpp, spdlog and GoogleTest: every test, those of the restricted sandbox profile included, and the archive ([releasing.md](releasing.md#what-the-runs-verified)). The control API and the OTLP export, with cpp-httplib 0.67.0 installed header-only, locally only: the `dev`, `dev-release`, `dev-asan` and `dev-tsan` builds without warnings and their tests, the listener tests ([testing.md](testing.md#listeners)) from a shell outside any sandbox in the `dev` and `dev-tsan` builds; the `ci-macos-arm64-release` preset with installed packages, its tests outside any sandbox; and a wheel built offline with cpp-httplib (built and imported; it holds no server, and its export test skips where listeners are refused). Not yet verified: these with CI, and cpp-httplib downloaded in fetch mode. |
-| Linux x86-64 | GCC 9+, Clang 10+ | Presets, a CI preset and portable code. Verified by CI ([releasing.md](releasing.md#what-the-runs-verified)): the `ci-linux-x64-release` preset with GCC 13.3 on `ubuntu-24.04`, against the dependency bundle: configure, build without warnings, and every test, with both providers, process isolation in module hosts, the Python bindings with CPython 3.12, the install tests and the archive (15 tests skip: the 12 of the restricted sandbox profile, which exists only on macOS, and 3 that need what the runner lacks). Not yet verified: the `linux-x64-debug`, `linux-x64-asan` and `linux-x64-tsan` presets, Clang, older GCC, and the distributions' packages ([Linux](#linux)). The control API and the OTLP export are built and tested there too. |
-| Windows x86-64 | MSVC 19.29+ (Visual Studio 2022) | Presets, CI presets and portable code. Verified by CI ([releasing.md](releasing.md#what-the-runs-verified)): the `ci-windows-x64-release` and `ci-windows-x64-debug` presets with MSVC 19.44 (Visual Studio 2022) on `windows-2022`, against the dependency bundles: configure, build without warnings, and every test, with both providers, the Python bindings with CPython 3.12, the install tests and the archives (5 tests skip, which Windows cannot run). Process isolation is not available on Windows in this version. Not yet verified: older MSVC, and libraries from vcpkg or conda-forge ([Windows](#windows)). The control API (TCP only on Windows) and the OTLP export are built and tested there too. |
+| macOS arm64 (macOS 15; macOS 26 in CI) | AppleClang 17; AppleClang 21 in CI | Verified: configure, build without warnings, and every test in the `dev` (Debug), `dev-release`, `dev-asan` and `dev-tsan` builds; an installation, moved; the Python bindings with CPython 3.12; a Python wheel built offline and installed into a fresh virtual environment ([python.md](python.md#building-a-wheel)); the roadrunner provider with libRoadRunner 2.11.0 and LLVM 13.0.1, every test in a Debug build and the labels `unit`, `contract`, `negative`, `lifecycle`, `integration` and `install` in a ThreadSanitizer build ([The roadrunner provider](#the-roadrunner-provider)); the antimony provider with libAntimony 3.3.0 built from source, every test in a Debug build and in a Debug build with both providers, and the labels `unit`, `contract` and `integration` in a ThreadSanitizer build ([The antimony provider](#the-antimony-provider)); process isolation in module hosts, with the shared compiled models and the restricted sandbox profile, whose tests run outside any other sandbox ([specs/process-isolation.md](specs/process-isolation.md)); the `ci-macos-arm64-release` preset against a dependency bundle built locally, with installed yaml-cpp, spdlog and GoogleTest instead of fetched ones ([The CI presets](#the-ci-presets)); and by CI, the `ci-macos-arm64-release` preset with AppleClang 21 on `macos-26`, against the dependency bundle, with fetched yaml-cpp, spdlog and GoogleTest: every test, those of the restricted sandbox profile included, and the archive ([releasing.md](releasing.md#what-the-runs-verified)). The control API and the OTLP export, with cpp-httplib 0.67.0 installed header-only, locally: the `dev`, `dev-release`, `dev-asan` and `dev-tsan` builds without warnings and their tests, the listener tests ([testing.md](testing.md#listeners)) from a shell outside any sandbox in the `dev` and `dev-tsan` builds; the `ci-macos-arm64-release` preset with installed packages, its tests outside any sandbox; and a wheel built offline with cpp-httplib (built and imported; it holds no server, and its export test skips where listeners are refused). By CI, the workflow's run 45165537866 built and tested them on every platform key, with cpp-httplib downloaded at its pinned commit, its license installed, and the listener tests run with `PRAENORA_TESTS_REQUIRE_LISTENERS=1` ([releasing.md](releasing.md#what-the-runs-verified)); not yet verified: the distributions' and vcpkg's cpp-httplib packages ([cpp-httplib](#cpp-httplib)), and the OpenAPI document checked with official OpenAPI tooling. The Python environment (`PRAENORA_WITH_PYTHON_ENVIRONMENT`, with the released macOS bundle of praenora-runtime-pyenv 0.1.0, CPython 3.12.16, built with AppleClang 21), locally with AppleClang 17, offline, each build from a clean tree and its tests from a shell outside any sandbox with `PRAENORA_TESTS_REQUIRE_LISTENERS=1`, so that the listener tests and those of the restricted sandbox profile ran ([developer-guide.md](developer-guide.md#the-python-environment)): configure, build without warnings and every test of `dev-python` (Debug) and `dev-python-release`, 1344 tests each, none skipped; of `dev-python-asan` and `dev-python-tsan`, 1342 each, without a sanitizer report, with `python.unittest` disabled as in every sanitizer tree and, under AddressSanitizer, `PythonModuleRun.SourcesChangedInOneProcessRefused` skipped, since that tree keeps module libraries loaded ([testing.md](testing.md#sanitizer-builds)); and of `dev-python-engines`, with the roadrunner and antimony providers too, 1484, none skipped, among them a roadrunner step beside a Python step that imports the environment's `roadrunner` package, in one process, the provider loaded first, as a run loads it. Among the tests of each, the label `install`: an installation with the environment and the provider `python`, moved to a directory whose name holds a space and a non-ASCII character, its Python steps run there in the tool's process and in module hosts, and its archive, made with cpack and checked file by file against the installation ([developer-guide.md](developer-guide.md#the-installation)). The builds without the option, the same way: configure, build without warnings and every test of `dev` and `dev-release`, 1246 each, none skipped, of `dev-asan` and `dev-tsan`, 1244 each, without a sanitizer report (`python.unittest` disabled), and of `dev-engines`, with both providers, 1384, none skipped. The `ci-macos-arm64-release` preset, with the bundle downloaded through the pin: configure, build and every test, 1484, none skipped, with Homebrew's yaml-cpp, spdlog and GoogleTest and a cpp-httplib installed locally, in place of fetched ones, and a dependency bundle built locally in place of the released one; its build printed 98 linker notes that Homebrew's libraries were built for a newer macOS than the preset's deployment target, 14.0 ([The CI presets](#the-ci-presets)). A Python wheel built offline without warnings, which holds `praenora.sdk` beside `praenora.runtime`, installed into a fresh virtual environment whose Python imports both ([python.md](python.md#building-a-wheel)). And the pinned release, downloaded for `macos-arm64-release` with `cmake/praenora_fetch_runtime_pyenv.cmake` and checked against the pin, without a token, a second run reusing it. Not yet verified: the CI presets with the environment ([The CI presets](#the-ci-presets)), the workflow's check of an archive's libraries on an archive with the environment ([releasing.md](releasing.md#the-workflow)), and the other load order beside the roadrunner provider. |
+| Linux x86-64 | GCC 9+, Clang 10+ | Presets, a CI preset and portable code. Verified by CI ([releasing.md](releasing.md#what-the-runs-verified)): the `ci-linux-x64-release` preset with GCC 13.3 on `ubuntu-24.04`, against the dependency bundle: configure, build without warnings, and every test, with both providers, process isolation in module hosts, the Python bindings with CPython 3.12, the install tests and the archive (15 tests skip: the 12 of the restricted sandbox profile, which exists only on macOS, and 3 that need what the runner lacks). Not yet verified: the `linux-x64-debug`, `linux-x64-asan` and `linux-x64-tsan` presets, Clang, older GCC, and the distributions' packages ([Linux](#linux)). The control API and the OTLP export are built and tested there too. Not yet verified: the Python environment, not yet compiled on Linux, its installation among them. |
+| Windows x86-64 | MSVC 19.29+ (Visual Studio 2022) | Presets, CI presets and portable code. Verified by CI ([releasing.md](releasing.md#what-the-runs-verified)): the `ci-windows-x64-release` and `ci-windows-x64-debug` presets with MSVC 19.44 (Visual Studio 2022) on `windows-2022`, against the dependency bundles: configure, build without warnings, and every test, with both providers, the Python bindings with CPython 3.12, the install tests and the archives (5 tests skip, which Windows cannot run). Process isolation is not available on Windows in this version. Not yet verified: older MSVC, and libraries from vcpkg or conda-forge ([Windows](#windows)). The control API (TCP only on Windows) and the OTLP export are built and tested there too. Not yet verified: the Python environment, not yet compiled on Windows, its installation and the application manifest that allows long paths ([Windows](#windows)). |
 
 Fetch mode is verified by CI for yaml-cpp, spdlog and GoogleTest, which the CI presets download
 and build ([The CI presets](#the-ci-presets)), and the fetched yaml-cpp and spdlog end up static
@@ -329,8 +329,9 @@ platform key, at the release that
 [`cmake/PraenoraRuntimeDepsPin.cmake`](../cmake/PraenoraRuntimeDepsPin.cmake) pins
 ([developer-guide.md](developer-guide.md#using-a-dependency-bundle)), and build yaml-cpp, spdlog,
 GoogleTest and cpp-httplib (header-only) from their pinned commits with FetchContent. Each key has
-a configure, build and test preset in `CMakePresets.json`, which builds both providers, the Python
-bindings and the tests, with warnings as errors
+a configure, build and test preset in `CMakePresets.json`, which builds both engine providers, the
+Python environment with the provider `python`, the Python bindings and the tests, with warnings as
+errors
 ([developer-guide.md](developer-guide.md#ci-presets) lists what they set):
 
 | Preset | Bundle | Inherits | Status |
@@ -338,7 +339,7 @@ bindings and the tests, with warnings as errors
 | `ci-linux-x64-release` | `linux-x64-release` | `linux-x64-release` | Verified by CI: configure, build without warnings and every test, with GCC 13.3 and fetched yaml-cpp, spdlog and GoogleTest. With fetched cpp-httplib, the control API and the OTLP export too. |
 | `ci-macos-arm64-release` | `macos-arm64-release` | `macos-arm64-release`, with `CMAKE_OSX_DEPLOYMENT_TARGET` 14.0, the bundle's | Verified by CI: configure, build without warnings and every test, with AppleClang 21 and fetched yaml-cpp, spdlog and GoogleTest. Locally also against a bundle built with AppleClang 17, with Homebrew's yaml-cpp, spdlog and GoogleTest instead of fetched ones, and so with their deployment target, 15.0, and since cpp-httplib is a dependency with it installed header-only: configure, build and every test, from a shell outside any sandbox ([developer-guide.md](developer-guide.md#ci-presets)). With fetched cpp-httplib, verified by CI too. |
 | `ci-windows-x64-release` | `windows-x64-release` | `windows-x64-release`, with `CMAKE_TRY_COMPILE_CONFIGURATION` Release | Verified by CI: configure, build without warnings and every test, with MSVC 19.44 and fetched yaml-cpp, spdlog and GoogleTest. With fetched cpp-httplib, the control API and the OTLP export too. |
-| `ci-windows-x64-debug` | `windows-x64-debug` | `windows-x64-debug`, with `CMAKE_TRY_COMPILE_CONFIGURATION` Debug | Verified by CI, as for Release, and not yet with cpp-httplib. |
+| `ci-windows-x64-debug` | `windows-x64-debug` | `windows-x64-debug`, with `CMAKE_TRY_COMPILE_CONFIGURATION` Debug | Verified by CI, as for Release; with fetched cpp-httplib, the control API and the OTLP export too (run 45165537866, [releasing.md](releasing.md#what-the-runs-verified)). |
 
 The jobs of the CI workflow, `.github/workflows/build.yml`, run these presets, each on the runner
 image of its bundle's job in praenora-runtime-deps ([releasing.md](releasing.md#the-workflow)); what
@@ -351,6 +352,25 @@ one of these presets stops when it does not name a bundle. On Windows, the bundl
 definitions of [The roadrunner provider](#the-roadrunner-provider) and
 [The antimony provider](#the-antimony-provider). A bundle is built with one compiler; build with
 that compiler or a newer one of the same family.
+
+The presets also turn on `PRAENORA_WITH_PYTHON_ENVIRONMENT`: they build the provider `python`,
+the Python core and the Python modules of the tests and the example against a released Python
+environment bundle of
+[praenora-runtime-pyenv](https://github.com/INFLECT-Praenora/praenora-runtime-pyenv), at the
+release that [`cmake/PraenoraRuntimePyenvPin.cmake`](../cmake/PraenoraRuntimePyenvPin.cmake) pins
+(0.1.0), which they use as it is and whose directory the environment variable
+`PRAENORA_RUNTIME_PYENV` names; a configuration with one of these presets stops when it does not
+name a bundle ([developer-guide.md](developer-guide.md#ci-presets)). The statuses above came
+before it: no CI run has yet built or tested these presets with the Python environment (not yet
+verified). Locally, `ci-macos-arm64-release` was configured and built from a clean tree, offline,
+with the released macOS bundle that `cmake/praenora_fetch_runtime_pyenv.cmake` downloaded through
+the pin, and all its 1484 tests passed, none skipped, from a shell outside any sandbox with the test
+preset's `PRAENORA_TESTS_REQUIRE_LISTENERS=1` ([Verification status](#verification-status)). It
+differed from CI in its dependencies: Homebrew's yaml-cpp, spdlog and GoogleTest and a cpp-httplib
+installed locally, in place of fetched ones, and a dependency bundle built and installed locally in
+place of the released one. With Homebrew's libraries and the preset's deployment target, 14.0, its
+build printed 98 warnings, all linker notes that Homebrew's fmt, spdlog, yaml-cpp and GoogleTest
+were built for a newer macOS; CI builds those from their pinned sources.
 
 ## macOS
 
@@ -398,7 +418,12 @@ otool -D "$PREFIX/lib/libpraenora_runtime.dylib"
 ```
 
 shows `path @loader_path/../lib` and `@rpath/libpraenora_runtime.0.2.dylib`. (Inside some
-sandboxes, Apple's developer tools also print a harmless `xcrun_db` cache warning.)
+sandboxes, Apple's developer tools also print a harmless `xcrun_db` cache warning.) With the Python
+environment, the installed Python core, `lib/praenora/providers/python/praenora-python-core.dylib`,
+has the one run path `@loader_path/../../python-environment/python/lib`, where the installation's
+environment keeps `libpython3.12.dylib` (install name `@rpath/libpython3.12.dylib`), and the
+provider `python`'s library has none (in a sanitizer build the compiler adds `@executable_path` and
+the toolchain's sanitizer runtime directory to both).
 
 **Code signing and the hardened runtime.** The linker gives every binary of the build an ad-hoc
 signature, without the hardened runtime:
@@ -485,6 +510,12 @@ readelf -d "${TMPDIR:-/tmp}/praenora-install/bin/praenora" | grep -E 'RPATH|RUNP
 ldd "${TMPDIR:-/tmp}/praenora-install/bin/praenora"
 ```
 
+With the Python environment, the installed Python core has the run path
+`$ORIGIN/../../python-environment/python/lib`, where the installation's environment keeps
+`libpython3.12.so.1.0`, and `praenora` and `praenora-module-host` find the provider `python`'s
+environment file below the installation's library directory, `lib64` included (not yet verified on
+Linux).
+
 Thread names are cut to 15 bytes, so long step names are shortened in a debugger.
 
 Process isolation in module hosts is verified on Linux x86-64 by CI; the restricted sandbox
@@ -552,6 +583,17 @@ and `lib` directory names.
   4 s for the run to wind down.
 - Sanitizer presets exist for GCC and Clang only.
 - The Python extension is a `.pyd` file with the runtime's DLLs beside it ([python.md](python.md)).
+- `praenora.exe` has, in every Windows build, an application manifest
+  (`src/cli/praenora.manifest`) that declares it long-path aware (`longPathAware`), and so do the
+  test programs that run the Python environment in their process. It matters for the environment,
+  whose files lie up to about 140 characters below its directory: Windows lets a process open
+  longer paths than 260 characters only when it declares that and long paths are enabled in the
+  system (the setting `LongPathsEnabled`;
+  [user-guide.md](user-guide.md#the-python-environment-in-an-installation)). The manifest declares
+  no code page: the tool already takes its arguments as UTF-16 and calls the system's wide
+  functions. With the environment, the Python core's DLL is installed without its import library,
+  and Python steps run in the tool's process only, as process isolation is not available. Not yet
+  verified.
 - Process isolation, and with it the restricted sandbox profile, is not available on Windows in this
   version: validation refuses a step in mode `process` (`UNSUPPORTED`), and the module host is not
   built.

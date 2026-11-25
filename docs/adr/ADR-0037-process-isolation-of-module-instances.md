@@ -144,16 +144,16 @@ The specification is [process-isolation.md](../specs/process-isolation.md).
   is not one atomic step, and a process that sees a member of its group die first could still exit
   on its own.
 - The module host's calls all run on one thread, made as the runtime makes an instance's worker
-  thread (a `std::thread` with the platform's default stack), not on the main thread, whose stack
-  is larger: a module has the same stack in either place. Its load (static initializers,
-  `describe()`, the providers' `start()`) runs on a thread of its own, which that thread starts
-  and waits for, with a main thread's stack: the soft limit of `RLIMIT_STACK`, at least 1 MiB and
-  at most 1 GiB in whole pages, or 8 MiB when the limit is unlimited or cannot be read. In the
-  runtime's process a load runs on its caller's thread, the main thread of the tool and of Python;
-  on macOS a thread's default stack is 512 KiB, so a static initializer that needs more crashed
-  only in a module host before. A reader thread takes the runtime's frames, raises the
-  cancellation flag of a call, and ends the process on the request to exit or at the end of the
-  channel.
+  thread, not on the main thread: a module has the same thread and the same stack in either place.
+  Both have a main thread's stack (`ModuleThread`, `src/runtime/platform/platform.hpp`), and so
+  does the thread of its own on which the module host's load (static initializers, `describe()`,
+  the providers' `start()`) runs, which the call thread starts and waits for: the soft limit of
+  `RLIMIT_STACK`, at least 1 MiB and at most 1 GiB in whole pages, or 8 MiB when the limit is
+  unlimited or cannot be read. In the runtime's process a load runs on its caller's thread, the
+  main thread of the tool and of Python; on macOS a thread's default stack is 512 KiB, on which a
+  static initializer or Python code that needs more crashes. A reader thread takes the runtime's
+  frames, raises the cancellation flag of a call, and ends the process on the request to exit or
+  at the end of the channel.
 - An executable that exists but cannot be run is reported with `details.reason` `spawn` ("is not
   executable", with the system's text).
 - The digest check of "the library changed after validation" is one check with one message in

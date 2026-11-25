@@ -1,0 +1,15 @@
+# fx-py-ignore-cancel runs Python code for an hour without polling the cancel flag: in the runtime's
+# process the call outlives its invoke timeout of 1 s and the cancellation grace of 1 s, the run
+# fails with MODULE_UNRESPONSIVE (exit code 5) and `praenora run` exits all the same
+# (PythonModuleRun.IgnoredCancelEndsWithinGrace).
+kind: workflow-config
+format_version: "0.1.0"
+workflow: { name: test.single, version: "0.1.0" }
+run:
+  ticks: 1
+  timeouts: { invoke: 1s, cancel_grace: 1s }
+inputs:
+  source: { source: json-document, path: ../source.json }
+steps:
+  a:
+    module: { name: fx-py-ignore-cancel, version: "0.1.0" }

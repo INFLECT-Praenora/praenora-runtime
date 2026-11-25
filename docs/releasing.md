@@ -1,12 +1,16 @@
 # Releasing
 
 This document describes how GitHub Actions builds and tests the runtime against the dependency
-bundles of [praenora-runtime-deps](https://github.com/INFLECT-Praenora/praenora-runtime-deps), and
-how an administrator publishes a release with the archives it makes. Running the same presets on
-your own machine is in [developer-guide.md](developer-guide.md#ci-presets), what an archive holds in
+bundles of [praenora-runtime-deps](https://github.com/INFLECT-Praenora/praenora-runtime-deps) and
+the Python environment bundles of
+[praenora-runtime-pyenv](https://github.com/INFLECT-Praenora/praenora-runtime-pyenv), and how an
+administrator publishes a release with the archives it makes. Running the same presets on your own
+machine is in [developer-guide.md](developer-guide.md#ci-presets), what an archive holds in
 [developer-guide.md](developer-guide.md#archiving-an-installation), and checking and running one in
 [user-guide.md](user-guide.md#getting-the-tool). The decisions behind the workflow are in
-[ADR-0041](adr/ADR-0041-ci-and-releases-against-pinned-dependency-bundles.md).
+[ADR-0041](adr/ADR-0041-ci-and-releases-against-pinned-dependency-bundles.md), and those behind the
+Python environment's pin in
+[ADR-0045](adr/ADR-0045-python-environment-pinned-in-ci-and-installation.md).
 
 ## What the runs verified
 
@@ -50,6 +54,12 @@ platform key with them: cpp-httplib downloaded at its pinned commit, its license
 listener tests run with `PRAENORA_TESTS_REQUIRE_LISTENERS=1`; its test counts are not recorded
 here.
 
+The Python environment
+([ADR-0045](adr/ADR-0045-python-environment-pinned-in-ci-and-installation.md)) came after all of
+these runs: no run has yet fetched the pinned Python environment bundles, built the CI presets with
+them, tested the provider `python` and the Python modules on Linux or Windows, or archived an
+installation with the environment (not yet verified).
+
 ## The workflow
 
 [`.github/workflows/build.yml`](../.github/workflows/build.yml) (named "Build") runs:
@@ -62,9 +72,11 @@ here.
 
 Its jobs:
 
-1. **Prepare** reads the runtime's version from `project(VERSION)` in `CMakeLists.txt`, and the
+1. **Prepare** reads the runtime's version from `project(VERSION)` in `CMakeLists.txt`, the
    version and repository of the dependency bundles from
-   [`cmake/PraenoraRuntimeDepsPin.cmake`](../cmake/PraenoraRuntimeDepsPin.cmake). With `publish`,
+   [`cmake/PraenoraRuntimeDepsPin.cmake`](../cmake/PraenoraRuntimeDepsPin.cmake), and those of the
+   Python environment bundles from
+   [`cmake/PraenoraRuntimePyenvPin.cmake`](../cmake/PraenoraRuntimePyenvPin.cmake). With `publish`,
    it stops the run unless the run is on `main` and the tag `v<version>` does not exist; when it
    exists, the message says to raise `project(VERSION)` in `CMakeLists.txt`
    ([Release procedure](#release-procedure)). It looks for the tag with
@@ -96,11 +108,14 @@ Its jobs:
    Python 3.12 with `actions/setup-python`, installs Ninja and SWIG with apt (Linux), those of
    them that are missing with Homebrew (macOS), or SWIG with Chocolatey (Windows, whose presets
    use the Visual Studio 2022 generator, which finds MSVC without a developer environment),
-   fetches the bundle of its key, and runs, with `<key>` its key:
+   fetches the dependency bundle and the Python environment bundle of its key, and runs, with
+   `<key>` its key:
 
    ```sh
    cmake -DPLATFORM=<key> -DDESTINATION=<runner temp>/deps \
        -P cmake/praenora_fetch_runtime_deps.cmake
+   cmake -DPLATFORM=<key> -DDESTINATION=<runner temp>/pyenv \
+       -P cmake/praenora_fetch_runtime_pyenv.cmake
    cmake --preset ci-<key> -DPython3_EXECUTABLE=<the Python set up>
    cmake --build --preset ci-<key> --parallel
    ctest --preset ci-<key>
@@ -108,8 +123,9 @@ Its jobs:
    ```
 
    The presets are those of [developer-guide.md](developer-guide.md#ci-presets): both providers,
-   the Python bindings and the tests, with warnings as errors, and yaml-cpp, spdlog, GoogleTest and
-   cpp-httplib (header-only) built from their pinned commits. `ctest` runs every test of the tree.
+   the Python environment with the provider `python`, the Python bindings and the tests, with
+   warnings as errors, and yaml-cpp, spdlog, GoogleTest and cpp-httplib (header-only) built from
+   their pinned commits. `ctest` runs every test of the tree.
    Its test preset sets `PRAENORA_TESTS_REQUIRE_LISTENERS=1`, so the tests that open local
    listeners (label `server`, and the Python test of the OTLP export) fail, instead of skipping,
    should the runner refuse a listener on `127.0.0.1`, `::1` or a Unix socket
@@ -127,17 +143,25 @@ Its jobs:
    |---|---|
    | Linux | glibc's (`libc.so.6`, `libm.so.6`, `libdl.so.2`, `libpthread.so.0`, `librt.so.1`, `libutil.so.1`, `libresolv.so.2`, `ld-linux-x86-64.so.2`), GCC's `libstdc++.so.6` and `libgcc_s.so.1`, and a name that a file or link of the archive has. |
    | macOS | `/usr/lib/*` and `/System/*`, and an `@rpath/`, `@loader_path/` or `@executable_path/` name whose last part a file or link of the archive has. |
-   | Windows | The API sets (`api-ms-win-*`, `ext-ms-*`), the Visual C++ runtime and its debug libraries (`msvcp140*`, `vcruntime140*`, `concrt140*`, `ucrtbase*`), `praenora_runtime.dll` from the archive's `bin\`, and the DLLs in `%SystemRoot%\System32`. |
+   | Windows | The API sets (`api-ms-win-*`, `ext-ms-*`), the Visual C++ runtime and its debug libraries (`msvcp140*`, `vcruntime140*`, `concrt140*`, `ucrtbase*`), `praenora_runtime.dll` from the archive's `bin\`, `python3*.dll` for the files of `lib\praenora\providers\python\` (the Python core) when the archive holds it in `lib\praenora\python-environment\python\`, and the DLLs in `%SystemRoot%\System32`. |
 
    Any other library fails the step, which names it with the file that needs it, as does a file
-   whose list cannot be read or is empty. On macOS arm64 the step's script was run on the
-   archive of a local `ci-macos-arm64-release` tree configured with Homebrew's yaml-cpp and
-   spdlog ([developer-guide.md](developer-guide.md#ci-presets)), where it fails, naming
-   Homebrew's yaml-cpp, spdlog and fmt for the runtime library and the module host, and, with
-   those entries left out of `otool`'s output, passes; its Linux and Windows parts were first run
-   on hand-made archives, with scripts that print the output of `readelf` and `dumpbin` in their
-   formats. On GitHub the step passed on every key
-   ([What the runs verified](#what-the-runs-verified)).
+   whose list cannot be read or is empty. The step skips the Python environment,
+   `lib/praenora/python-environment/`: the archive holds the bundle unchanged, and
+   praenora-runtime-pyenv's workflow checks it. On Linux and macOS the Python core's libpython
+   (`libpython3.12.so.1.0`, `@rpath/libpython3.12.dylib`) is accepted as any library whose name a
+   file of the archive has.
+
+   On macOS arm64 the step's script was first run on the archive of a local
+   `ci-macos-arm64-release` tree configured with Homebrew's yaml-cpp and spdlog
+   ([developer-guide.md](developer-guide.md#ci-presets)), where it fails, naming Homebrew's
+   yaml-cpp, spdlog and fmt for the runtime library and the module host, and, with those entries
+   left out of `otool`'s output, passes; its Linux and Windows parts were first run on hand-made
+   archives, with scripts that print the output of `readelf` and `dumpbin` in their formats. On
+   GitHub the step passed on every key, before the Python environment
+   ([What the runs verified](#what-the-runs-verified)). With the environment (skipping it,
+   accepting the core's libpython and, on Windows, the rule for `python3*.dll`), the step is not
+   yet verified, on GitHub or on a local archive.
 
    Last, the job uploads the archive and its `.sha256` file from `build/ci-<key>/package/` as a
    workflow artifact named after the key, kept for 7 days.
@@ -145,7 +169,9 @@ Its jobs:
    the version and that they match their `.sha256` files, unpacks the Linux archive and runs its
    `bin/praenora version --json` and `providers list --json` for the release notes (the versions
    of the runtime, the module SDK, PMP and the module ABI, and each provider with its services and
-   engine), names the pinned release of the dependency bundles, and creates the draft release
+   engine), names the pinned releases of the dependency bundles and of the Python environment
+   bundles, each linked, says that the Python environment's licenses are in each archive (its
+   license files in `share/praenora/licenses/python-environment/`), and creates the draft release
    `v<version>` of the built commit, with every archive and `.sha256` file. A draft is visible only
    to users with write access, and creates no tag; publishing it creates the tag `v<version>` on
    that commit.
@@ -153,18 +179,42 @@ Its jobs:
 **Path lengths on Windows.** praenora-runtime-deps' workflow maps a drive letter to the parent of
 its checkout with `subst`, because `cl` refuses an object file whose path is longer than 259
 characters and its object files' paths were longer. This workflow does not: in the checkout
-`D:\a\praenora-runtime\praenora-runtime\` (39 characters), the longest path of a
-`windows-x64-release` job is estimated at 235 characters, a license file in CPack's staging
-directory (`build\ci-windows-x64-release\package\_CPack_Packages\win64\ZIP\<archive name>\` and
-then `share\praenora\licenses\libroadrunner-deps\third_party\NuML\libnuml\LICENSE.txt`); 231 in
-the staging directory of `install.package` (`build\ci-<key>\pkg\`); about 197 for the files of
-FetchContent's sub-build of GoogleTest; and 172 for the longest object file, which `cl` writes. The
-`windows-x64-debug` job's paths are 4 characters shorter. These are estimates from the paths of a
-macOS build tree (`build/ci-macos-arm64-release`), with the Windows prefix, archive name and
-directories of the Visual Studio generator; both Windows jobs passed without shortening the path
-([What the runs verified](#what-the-runs-verified)). Should a Windows job fail on a path
-that is too long, add a step like the one of praenora-runtime-deps' workflow
-(`Shorten the path of the checkout`), and the `working-directory` of the steps that run CMake.
+`D:\a\praenora-runtime\praenora-runtime\` (39 characters), the longest object file path, which
+`cl` writes, is estimated at 172 characters, and the files of FetchContent's sub-build of
+GoogleTest at about 197. Without the Python environment, the longest path of a
+`windows-x64-release` job was estimated at 235 characters, a license file in CPack's staging
+directory, and both Windows jobs passed without shortening the path
+([What the runs verified](#what-the-runs-verified)).
+
+The Python environment takes other paths past 259. Its deepest file is about 140 characters below
+the bundle's root (`python\Lib\site-packages\jedi\third_party\typeshed\stubs\...`), and an
+installation holds the bundle in `lib\praenora\python-environment\` (32 characters). With the
+archive name `praenora-runtime-<version>-windows-x86_64-msvc143-release` (53 characters for
+0.2.0), the estimates for a `windows-x64-release` job are:
+
+| Where | Longest path |
+|---|---|
+| CPack's staging directory of the target `PACKAGE`, `build\ci-windows-x64-release\package\_CPack_Packages\win64\ZIP\<archive name>\` | 329 |
+| The staging directory of `install.package`, `build\ci-<key>\pkg\_CPack_Packages\win64\ZIP\<archive name>\` | 325 |
+| The archive unpacked by `install.package`, `build\ci-<key>\pkg\u\<archive name>\` | 301 |
+| The moved installation of `install.consumer`, `build\ci-<key>\tests\install\work\moved prëfix\` | 273 |
+| The installation of `install.consumer`, `build\ci-<key>\tests\install\work\prefix\` | 267 |
+| The archive unpacked by the step *Check the archive's libraries*, `D:\a\_temp\archive-check\<archive name>\` | 252 |
+| The installation of `install.package`, `build\ci-<key>\pkg\i\` | 247 |
+| The Python environment bundle, `D:\a\_temp\pyenv\<bundle name>\` (12 more while the fetch script unpacks it) | 224 |
+
+The `windows-x64-debug` job's are up to 4 characters shorter (`debug` for `release` in the tree's
+and the archive's names). Only CMake and CPack open the paths beyond 259 (they install, archive,
+unpack, hash, compare and remove the environment's files), so the jobs rely on CMake and CPack
+handling long paths: praenora-runtime-pyenv's workflow shows that CPack archives paths of about 300
+characters on `windows-2022` (not yet verified for this workflow). The Python files that an
+installation's programs open stay below 259: the deepest file of numpy, which the tests' Python
+modules import, is at about 230 in the moved installation. Shortening the work directories of the
+tests would not bring the longest paths below 259, nor would a step like praenora-runtime-deps'
+`Shorten the path of the checkout`, which saves 36 characters. Should a Windows job fail on a path
+that is too long, its log names the path and the program that failed; the remedies, long paths
+enabled in Windows (`LongPathsEnabled`) for that program or shorter directories in CPack's staging,
+need the maintainer's decision.
 
 ## The dependency bundles
 
@@ -195,6 +245,37 @@ test
 each with its `ci-<key>` presets, and that each key runs on the label of its operating system
 ([testing.md](testing.md#labels)).
 
+## The Python environment bundles
+
+[`cmake/PraenoraRuntimePyenvPin.cmake`](../cmake/PraenoraRuntimePyenvPin.cmake) pins a release of
+[praenora-runtime-pyenv](https://github.com/INFLECT-Praenora/praenora-runtime-pyenv)
+(`PRAENORA_RUNTIME_PYENV_VERSION`, now 0.1.0, the release v0.1.0, published on 2026-11-25 and built
+from its commit `1120cc4`) and, for each platform key of `PRAENORA_RUNTIME_PYENV_PLATFORMS` (the
+same keys as the dependency bundles'), the name and SHA-256 of its archive there. The environment
+is built in Release only, so `windows-x64-debug` names the archive of `windows-x64-release`:
+
+| Key | Archive |
+|---|---|
+| `linux-x64-release` | `praenora-runtime-pyenv-0.1.0-linux-x86_64-cp312-gcc13-release.tar.xz` |
+| `macos-arm64-release` | `praenora-runtime-pyenv-0.1.0-macos-arm64-cp312-appleclang21-release.tar.xz` |
+| `windows-x64-release`, `windows-x64-debug` | `praenora-runtime-pyenv-0.1.0-windows-x86_64-cp312-msvc143-release.zip` |
+
+Each build job runs
+[`cmake/praenora_fetch_runtime_pyenv.cmake`](../cmake/praenora_fetch_runtime_pyenv.cmake) for its
+own key, after the dependency bundle's script, with which it shares its implementation
+([`cmake/praenora_fetch_bundle.cmake`](../cmake/praenora_fetch_bundle.cmake)): it downloads the
+archive from the release, checks its SHA-256 against the pin, unpacks it into the runner's
+temporary directory, checks that the bundle's manifest, `praenora-runtime-pyenv.json`, names the
+pinned version, and appends `PRAENORA_RUNTIME_PYENV=<bundle>` to the file that `GITHUB_ENV` names,
+so that the CI presets find the environment's CMake package
+([developer-guide.md](developer-guide.md#ci-presets)). The pyenv repository is public, so no token
+is needed. Its workflow runs on the same runner labels as praenora-runtime-deps', and its bundles
+name the same compilers (GCC 13, AppleClang 21, MSVC toolset 143); the environment's CMake package
+refuses a build for another platform, an older macOS deployment target than the bundle's (14.0, as
+`ci-macos-arm64-release` sets) or an older MSVC toolset. CI's use of the pin is not yet verified:
+no run of the workflow has fetched it ([What the runs verified](#what-the-runs-verified)). The test
+`ci.workflow_consistency` checks that the platforms of both pins are the workflow's matrix keys.
+
 ## Raising the deps pin
 
 The pin is changed only after the maintainer confirms the change ([AGENTS.md](../AGENTS.md)):
@@ -222,6 +303,36 @@ pull request:
    [developer-guide.md](developer-guide.md#using-a-dependency-bundle).
 5. **Run the pull request's checks**: every job builds and tests the runtime against the new
    bundles; `ci.workflow_consistency` checks that the pin, the presets and the workflow agree.
+
+## Raising the Python environment pin
+
+The pin of the Python environment bundles is changed only after the maintainer confirms the change
+([AGENTS.md](../AGENTS.md)), as the deps pin is: raised to a newer published release of
+praenora-runtime-pyenv, or corrected within one. Then, in one pull request:
+
+1. **Read the release's archives.** Their names, and the SHA-256 that GitHub records for each
+   asset (its `digest`, `sha256:<hash>`):
+
+   ```sh
+   gh release view v<pyenv version> --repo INFLECT-Praenora/praenora-runtime-pyenv --json assets
+   ```
+
+   or the release's `.sha256` files, one beside each archive. The Windows `.sha256` file of
+   v0.1.0 ends in a carriage return and a line feed, which `shasum -a 256 -c` on macOS refuses;
+   the pin holds the value itself, so read it from the file rather than checking with it.
+2. **Update the pin file**: `PRAENORA_RUNTIME_PYENV_VERSION`, and for every key the archive's name
+   and SHA-256, all together; both Windows keys name the Windows archive while the environment is
+   built in Release only. The names carry the bundles' platforms, CPython versions and compilers.
+3. **Check the runner labels and the environment's requirements**: if that release moved one of
+   its jobs to another runner image or compiler, or raised its macOS deployment target, the
+   runtime's jobs and presets must still meet them (the environment's CMake package says what it
+   refuses). A new CPython minor version changes the interpreter that the provider `python` and
+   every Python module run, so the Python modules' tests are the ones to read in the pull
+   request's runs.
+4. **Update this document**: [The Python environment bundles](#the-python-environment-bundles),
+   and the documents that name the pinned version or an archive name.
+5. **Run the pull request's checks**: every job builds and tests the runtime against the new
+   environment; `ci.workflow_consistency` checks that the pins, the presets and the workflow agree.
 
 ## Artifacts and releases
 
@@ -284,8 +395,9 @@ The release procedure relies on these settings:
      shasum -a 256 -c praenora-runtime-<version>-macos-arm64-appleclang21-release.tar.xz.sha256
      ```
 
-   - Unpack it, then run its `bin/praenora version` and `bin/praenora providers list` (both
-     providers usable), and the example workflow with that tool, given the example modules of a
+   - Unpack it, then run its `bin/praenora version` and `bin/praenora providers list` (the three
+     providers, `roadrunner`, `antimony` and `python`, usable), and the example workflow with that
+     tool, given the example modules of a
      local build of the same commit with `--module-path` (the archive holds none)
      ([user-guide.md](user-guide.md#getting-the-tool),
      [user-guide.md](user-guide.md#running-the-example-workflow)). On a Mac with Homebrew's
@@ -298,7 +410,10 @@ The release procedure relies on these settings:
      by both providers (OQ-27, OQ-29) ([open-questions.md](open-questions.md)). cpp-httplib (MIT)
      is compiled in from its header (into the runtime library, the tool and the module host) and
      taken from its pinned commit, so its license is in `share/praenora/licenses/httplib/`, as
-     yaml-cpp's and spdlog's are (not yet verified in an archive of the workflow).
+     yaml-cpp's and spdlog's are (not yet verified in an archive of the workflow). The Python
+     environment holds CPython and the packages it pins, each under its own license, with their
+     license files in `share/praenora/licenses/python-environment/` (not yet verified in an
+     archive of the workflow).
 5. **Publish** the release, after editing its notes if needed. Publishing creates the tag
    `v<version>` on the built commit; the release then cannot change.
 

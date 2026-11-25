@@ -1,0 +1,4 @@
+{
+  "kind": "module-manifest",
+  "format_version": "@PRAENORA_MODULE_MANIFEST_FORMAT_VERSION@",
+  "features": { "self_test": true },

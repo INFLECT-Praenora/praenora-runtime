@@ -1,14 +1,17 @@
-# Checks that the workflow .github/workflows/build.yml agrees with the pin of the dependency
-# bundles and with the CI presets, and that it pins its actions and runner images: the driver of
-# ci.workflow_consistency (tests/ci/CMakeLists.txt). Script mode, cmake -P, with WORKFLOW,
-# PIN_FILE and PRESETS set to the workflow, cmake/PraenoraRuntimeDepsPin.cmake and
-# CMakePresets.json; it reads only these files and uses no network.
+# Checks that the workflow .github/workflows/build.yml agrees with the pins of the dependency
+# bundles and of the Python environment bundles and with the CI presets, and that it pins its
+# actions and runner images: the driver of ci.workflow_consistency (tests/ci/CMakeLists.txt).
+# Script mode, cmake -P, with WORKFLOW, PIN_FILE, PYENV_PIN_FILE and PRESETS set to the workflow,
+# cmake/PraenoraRuntimeDepsPin.cmake, cmake/PraenoraRuntimePyenvPin.cmake and CMakePresets.json;
+# it reads only these files and uses no network.
 #
 # It reads the workflow as text, line by line, in the format that the workflow's header comment
 # states (CMake reads no YAML): each value it checks is on the same line as its key, unquoted and
 # without a comment (but the version comment of a uses: line). It checks that:
 #   1. each matrix entry is a line "- key: <key>" followed by a line "runner: <label>", and the
-#      keys are those of PRAENORA_RUNTIME_DEPS_PLATFORMS in the pin file, each once, in any order;
+#      keys are those of PRAENORA_RUNTIME_DEPS_PLATFORMS in PIN_FILE, each once, in any order, and
+#      those of PRAENORA_RUNTIME_PYENV_PLATFORMS in PYENV_PIN_FILE too: each job fetches both
+#      bundles of its key;
 #   2. each key has a configure, a build and a test preset ci-<key> in CMakePresets.json;
 #   3. each entry's runner label is the one for its key's operating system, the key's first word:
 #      ubuntu-24.04 for linux, macos-26 for macos and windows-2022 for windows, the runner images
@@ -25,7 +28,7 @@
 cmake_minimum_required(VERSION 3.24)
 
 set(_script "check_workflow_consistency.cmake")
-foreach(_variable IN ITEMS WORKFLOW PIN_FILE PRESETS)
+foreach(_variable IN ITEMS WORKFLOW PIN_FILE PYENV_PIN_FILE PRESETS)
     if(NOT DEFINED ${_variable} OR "${${_variable}}" STREQUAL "")
         message(FATAL_ERROR "${_script}: ${_variable} is not set")
     endif()
@@ -49,10 +52,17 @@ function(_problem)
     set(_problems "${count}" PARENT_SCOPE)
 endfunction()
 
-include("${PIN_FILE}")
-if(NOT DEFINED PRAENORA_RUNTIME_DEPS_PLATFORMS OR PRAENORA_RUNTIME_DEPS_PLATFORMS STREQUAL "")
-    _problem("${PIN_FILE}: it sets no PRAENORA_RUNTIME_DEPS_PLATFORMS")
-endif()
+# The pins: for each variable that names a pin file, the prefix of that file's variables.
+set(_pins PIN_FILE PYENV_PIN_FILE)
+set(_prefix_PIN_FILE PRAENORA_RUNTIME_DEPS)
+set(_prefix_PYENV_PIN_FILE PRAENORA_RUNTIME_PYENV)
+foreach(_file_variable IN LISTS _pins)
+    set(_prefix "${_prefix_${_file_variable}}")
+    include("${${_file_variable}}")
+    if(NOT DEFINED ${_prefix}_PLATFORMS OR "${${_prefix}_PLATFORMS}" STREQUAL "")
+        _problem("${${_file_variable}}: it sets no ${_prefix}_PLATFORMS")
+    endif()
+endforeach()
 
 # The names of the presets of each kind.
 file(READ "${PRESETS}" _presets_json)
@@ -154,21 +164,24 @@ if(NOT _expect_runner_for STREQUAL "")
         "'runner: <label>' after its key")
 endif()
 
-# The keys against the pin.
+# The keys against each pin.
 if(_keys STREQUAL "")
     _problem("${WORKFLOW}: no matrix entry, a line '- key: <key>'")
 else()
     set(_sorted_keys ${_keys})
-    set(_sorted_platforms ${PRAENORA_RUNTIME_DEPS_PLATFORMS})
     list(REMOVE_DUPLICATES _sorted_keys)
     list(SORT _sorted_keys)
-    list(SORT _sorted_platforms)
-    if(NOT _sorted_keys STREQUAL _sorted_platforms)
-        list(JOIN _keys ", " _keys_text)
-        list(JOIN PRAENORA_RUNTIME_DEPS_PLATFORMS ", " _platforms_text)
-        _problem("${WORKFLOW}: the matrix keys (${_keys_text}) are not the platforms of "
-            "PRAENORA_RUNTIME_DEPS_PLATFORMS in ${PIN_FILE} (${_platforms_text})")
-    endif()
+    foreach(_file_variable IN LISTS _pins)
+        set(_prefix "${_prefix_${_file_variable}}")
+        set(_sorted_platforms ${${_prefix}_PLATFORMS})
+        list(SORT _sorted_platforms)
+        if(NOT _sorted_keys STREQUAL _sorted_platforms)
+            list(JOIN _keys ", " _keys_text)
+            list(JOIN ${_prefix}_PLATFORMS ", " _platforms_text)
+            _problem("${WORKFLOW}: the matrix keys (${_keys_text}) are not the platforms of "
+                "${_prefix}_PLATFORMS in ${${_file_variable}} (${_platforms_text})")
+        endif()
+    endforeach()
 endif()
 if(_runs_on EQUAL 0)
     _problem("${WORKFLOW}: no line 'runs-on: <label>'")
@@ -181,5 +194,6 @@ if(_problems GREATER 0)
     message(FATAL_ERROR "ci.workflow_consistency: ${_problems} problem(s)")
 endif()
 list(LENGTH _keys _key_count)
-message("ci.workflow_consistency: ${_key_count} matrix keys, ${_runs_on} runs-on values and "
-    "${_uses} actions checked")
+list(LENGTH _pins _pin_count)
+message("ci.workflow_consistency: ${_key_count} matrix keys against ${_pin_count} pins, "
+    "${_runs_on} runs-on values and ${_uses} actions checked")

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<!-- The application manifest of the praenora tool on Windows (src/cli/CMakeLists.txt), which the
+     linker embeds; the test programs that run the Python environment in their process get it too
+     (praenora_add_long_path_manifest(), tests/CMakeLists.txt). longPathAware lets the process open
+     paths of more than 260 characters where the system allows them (the LongPathsEnabled setting):
+     an installation's Python environment holds deep paths. -->
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <application xmlns="urn:schemas-microsoft-com:asm.v3">
+    <windowsSettings xmlns:ws2="http://schemas.microsoft.com/SMI/2016/WindowsSettings">
+      <ws2:longPathAware>true</ws2:longPathAware>
+    </windowsSettings>
+  </application>
+</assembly>

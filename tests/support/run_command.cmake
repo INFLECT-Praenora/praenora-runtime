@@ -1,7 +1,8 @@
 # Running commands in the CMake drivers of the tests (tests/cli/run_cli.cmake,
 # tests/install/run_install_test.cmake, tests/perf/run_perf.cmake,
 # tests/providers/check_exports.cmake, tests/providers/run_twice.cmake,
-# tests/ci/check_fetch_runtime_deps.cmake), which include this file.
+# tests/ci/check_fetch_runtime_deps.cmake, tests/ci/check_fetch_runtime_pyenv.cmake), which include
+# this file.
 # Script mode (cmake -P); it needs only CMake.
 #
 # praenora_test_run(<prefix> <what> <command> [AFTER_PROBLEM <text>] [OUTPUT_FILE <file>])

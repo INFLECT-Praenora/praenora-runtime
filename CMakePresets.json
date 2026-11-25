@@ -95,7 +95,10 @@
         "CMAKE_DISABLE_FIND_PACKAGE_spdlog": "ON",
         "CMAKE_DISABLE_FIND_PACKAGE_googletest": "ON",
         "CMAKE_DISABLE_FIND_PACKAGE_httplib": "ON",
-        "PRAENORA_THIRD_PARTY_LICENSE_DIRS": "$env{PRAENORA_RUNTIME_DEPS}/licenses"
+        "PRAENORA_THIRD_PARTY_LICENSE_DIRS": "$env{PRAENORA_RUNTIME_DEPS}/licenses",
+        "PRAENORA_WITH_PYTHON_ENVIRONMENT": "ON",
+        "PRAENORA_RUNTIME_PYENV": "$env{PRAENORA_RUNTIME_PYENV}",
+        "PraenoraRuntimePyenv_DIR": "$env{PRAENORA_RUNTIME_PYENV}/lib/cmake/PraenoraRuntimePyenv"
       }
     },
     {
@@ -170,12 +173,12 @@
     },
     {
       "name": "ci-linux-x64-release",
-      "displayName": "CI: Linux x86-64, Release, with the dependency bundle in PRAENORA_RUNTIME_DEPS",
+      "displayName": "CI: Linux x86-64, Release, with the bundles in PRAENORA_RUNTIME_DEPS and PRAENORA_RUNTIME_PYENV",
       "inherits": ["linux-x64-release", "ci"]
     },
     {
       "name": "ci-macos-arm64-release",
-      "displayName": "CI: macOS arm64, Release, with the dependency bundle in PRAENORA_RUNTIME_DEPS",
+      "displayName": "CI: macOS arm64, Release, with the bundles in PRAENORA_RUNTIME_DEPS and PRAENORA_RUNTIME_PYENV",
       "inherits": ["macos-arm64-release", "ci"],
       "cacheVariables": {
         "CMAKE_OSX_DEPLOYMENT_TARGET": "14.0"
@@ -183,7 +186,7 @@
     },
     {
       "name": "ci-windows-x64-release",
-      "displayName": "CI: Windows x86-64, Visual Studio 2022, Release, with the dependency bundle in PRAENORA_RUNTIME_DEPS",
+      "displayName": "CI: Windows x86-64, Visual Studio 2022, Release, with the bundles in PRAENORA_RUNTIME_DEPS and PRAENORA_RUNTIME_PYENV",
       "inherits": ["windows-x64-release", "ci-windows"],
       "cacheVariables": {
         "CMAKE_TRY_COMPILE_CONFIGURATION": "Release"
@@ -191,7 +194,7 @@
     },
     {
       "name": "ci-windows-x64-debug",
-      "displayName": "CI: Windows x86-64, Visual Studio 2022, Debug, with the dependency bundle in PRAENORA_RUNTIME_DEPS",
+      "displayName": "CI: Windows x86-64, Visual Studio 2022, Debug, with the bundles in PRAENORA_RUNTIME_DEPS and PRAENORA_RUNTIME_PYENV",
       "inherits": ["windows-x64-debug", "ci-windows"],
       "cacheVariables": {
         "CMAKE_TRY_COMPILE_CONFIGURATION": "Debug"

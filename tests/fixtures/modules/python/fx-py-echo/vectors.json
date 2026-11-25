@@ -1,0 +1,31 @@
+{
+  "kind": "module-test-vectors",
+  "format_version": "0.1.0",
+  "cases": [
+    {
+      "name": "echo",
+      "capability": { "id": "test.echo", "version": "0.1.0" },
+      "ticks": [
+        {
+          "inputs": { "in": { "value": 1, "text": "déjà vu" } },
+          "expect": { "outputs": { "out": { "value": 1, "text": "déjà vu" } } }
+        },
+        {
+          "inputs": {},
+          "expect": { "outputs": { "out": {} } }
+        }
+      ]
+    },
+    {
+      "name": "added",
+      "capability": { "id": "test.echo", "version": "0.1.0" },
+      "parameters": { "add": { "gain": 2.5 } },
+      "ticks": [
+        {
+          "inputs": { "in": { "value": 3 } },
+          "expect": { "outputs": { "out": { "value": 3, "gain": 2.5 } } }
+        }
+      ]
+    }
+  ]
+}

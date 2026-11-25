@@ -3,19 +3,23 @@
 # cmake -P, with these variables:
 #
 #   PRINT=<file>      the print tool's executable
-#   TOOL=<name>       optional: the print tool PRINT is, praenora_simulation_print (the default)
-#                     or praenora_conversion_print; any other name is an error
+#   TOOL=<name>       optional: the print tool PRINT is, praenora_simulation_print (the default),
+#                     praenora_conversion_print or praenora_python_print; any other name is an
+#                     error
 #   MANIFEST=<file>   the provider manifest
 #   FORMAT=<value>    the print tool's three arguments after the manifest: for
 #   MODEL=<file>      praenora_simulation_print, the model format, the model file and the end time
 #   END=<value>       of its runs; for praenora_conversion_print, the format to convert from, the
-#                     source file and the format to convert to
+#                     source file and the format to convert to; for praenora_python_print, the
+#                     directory of the Python sources, the class and the method (in its provider
+#                     mode, --provider, the service and the text to echo)
 #   WORK=<directory>  a directory of the build tree, which it makes, where it writes each run's
 #                     standard output, every byte as it was printed, to first.out and second.out
 #
 # The test fails when either run exits with a nonzero code, prints a sanitizer report
 # (tests/support/run_command.cmake) or prints no result (praenora_simulation_print: no simulation
-# and batch; praenora_conversion_print: no conversion and conversion back), or when the two
+# and batch; praenora_conversion_print: no conversion and conversion back; praenora_python_print:
+# no service describe and method call), or when the two
 # standard outputs differ in any byte. Those checks of each run read its outputs as CMake captures
 # them, without the carriage return of each carriage return and line feed and without NUL bytes;
 # the two standard outputs are compared as the files hold them, byte for byte. The report names the
@@ -99,9 +103,13 @@ elseif(TOOL STREQUAL "praenora_conversion_print")
     set(shows_1 "\nconvert [^\n]*: report [{]")
     set(shows_2 "\nback [^\n]*: report [{]")
     set(shows_nothing "no conversion and conversion back in the output")
+elseif(TOOL STREQUAL "praenora_python_print")
+    set(shows_1 "\nservice [{]")
+    set(shows_2 "\ncall [^\n]*: [{]")
+    set(shows_nothing "no service describe and method call in the output")
 else()
-    message(FATAL_ERROR "run_twice.cmake: TOOL '${TOOL}' is neither praenora_simulation_print "
-        "nor praenora_conversion_print")
+    message(FATAL_ERROR "run_twice.cmake: TOOL '${TOOL}' is not praenora_simulation_print, "
+        "praenora_conversion_print or praenora_python_print")
 endif()
 
 set(command "${PRINT}" "${MANIFEST}" "${FORMAT}" "${MODEL}" "${END}")

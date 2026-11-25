@@ -3,8 +3,11 @@
 #ifndef PRAENORA_RUNTIME_PLATFORM_PLATFORM_HPP
 #define PRAENORA_RUNTIME_PLATFORM_PLATFORM_HPP
 
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
+#include <memory>
 #include <optional>
 #include <string>
 
@@ -31,6 +34,40 @@ void set_current_thread_name(const std::string& name) noexcept;
 
 // The identifier of the current process (getpid() or GetCurrentProcessId()).
 std::int64_t current_process_id() noexcept;
+
+// The stack of the threads that run a module's code (its worker threads, and the threads of a
+// module host): a program's main thread's, which native code and Python expect (a thread's default
+// stack is 512 KiB on macOS, where Python code that recurses far below its recursion limit
+// overflows it). On POSIX systems the soft limit of RLIMIT_STACK, at least 1 MiB and at most
+// 1 GiB, in whole pages, or 8 MiB when the limit is unlimited or cannot be read; on Windows 8 MiB,
+// reserved (address space until it is used).
+std::size_t module_thread_stack_size() noexcept;
+
+// A thread with a stack of module_thread_stack_size() that runs `body`, joined or detached as a
+// std::thread is: destroying one that is still joinable ends the process, and so does an
+// exception that escapes `body`.
+class ModuleThread {
+public:
+    ModuleThread() noexcept;
+    // Starts the thread. Throws std::system_error when the system starts no thread.
+    explicit ModuleThread(std::function<void()> body);
+    ModuleThread(ModuleThread&& other) noexcept;
+    ModuleThread& operator=(ModuleThread&& other) noexcept;
+    ~ModuleThread();
+    ModuleThread(const ModuleThread&) = delete;
+    ModuleThread& operator=(const ModuleThread&) = delete;
+
+    bool joinable() const noexcept;
+    // Waits for the thread to end. Throws std::system_error (resource_deadlock_would_occur) on
+    // the thread itself.
+    void join();
+    // Lets the thread run on its own.
+    void detach() noexcept;
+
+private:
+    struct Native;
+    std::unique_ptr<Native> native_;
+};
 
 } // namespace praenora::detail
 

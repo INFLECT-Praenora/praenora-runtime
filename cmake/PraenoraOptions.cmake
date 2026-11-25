@@ -52,6 +52,15 @@ option(PRAENORA_WITH_ROADRUNNER
 # docs/platforms.md).
 option(PRAENORA_WITH_ANTIMONY
     "Build the antimony service provider (needs libAntimony 3.3 built from source and libSBML)" OFF)
+# The Python environment (cmake/PraenoraPythonEnvironment.cmake): the bundle of
+# praenora-runtime-pyenv, found as a CMake package (CMAKE_PREFIX_PATH or PraenoraRuntimePyenv_DIR)
+# and never downloaded by the build. It builds what runs Python and tests it. The parts of the SDK
+# that need no Python (python.h, python_module.hpp, praenora_add_python_module() and the digest
+# function) are built and installed whatever this option says; the Python package praenora.sdk is
+# installed only with it, beside the Python core (lib/praenora/providers/python/python), and the
+# wheel of praenora.runtime always carries it, for module authors' own tests.
+option(PRAENORA_WITH_PYTHON_ENVIRONMENT
+    "Build what runs Python modules and providers (needs the praenora-runtime-pyenv bundle)" OFF)
 # A local copy of the official AsyncAPI 3.0.0 JSON Schema (schemas/3.0.0.json of
 # github.com/asyncapi/spec-json-schemas), never downloaded: when set, the protocol tests check the
 # committed AsyncAPI documents against it (tests/CMakeLists.txt, docs/testing.md).
