@@ -14,11 +14,12 @@ import tempfile
 import unittest
 
 import praenora.runtime as pr
-from support import TEST_CATALOG, TEST_PYTHON_MODULES, needs_python_environment
+from support import BUILD_PROVIDERS, TEST_CATALOG, TEST_PYTHON_MODULES, needs_python_environment
 
 # The Python fixture module the tests bind their step to, and where it is.
 PYTHON_FIXTURE_MODULE = "fx-py-echo"
-PYTHON_FIXTURE_PATHS = {"module_paths": [TEST_PYTHON_MODULES], "catalog_paths": [TEST_CATALOG]}
+PYTHON_FIXTURE_PATHS = {"module_paths": [TEST_PYTHON_MODULES], "catalog_paths": [TEST_CATALOG],
+                        "provider_paths": [BUILD_PROVIDERS]}
 
 
 def write_config(directory, isolation):

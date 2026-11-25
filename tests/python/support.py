@@ -42,6 +42,10 @@ needs_examples = unittest.skipUnless(EXAMPLE_MODULES, "the example modules are n
 needs_python_environment = unittest.skipUnless(
     os.environ.get("PRAENORA_TEST_WITH_PYTHON_ENVIRONMENT", "") == "1",
     "the build has no provider python (PRAENORA_WITH_PYTHON_ENVIRONMENT is off)")
+# Where the build tree keeps the providers of its installation, the provider python among them
+# (empty without the Python environment). A search path to give, not to rely on the default: on
+# Windows the extension's copy of the runtime DLL lies beside it, and the default derives from that.
+BUILD_PROVIDERS = os.environ.get("PRAENORA_TEST_BUILD_PROVIDERS_DIR", "")
 
 # The fixture modules and the test catalog, as keyword arguments.
 FIXTURE_PATHS = {"module_paths": [TEST_MODULES], "catalog_paths": [TEST_CATALOG]}

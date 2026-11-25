@@ -496,6 +496,15 @@ ToolRun run_tool_json(const fs::path& config, const fs::path& dir, const fs::pat
     return run_tool(args, dir, unset);
 }
 
+// The same for a configuration given as UTF-8 text, as write_config() returns it. It is taken as
+// text, never through fs::path's constructor from a std::string, which reads narrow text in the
+// ANSI code page on Windows and turns the scratch directory's non-ASCII name into mojibake.
+ToolRun run_tool_json(const std::string& config, const fs::path& dir, const fs::path& out,
+                      const std::vector<std::string>& more = {},
+                      const std::vector<std::string>& unset = {}) {
+    return run_tool_json(utf8_path(config), dir, out, more, unset);
+}
+
 // The one JSON document of a tool's standard output (a failure when it is not exactly one).
 json json_output(const ToolRun& run) {
     const json document = json::parse(run.out, nullptr, false);

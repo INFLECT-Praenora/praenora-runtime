@@ -29,7 +29,15 @@ if(PRAENORA_BUILD_EXAMPLES)
         "PRAENORA_EXAMPLE_MODULES_DIR=${PRAENORA_EXAMPLE_MODULES_DIR}")
 endif()
 if(PRAENORA_WITH_PYTHON_ENVIRONMENT)
-    list(APPEND _praenora_python_environment "PRAENORA_TEST_WITH_PYTHON_ENVIRONMENT=1")
+    # PRAENORA_TEST_BUILD_PROVIDERS_DIR: the directory where the build tree's runtime library looks
+    # for the providers of its installation, which holds the provider python. On Windows the
+    # extension loads a copy of the runtime DLL from beside itself (praenora_copy_runtime_dlls()),
+    # so its default provider search path is not this one: the tests that need the provider
+    # python name it.
+    praenora_build_tree_provider_dir(_praenora_build_providers_dir)
+    list(APPEND _praenora_python_environment
+        "PRAENORA_TEST_WITH_PYTHON_ENVIRONMENT=1"
+        "PRAENORA_TEST_BUILD_PROVIDERS_DIR=${_praenora_build_providers_dir}")
 endif()
 set(_praenora_python_unset
     "PRAENORA_MODULE_PATH=unset:"
