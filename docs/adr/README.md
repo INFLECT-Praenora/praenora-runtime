@@ -71,3 +71,4 @@ Some ADRs have a split status, for example "Accepted (shape) / Proposed (details
 | [ADR-0044](ADR-0044-python-modules-and-providers-through-an-embedded-environment.md) | Python modules and providers through an embedded Python environment | Proposed | 2026-11-24 |
 | [ADR-0045](ADR-0045-python-environment-pinned-in-ci-and-installation.md) | The Python environment bundle pinned in CI and shipped in the installation | Proposed | 2026-11-24 |
 | [ADR-0046](ADR-0046-json-schema-dialects-and-validator.md) | JSON Schema dialects (draft-07 and 2020-12) and the schema validator | Proposed | 2026-11-24 |
+| [ADR-0047](ADR-0047-target-descriptor-intake.md) | Target descriptor intake | Proposed | 2026-11-25 |
