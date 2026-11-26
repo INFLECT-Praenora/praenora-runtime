@@ -632,7 +632,8 @@ tests/                        unit/, protocol/, negative/ (with, for the Python 
                               check_exports.cmake, run_twice.cmake, check_run_twice.cmake (its
                               check), praenora_simulation_print, praenora_conversion_print and
                               praenora_python_print),
-                              docs/ (documentation test check_docs.cmake), ci/ (tests of the
+                              docs/ (documentation test check_docs.cmake), tools/ (unittest suite
+                              of the scripts in tools/), ci/ (tests of the
                               bundle fetch scripts, check_fetch_runtime_deps.cmake and
                               check_fetch_runtime_pyenv.cmake, and of the workflow,
                               check_workflow_consistency.cmake), support/ (test
@@ -651,11 +652,13 @@ tests/                        unit/, protocol/, negative/ (with, for the Python 
                               test-decay/ models of the simulation service, test-decay-text/
                               sources of the model conversion service, antimony/ Antimony models
                               and the antimony provider's expected outputs), documents/,
-                              catalog/, catalog-bad/, catalog-shared-id/, manifests/ (bad module
-                              and provider manifests, search-path layouts), configs/ (good, bad,
+                              catalog/, catalog-2020/, catalog-bad/, catalog-shared-id/,
+                              manifests/ (bad module and provider manifests, search-path
+                              layouts), configs/ (good, bad,
                               CLI and python/ configurations), data/ (target data), golden/
                               (golden outputs)
-tools/                        developer scripts (generate_example_data.py)
+tools/                        developer scripts (generate_example_data.py,
+                              migrate_schemas_to_2020_12.py)
 docs/                         index.md, the guides (architecture, user-guide, configuration,
                               developer-guide, module-developer-guide, testing, python,
                               platforms, releasing), specs/ (normative specifications),
@@ -693,8 +696,8 @@ docs/                         index.md, the guides (architecture, user-guide, co
   a `praenora.sdk.Module` class and a generated module library that calls it through that service.
 - A YAML workflow configuration pins a versioned workflow definition from the protocol catalog and
   binds its steps to modules; connections come from the definition, never from the YAML. Every
-  document is validated against an embedded JSON Schema (draft-07, or 2020-12 where a schema
-  declares it) before anything runs.
+  document is validated against an embedded JSON Schema (2020-12 for every schema the runtime
+  ships; a module's `parameters_schema` may be draft-07 or 2020-12) before anything runs.
 - Execution is a sequence of synchronous ticks in deterministic order; feedback uses connections
   with `delay: 1`. Each run has a fingerprint and a run record; status, metrics and logs are
   available from C++, the CLI and Python, from another process over the control API, and to an
