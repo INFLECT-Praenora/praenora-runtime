@@ -32,7 +32,7 @@ Some ADRs have a split status, for example "Accepted (shape) / Proposed (details
 | [ADR-0005](ADR-0005-ownership-and-allocation-across-the-abi.md) | Ownership and allocation across the ABI: borrowed inputs, host-owned sinks | Proposed | 2026-11-10 |
 | [ADR-0006](ADR-0006-threading-model.md) | Threading: per-instance worker threads, serialized calls, thread-safe host callbacks | Proposed | 2026-11-10 |
 | [ADR-0007](ADR-0007-json-messages-for-v0.md) | JSON messages for v0; nlohmann/json; binary encodings deferred | Accepted | 2026-11-10 |
-| [ADR-0008](ADR-0008-json-schema-draft-07-embedded-schemas.md) | JSON Schema draft-07 for all Praenora schemas; schemas embedded in the runtime | Proposed | 2026-11-10 |
+| [ADR-0008](ADR-0008-json-schema-draft-07-embedded-schemas.md) | JSON Schema draft-07 for all Praenora schemas; schemas embedded in the runtime | Superseded | 2026-11-10 |
 | [ADR-0009](ADR-0009-module-manifests.md) | Module manifests as separately discoverable documents; identity cross-check | Accepted (discovery) / Proposed (details) | 2026-11-10 |
 | [ADR-0010](ADR-0010-workflow-definitions-as-catalog-data.md) | Workflow definitions as versioned catalog data; YAML config binds steps to modules | Accepted | 2026-11-10 |
 | [ADR-0011](ADR-0011-tick-based-synchronous-execution.md) | Tick-based synchronous execution; deterministic schedule; feedback by delayed connections | Proposed | 2026-11-10 |
@@ -70,3 +70,4 @@ Some ADRs have a split status, for example "Accepted (shape) / Proposed (details
 | [ADR-0043](ADR-0043-otlp-export-of-metrics-and-logs.md) | OTLP export of metrics and logs | Accepted | 2026-11-22 |
 | [ADR-0044](ADR-0044-python-modules-and-providers-through-an-embedded-environment.md) | Python modules and providers through an embedded Python environment | Proposed | 2026-11-24 |
 | [ADR-0045](ADR-0045-python-environment-pinned-in-ci-and-installation.md) | The Python environment bundle pinned in CI and shipped in the installation | Proposed | 2026-11-24 |
+| [ADR-0046](ADR-0046-json-schema-dialects-and-validator.md) | JSON Schema dialects (draft-07 and 2020-12) and the schema validator | Proposed | 2026-11-24 |

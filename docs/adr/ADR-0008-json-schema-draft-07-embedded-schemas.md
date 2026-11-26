@@ -1,9 +1,9 @@
 # ADR-0008: JSON Schema draft-07 for all Praenora schemas; schemas embedded in the runtime
 
-- Status: Proposed
+- Status: Superseded
 - Date: 2026-11-10
 - Supersedes: none
-- Superseded by: none
+- Superseded by: [ADR-0046](ADR-0046-json-schema-dialects-and-validator.md)
 
 ## Context
 

@@ -60,7 +60,7 @@ not have it in this version.
 
 Fetch mode is verified by CI for yaml-cpp, spdlog, GoogleTest and cpp-httplib
 ([docs/releasing.md](docs/releasing.md#what-the-runs-verified)). Not yet verified anywhere:
-downloading nlohmann/json and json-schema-validator in fetch mode (CI takes them from the bundle)
+downloading nlohmann/json in fetch mode (CI takes it from the bundle)
 and a Python wheel
 build that downloads its build requirements (a wheel built offline is verified on macOS arm64).
 WebAssembly and compiling module code through libRoadRunner are designs only
