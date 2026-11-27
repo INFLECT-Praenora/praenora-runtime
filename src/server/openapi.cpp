@@ -347,7 +347,7 @@ std::string openapi_document(const Runtime& runtime) {
            "server. A known path with another method answers 405 with Allow. Every POST, stop "
            "included, needs Content-Type: application/json (stop's body may be empty), else 415. "
            "Bodies are compact JSON in UTF-8; errors are error documents. The runtime's schemas "
-           "below are JSON Schema draft-07, embedded with their own $schema and $id."}}},
+           "below are JSON Schema 2020-12, embedded with their own $schema and $id."}}},
         {"security", {{{"bearer", json::array()}}, json::object()}},
         {"paths", std::move(paths)},
         {"components",
