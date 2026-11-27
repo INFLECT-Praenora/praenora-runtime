@@ -293,8 +293,8 @@ class Workflow:
             MODULE_HOST_UNAVAILABLE.
 
     The control calls (start, tick, run and close) are made one at a time. The queries (state,
-    fingerprint, run_number, status, metrics, latest_outputs and run_record) and request_stop()
-    may be called from any thread at any time, also while a control call runs.
+    fingerprint, run_number, status, metrics, latest_outputs, run_record and diagnostics) and
+    request_stop() may be called from any thread at any time, also while a control call runs.
     """
 
     def __init__(self, config, module_paths=None, output_dir=None, seed=None, log_level=None, *,
@@ -370,6 +370,13 @@ class Workflow:
         starts. Its error records name the run's directories by placeholders such as <output>
         and <home>."""
         return _decoded(self._handle.run_record)
+
+    def diagnostics(self):
+        """What validation found when the run was opened and did not refuse it: the report of
+        validate(), {"ok": True, "diagnostics": [...]}, whose diagnostics are warnings (and
+        notes), for example data rows before the run's start; the praenora tool prints the same
+        ones. An error would have raised in the constructor."""
+        return _decoded(self._handle.diagnostics)
 
     def request_stop(self):
         """Asks the run to stop: the module call in progress is asked to cancel, no further call

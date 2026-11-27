@@ -47,7 +47,8 @@ const std::string kUsage =
     "inputs are exhausted, a step fails or a signal stops it (SIGINT or SIGTERM, such as Ctrl+C;\n"
     "a second one ends the process at once; one that the tool started with ignored, as for a\n"
     "command run in the background by a shell, stays ignored). Prints the run fingerprint, the\n"
-    "ticks completed and the output directory.\n"
+    "ticks completed and the output directory. Warnings that validation found (the configuration\n"
+    "is still valid, as for data rows before the run's start) go to standard error.\n"
     "With --listen, the control API serves the run, as run 1, from before it starts until it is\n"
     "over: its status, metrics, run record and outputs, and POST /v0/runs/1/stop.\n"
     "Exit codes: 0 completed, 130 stopped, otherwise the failure's (for example 1 for a step that\n"
@@ -94,6 +95,10 @@ json summary_json(const Workflow& workflow, const RunSummary& summary) {
     const std::string& dir = workflow.output_dir();
     json result = frontend::run_summary_json(summary);
     result["output_dir"] = dir.empty() ? json(nullptr) : json(dir);
+    // The warnings and notes of the validation that opened the run, as validate gives them.
+    if (!workflow.diagnostics().diagnostics.empty()) {
+        result["diagnostics"] = frontend::workflow_diagnostics_json(workflow).at("diagnostics");
+    }
     return result;
 }
 
@@ -161,6 +166,9 @@ int command_run(const std::vector<std::string>& args) {
             const std::string& configuration = arguments.positionals().front();
             const std::int64_t opened_at = server::now_unix_ns();
             const std::shared_ptr<Workflow> workflow = runtime.open(configuration, options);
+            if (!workflow->diagnostics().diagnostics.empty()) {
+                std::cerr << workflow->diagnostics().to_text(); // the warnings and notes
+            }
             if (serving) {
                 source = std::make_unique<server::SingleRun>(workflow, configuration, opened_at);
                 serving->start(runtime, *source);
