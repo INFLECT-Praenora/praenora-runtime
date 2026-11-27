@@ -397,9 +397,10 @@ order:
   ([testing.md](../testing.md#golden-files)); `OpenApi.DocumentMatchesCommittedFile` compares it
   with the generated document byte for byte, and `OpenApi.EveryRouteIsDocumented` checks that it
   holds every route of the table and nothing else (label `protocol`).
-- OpenAPI 3.1's schema dialect is JSON Schema 2020-12, and the runtime's schemas are draft-07
-  (OQ-2): OpenAPI 3.1 allows a schema to name its own dialect with `$schema`. Checking the
-  document with official OpenAPI tooling is not yet verified.
+- OpenAPI 3.1's schema dialect is JSON Schema 2020-12, and so is that of the runtime's schemas
+  ([ADR-0046](../adr/ADR-0046-json-schema-dialects-and-validator.md)); each still names its
+  dialect with `$schema`. Checking the document with official OpenAPI tooling is not yet
+  verified.
 
 ## Prometheus text
 

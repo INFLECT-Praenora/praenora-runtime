@@ -1591,7 +1591,7 @@
     }
   },
   "info": {
-    "description": "The control and status API of the Praenora runtime, served by praenora run --listen (run mode: the one run of the process, id 1) and praenora serve (serve mode: runs opened on request from configurations under a configuration root). Over a Unix socket every request has the read and control scopes; over TCP without tokens only the read scope; over TCP with tokens, every request but GET /v0/health needs \"Authorization: Bearer <token>\". TCP requests need a Host header that names the server. A known path with another method answers 405 with Allow. Every POST, stop included, needs Content-Type: application/json (stop's body may be empty), else 415. Bodies are compact JSON in UTF-8; errors are error documents. The runtime's schemas below are JSON Schema draft-07, embedded with their own $schema and $id.",
+    "description": "The control and status API of the Praenora runtime, served by praenora run --listen (run mode: the one run of the process, id 1) and praenora serve (serve mode: runs opened on request from configurations under a configuration root). Over a Unix socket every request has the read and control scopes; over TCP without tokens only the read scope; over TCP with tokens, every request but GET /v0/health needs \"Authorization: Bearer <token>\". TCP requests need a Host header that names the server. A known path with another method answers 405 with Allow. Every POST, stop included, needs Content-Type: application/json (stop's body may be empty), else 415. Bodies are compact JSON in UTF-8; errors are error documents. The runtime's schemas below are JSON Schema 2020-12, embedded with their own $schema and $id.",
     "license": {
       "identifier": "MIT",
       "name": "MIT"
