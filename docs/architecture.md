@@ -140,7 +140,7 @@ flowchart TB
 - The runtime compiles once, into an OBJECT library. The shared library exports only the public
   API (the `praenora` namespace); statically linked dependencies stay internal. White-box tests link
   the objects directly, so they can test internals.
-- Third-party libraries (nlohmann/json, json-schema-validator, yaml-cpp, spdlog, and cpp-httplib,
+- Third-party libraries (nlohmann/json, jsoncons, yaml-cpp, spdlog, and cpp-httplib,
   header-only, through the internal target `praenora_httplib`) link privately. Public headers use
   only the standard library and Praenora types ([ADR-0023](adr/ADR-0023-public-cpp-api.md)).
 - The control API's server is a static library over the shared library's public API, linked by the

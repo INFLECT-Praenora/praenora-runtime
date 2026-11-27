@@ -371,7 +371,7 @@ uses that environment and the SWIG on `PATH` instead of downloading its requirem
 ```sh
 uv venv --python 3.12 build/wheel-tools
 uv pip install --python build/wheel-tools "scikit-build-core>=0.10"
-PREFIXES="/opt/homebrew:/path/to/json-schema-validator/prefix:$HOME/.local/opt/praenora-deps"
+PREFIXES="/opt/homebrew:/path/to/jsoncons/prefix:$HOME/.local/opt/praenora-deps"
 CMAKE_PREFIX_PATH="$PREFIXES" \
     uv build --wheel --no-build-isolation --python build/wheel-tools/bin/python -o build/wheel \
     -C cmake.define.CMAKE_OSX_DEPLOYMENT_TARGET=15.0
@@ -402,7 +402,7 @@ holds no Python environment and no provider `python`. `licenses/LICENSE` is this
 license, which scikit-build-core copies from the root by its default `wheel.license-files`
 patterns, and `METADATA` says `License: MIT`, from `pyproject.toml`'s `license = { text = "MIT" }`
 ([ADR-0040](adr/ADR-0040-mit-license.md)). The license files of the third-party code linked into
-the runtime library, such as a static json-schema-validator, are not in the wheel, whose
+the runtime library, such as a static yaml-cpp, are not in the wheel, whose
 distribution is open ([open-questions.md](open-questions.md), OQ-13). cpp-httplib, whose header is
 compiled into the runtime library for the OTLP export, is MIT-licensed too; its license file is not
 in the wheel either. The wheel built above is 1.18 MB, 13 files, and 2.8 MB once installed; beside
@@ -453,10 +453,10 @@ module host; and the test of the OTLP export skips where a local listener is ref
 ([Tests](#tests)).
 
 The runtime's third-party shared libraries are not bundled into the wheel: the macOS wheel above
-links yaml-cpp, spdlog and fmt from Homebrew by their absolute paths (json-schema-validator is
-linked statically, and nlohmann/json and cpp-httplib are header-only). Such a wheel works only
-where those libraries are installed at the same places, so it is not yet a portable binary;
-bundling and manylinux wheels are open ([open-questions.md](open-questions.md), OQ-13).
+links yaml-cpp, spdlog and fmt from Homebrew by their absolute paths (jsoncons, nlohmann/json and
+cpp-httplib are header-only). Such a wheel works only where those libraries are installed at the
+same places, so it is not yet a portable binary; bundling and manylinux wheels are open
+([open-questions.md](open-questions.md), OQ-13).
 
 ## Platform notes
 

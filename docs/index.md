@@ -37,7 +37,7 @@
 - [python.md](python.md): the Python API, process isolation (Python steps run in module hosts),
   its errors, threads, logging and the OTLP export, building the bindings, the tests and the wheel
   (which holds `praenora.sdk`, but no module host and no Python environment).
-- [platforms.md](platforms.md): macOS, Linux and Windows: dependencies (json-schema-validator and
+- [platforms.md](platforms.md): macOS, Linux and Windows: dependencies (jsoncons and
   cpp-httplib from source), presets, run paths (the Python core's too), DLL search, long paths on
   Windows, code signing, the module host and the restricted sandbox profile, the control API's
   platform differences, and what is verified where.

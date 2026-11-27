@@ -11,8 +11,11 @@
 #include <cerrno>
 #include <cstddef>
 #include <cstdlib>
+#include <climits>
 #include <cstring>
 #include <exception>
+#include <stdexcept>
+#include <string>
 #include <system_error>
 #include <utility>
 #include <vector>
@@ -34,7 +37,55 @@ void* run_module_thread(void* raw) noexcept {
     return nullptr;
 }
 
+struct StackTask {
+    const std::function<void()>* task = nullptr;
+    std::exception_ptr error;
+};
+
+void* run_stack_task(void* argument) {
+    auto* task = static_cast<StackTask*>(argument);
+    try {
+        (*task->task)();
+    } catch (...) {
+        task->error = std::current_exception();
+    }
+    return nullptr;
+}
+
 } // namespace
+
+void run_on_thread_with_stack(std::size_t stack_bytes, const std::function<void()>& task) {
+    long page = sysconf(_SC_PAGESIZE);
+    if (page <= 0) {
+        page = 4096;
+    }
+    std::size_t size = std::max<std::size_t>(stack_bytes, static_cast<std::size_t>(PTHREAD_STACK_MIN));
+    size = (size + static_cast<std::size_t>(page) - 1) / static_cast<std::size_t>(page) *
+           static_cast<std::size_t>(page);
+    pthread_attr_t attributes;
+    int result = pthread_attr_init(&attributes);
+    const bool initialized = result == 0;
+    if (result == 0) {
+        result = pthread_attr_setstacksize(&attributes, size);
+    }
+    StackTask state;
+    state.task = &task;
+    pthread_t thread;
+    if (result == 0) {
+        result = pthread_create(&thread, &attributes, run_stack_task, &state);
+    }
+    if (initialized) {
+        pthread_attr_destroy(&attributes);
+    }
+    if (result != 0) {
+        throw ThreadStartError("cannot start a thread with a stack of " + std::to_string(size) +
+                               " bytes: " + std::strerror(result));
+    }
+    pthread_join(thread, nullptr);
+    if (state.error) {
+        std::rethrow_exception(state.error);
+    }
+}
 
 std::optional<std::string> environment_variable(const char* name) {
     const char* value = std::getenv(name);
